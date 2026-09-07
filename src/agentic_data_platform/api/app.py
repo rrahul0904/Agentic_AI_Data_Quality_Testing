@@ -628,7 +628,13 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
         tool_name = operations.get(operation)
         if tool_name is None:
             raise HTTPException(404, f"unknown {domain} operation: {operation}")
-        return invoke_governed(tool_name, payload)
+        return invoke_governed(
+            tool_name,
+            payload.args,
+            actor_mode=payload.actor_mode,
+            environment=payload.environment,
+            dry_run=payload.dry_run,
+        )
 
     # --- Phase 2 stable runtime API -------------------------------------------------
 
@@ -1100,7 +1106,13 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
 
     @app.post("/tools/{tool_name}")
     def invoke_tool(tool_name: str, payload: ToolInput) -> dict[str, Any]:
-        return invoke_governed(tool_name, payload)
+        return invoke_governed(
+            tool_name,
+            payload.args,
+            actor_mode=payload.actor_mode,
+            environment=payload.environment,
+            dry_run=payload.dry_run,
+        )
 
     @app.post("/approvals")
     def approve(payload: ApprovalInput) -> dict[str, Any]:
