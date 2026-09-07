@@ -92,6 +92,14 @@ from agentic_data_platform.session import (
 from agentic_data_platform.memory import MemoryStore
 from agentic_data_platform.tracing import TraceStore
 from agentic_data_platform.jobs import BackgroundJobEngine
+from agentic_data_platform.review import (
+    change_impact as review_change_impact,
+    deliver_github_review,
+    deliver_gitlab_review,
+    deployment_risk as review_deployment_risk,
+    recommended_tests as review_recommended_tests,
+    review_dbt_changes,
+)
 from agentic_data_platform.mcp import (
     McpAuthStore,
     McpCatalog,
@@ -695,6 +703,30 @@ def build_tool_registry() -> ToolRegistry:
         ),
         "Generate dbt 1.8+ unit-test YAML from compiled SQL, dependencies, types and lineage.",
     )
+
+    def dbt_review_handler(a: dict[str, Any]) -> dict[str, Any]:
+        previous_manifest = a.get("previous_manifest")
+        if isinstance(previous_manifest, str):
+            previous_manifest = __import__("json").loads(
+                Path(previous_manifest).read_text()
+            )
+        return review_dbt_changes(
+            a.get("dbt_project") or (_target(a) / "dbt"),
+            target_dir=a.get("target_dir"),
+            repository=a.get("repository") or _target(a),
+            changed_files=a.get("changed_files"),
+            base=a.get("base", "origin/main"),
+            head=a.get("head", "HEAD"),
+            previous_manifest=previous_manifest,
+            dialect=a.get("dialect", "snowflake"),
+        )
+
+    add("dbt_pr_review", Capability.VERIFY, dbt_review_handler, "Run deterministic dbt PR review with validators, SQL findings, impact, tests and PII evidence.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
+    add("change_impact", Capability.VERIFY, lambda a: review_change_impact(dbt_review_handler(a)), "Calculate changed dbt asset downstream impact from signed review evidence.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
+    add("recommended_tests", Capability.PLAN, lambda a: review_recommended_tests(dbt_review_handler(a)), "Recommend dbt selectors and affected tests for changed assets.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
+    add("deployment_risk", Capability.VERIFY, lambda a: review_deployment_risk(dbt_review_handler(a)), "Calculate deterministic pre-merge deployment risk.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
+    add("github_pr_review", Capability.EXECUTE, lambda a: deliver_github_review(dbt_review_handler(a), repository=a["github_repository"], pull_number=int(a["pull_number"]), token_env=a.get("token_env", "GITHUB_TOKEN"), api_url=a.get("api_url", "https://api.github.com"), dry_run=bool(a.get("dry_run_delivery", False))), "Post a deterministic review verdict to a GitHub pull request.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("gitlab_mr_review", Capability.EXECUTE, lambda a: deliver_gitlab_review(dbt_review_handler(a), project=a["gitlab_project"], merge_request_iid=int(a["merge_request_iid"]), token_env=a.get("token_env", "GITLAB_TOKEN"), api_url=a.get("api_url", "https://gitlab.com/api/v4"), dry_run=bool(a.get("dry_run_delivery", False))), "Post a deterministic review verdict to a GitLab merge request.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
 
     add("dbt_test_coverage", Capability.DBT, dbt_test_coverage, "Calculate deterministic dbt model test coverage.")
     add("dbt_documentation_gaps", Capability.DBT, dbt_documentation_gaps, "Find dbt model and column documentation gaps.")
