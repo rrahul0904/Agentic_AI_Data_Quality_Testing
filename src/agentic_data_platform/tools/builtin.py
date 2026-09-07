@@ -150,6 +150,7 @@ from agentic_data_platform.finops import (
 )
 from agentic_data_platform.connections.store import ConnectionStore
 from agentic_data_platform.connections.dbt_profiles import discover_dbt_profiles
+from agentic_data_platform.connections.ssh_tunnel import SSHTunnelManager, TunnelConfig
 from agentic_data_platform.onboarding import materialize_sample
 from agentic_data_platform.tools.feedback import submit_feedback
 from agentic_data_platform.tools.parity_utils import (
@@ -173,6 +174,7 @@ from agentic_data_platform.dbt.generation import generate_schema_tests, generate
 
 _JOB_ENGINES: dict[str, BackgroundJobEngine] = {}
 _SUGGESTIONS = PostConnectSuggestions()
+_SSH_TUNNELS = SSHTunnelManager()
 
 
 def _target(args: dict[str, Any]) -> Path:
@@ -382,6 +384,9 @@ def build_tool_registry() -> ToolRegistry:
     add("response_normalization", Capability.VERIFY, lambda a: {"status": "PASS", "error": parity_normalize_error(a.get("error"))}, "Normalize external error envelopes without leaking arbitrary object details.", platforms=frozenset({Platform.LOCAL}))
     add("post_connect_suggestions", Capability.DISCOVER, lambda a: {"status": "PASS", "suggestions": _SUGGESTIONS.post_connect(warehouse_type=a.get("warehouse_type", "warehouse"), schema_indexed=bool(a.get("schema_indexed", False)), dbt_detected=bool(a.get("dbt_detected", False)), connection_count=int(a.get("connection_count", 1))), "progressive": _SUGGESTIONS.progressive(a.get("last_tool_used", "")) if a.get("last_tool_used") else None}, "Return contextual post-connect and progressive capability suggestions.", platforms=frozenset({Platform.LOCAL}))
     add("dbt_profiles", Capability.DISCOVER, lambda a: discover_dbt_profiles(path=a.get("path"), project_dir=a.get("project_dir") or a.get("project")), "Discover dbt profiles.yml warehouse outputs with credential redaction.", platforms=frozenset({Platform.LOCAL}))
+    add("ssh_tunnel_start", Capability.EXECUTE, lambda a: _SSH_TUNNELS.start(a["name"], TunnelConfig(ssh_host=a["ssh_host"], ssh_user=a["ssh_user"], remote_host=a["remote_host"], remote_port=int(a["remote_port"]), ssh_port=int(a.get("ssh_port", 22)), local_port=int(a["local_port"]) if a.get("local_port") else None, identity_file=a.get("identity_file"))), "Start a managed SSH local-forward tunnel using key/agent authentication.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("ssh_tunnel_status", Capability.DISCOVER, lambda a: _SSH_TUNNELS.status(a["name"]), "Report managed SSH tunnel state.", platforms=frozenset({Platform.LOCAL}))
+    add("ssh_tunnel_stop", Capability.EXECUTE, lambda a: _SSH_TUNNELS.stop(a["name"]), "Stop a managed SSH tunnel.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
 
     add("platform_discover", Capability.DISCOVER, lambda a: PlatformDiscovery(_target(a)).discover(), "Discover data-platform components and deterministic counts.")
     add("platform_inventory", Capability.DISCOVER, lambda a: PlatformDiscovery(_target(a)).inventory(), "Inventory dbt, Airflow, sources, Snowflake static objects and integrations.")
