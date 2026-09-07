@@ -54,6 +54,7 @@ class ToolInput(BaseModel):
     actor_mode: ActorMode = ActorMode.ANALYST
     environment: Environment = Environment.DEV
     dry_run: bool = False
+    approved: bool = False
 
 
 class SqlWorkspaceInput(BaseModel):
@@ -520,6 +521,115 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             },
         }
 
+    DOMAIN_TOOLS: dict[str, dict[str, str]] = {
+        "connections": {
+            "add": "connection_add", "remove": "connection_remove", "list": "connection_list",
+            "show": "connection_show", "test": "connection_test", "default": "connection_default",
+            "discover": "connection_discover",
+        },
+        "metadata": {
+            "refresh": "schema_refresh", "index": "schema_index", "search": "schema_search",
+            "inspect": "schema_inspect", "tags": "schema_tags", "status": "metadata_status",
+            "autocomplete": "autocomplete",
+        },
+        "data-diff": {
+            "run": "data_diff", "plan": "data_diff_plan", "profile": "data_diff_profile",
+            "join": "data_diff_join", "hash": "data_diff_hash", "cascade": "data_diff_cascade",
+        },
+        "finops": {
+            "history": "finops_query_history", "expensive": "finops_expensive_queries",
+            "errors": "finops_query_errors", "patterns": "finops_query_patterns",
+            "cost": "finops_cost_summary", "usage": "finops_warehouse_usage",
+            "advisor": "finops_warehouse_advisor", "idle": "finops_idle_resources",
+            "report": "finops_report",
+        },
+        "governance": {
+            "pii-scan": "pii_scan", "pii-lineage": "pii_lineage",
+            "pii-exposure": "pii_exposure", "pii-policy": "pii_policy_check",
+            "pii-downstream": "pii_downstream_assets", "rbac-audit": "rbac_audit",
+            "rbac-object-access": "rbac_object_access", "rbac-risk": "rbac_risk",
+            "pii-access": "pii_access_report",
+        },
+        "providers": {
+            "list": "provider_list", "auth": "provider_auth", "auth-status": "provider_auth_status",
+            "family": "provider_family", "models": "provider_models",
+            "search": "provider_model_search", "model-status": "provider_model_status",
+            "snapshot": "provider_model_snapshot", "transform": "provider_transform",
+            "output-budget": "provider_output_budget",
+        },
+        "mcp": {
+            "list": "mcp_list", "add": "mcp_add", "remove": "mcp_remove",
+            "enable": "mcp_enable", "disable": "mcp_disable", "discover": "mcp_discover",
+            "catalog": "mcp_catalog", "install": "mcp_install",
+            "auth-set-env": "mcp_auth_set_env", "auth-status": "mcp_auth_status",
+            "status": "mcp_status", "tools": "mcp_tools", "resources": "mcp_resources",
+            "call": "mcp_call", "oauth-begin": "mcp_oauth_begin",
+            "oauth-callback": "mcp_oauth_callback",
+        },
+        "skills": {
+            "catalog": "skill_catalog", "install": "skill_install",
+            "install-source": "skill_install_source", "create": "skill_create",
+            "test": "skill_test", "install-all": "skill_install_all",
+            "list": "skill_list", "show": "skill_show", "enable": "skill_enable",
+            "disable": "skill_disable", "remove": "skill_remove",
+            "auto-load": "skill_auto_load", "plan": "skill_plan", "execute": "skill_execute",
+        },
+        "training": {
+            "ingest": "training_ingest", "ingest-text": "training_ingest_text",
+            "search": "training_search", "context": "training_context",
+            "status": "training_status", "clear": "training_clear",
+        },
+        "sessions": {
+            "create": "session_create", "list": "session_list", "show": "session_show",
+            "message-add": "session_message_add", "messages": "session_messages",
+            "status": "session_status", "status-set": "session_status_set",
+            "todo-add": "session_todo_add", "todo-update": "session_todo_update",
+            "todos": "session_todos", "reminder-add": "session_reminder_add",
+            "reminders": "session_reminders", "reminder-deliver": "session_reminder_deliver",
+            "revert": "session_revert", "state": "session_state",
+            "state-patch": "session_state_patch", "prompt": "session_prompt",
+            "compact": "session_compact", "nudge": "session_nudge",
+            "termination": "session_termination", "retry-plan": "session_retry_plan",
+            "tool-result-cap": "session_tool_result_cap", "overflow": "session_overflow",
+        },
+        "memory": {
+            "save": "memory_save", "list": "memory_list", "search": "memory_search",
+            "remove": "memory_remove",
+        },
+        "traces": {
+            "list": "trace_list", "show": "trace_show", "export": "trace_export",
+            "replay": "trace_replay",
+        },
+        "jobs": {
+            "submit": "job_submit", "list": "job_list", "show": "job_show",
+            "cancel": "job_cancel",
+        },
+    }
+
+    @app.get("/api/v1/domains")
+    def domain_surface() -> dict[str, Any]:
+        return {
+            domain: {
+                operation: {
+                    "tool": tool_name,
+                    "risk": registry.describe(tool_name).risk.value,
+                    "capability": registry.describe(tool_name).capability.value,
+                }
+                for operation, tool_name in operations.items()
+            }
+            for domain, operations in DOMAIN_TOOLS.items()
+        }
+
+    @app.post("/api/v1/{domain}/{operation}")
+    def invoke_domain(domain: str, operation: str, payload: ToolInput) -> dict[str, Any]:
+        operations = DOMAIN_TOOLS.get(domain)
+        if operations is None:
+            raise HTTPException(404, f"unknown API domain: {domain}")
+        tool_name = operations.get(operation)
+        if tool_name is None:
+            raise HTTPException(404, f"unknown {domain} operation: {operation}")
+        return invoke_governed(tool_name, payload)
+
     @app.post("/projects")
     def create_project(payload: ProjectInput) -> dict[str, Any]:
         record = ProjectRecord(payload.name)
@@ -585,25 +695,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
 
     @app.post("/tools/{tool_name}")
     def invoke_tool(tool_name: str, payload: ToolInput) -> dict[str, Any]:
-        try:
-            definition = registry.describe(tool_name)
-            request = ToolRequest(
-                tool=tool_name,
-                operation=tool_name,
-                environment=payload.environment,
-                risk=definition.risk,
-                args=payload.args,
-            )
-            return registry.invoke(
-                ToolInvocation(
-                    request,
-                    run_id=f"api-{tool_name}",
-                    dry_run=payload.dry_run,
-                    actor_mode=payload.actor_mode,
-                )
-            )
-        except (KeyError, ValueError, PermissionError, FileNotFoundError) as exc:
-            raise HTTPException(400, str(exc)) from exc
+        return invoke_governed(tool_name, payload)
 
     @app.post("/approvals")
     def approve(payload: ApprovalInput) -> dict[str, Any]:
