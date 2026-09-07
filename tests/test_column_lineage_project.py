@@ -33,7 +33,7 @@ def test_complex_sql_lineage_resolves_nested_cte_join_case_window():
     result = analyze_column_lineage(sql, dialect="snowflake", schema=schema)
     assert result["parseable"] is True
     by_target = {item["target"]: item for item in result["mappings"]}
-    assert any(item["column"] == "amount" for item in by_target["positive_amount"]["sources"])
+    assert any(item["column"] == "amount" for item in by_target["positive_amount"]["sources"]), result
     assert any(item["column"] == "amount" for item in by_target["guest_total"]["sources"])
     assert by_target["email"]["sources"] == [{"table": "raw.guests", "column": "email"}]
 
