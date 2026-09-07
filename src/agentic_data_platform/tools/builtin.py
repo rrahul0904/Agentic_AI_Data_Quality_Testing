@@ -404,8 +404,25 @@ def build_tool_registry() -> ToolRegistry:
     add("training_status", Capability.DISCOVER, lambda a: training_store(a).status(), "Report local project training corpus status.", platforms=frozenset({Platform.LOCAL}))
     add("training_clear", Capability.GENERATE, lambda a: training_store(a).clear(), "Clear the local project training corpus.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
 
+    def skill_install_handler(a: dict[str, Any]) -> dict[str, Any]:
+        service = skill_service(a)
+        if a.get("source"):
+            return service.install_source(
+                a["source"],
+                scope=a.get("scope", "project"),
+                name=a.get("name"),
+                overwrite=bool(a.get("overwrite", False)),
+            )
+        return service.install(
+            a["name"],
+            overwrite=bool(a.get("overwrite", False)),
+        )
+
     add("skill_catalog", Capability.DISCOVER, lambda a: {"skills": skill_service(a).catalog()}, "List the exact builtin parity skill catalog.", platforms=frozenset({Platform.LOCAL}))
-    add("skill_install", Capability.GENERATE, lambda a: skill_service(a).install(a["name"], overwrite=bool(a.get("overwrite", False))), "Install one builtin skill into the project.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("skill_install", Capability.GENERATE, skill_install_handler, "Install a builtin, local, or GitHub skill into the project/global skill roots.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("skill_install_source", Capability.GENERATE, lambda a: skill_service(a).install_source(a["source"], scope=a.get("scope", "project"), name=a.get("name"), overwrite=bool(a.get("overwrite", False))), "Install skills from a safe local path or https://github.com source.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("skill_create", Capability.GENERATE, lambda a: skill_service(a).create(a["name"], a.get("description", ""), a["body"], scope=a.get("scope", "project"), always_apply=bool(a.get("always_apply", False)), apply_paths=tuple(a.get("apply_paths") or ())), "Create a project/global SKILL.md with validated metadata.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("skill_test", Capability.VERIFY, lambda a: skill_service(a).test(a["name"]), "Validate an installed skill file and metadata.", platforms=frozenset({Platform.LOCAL}))
     add("skill_install_all", Capability.GENERATE, lambda a: skill_service(a).install_all(overwrite=bool(a.get("overwrite", False))), "Install all builtin parity skills.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
     add("skill_list", Capability.DISCOVER, lambda a: {"skills": skill_service(a).list()}, "List installed project/global skills and state.", platforms=frozenset({Platform.LOCAL}))
     add("skill_show", Capability.DISCOVER, lambda a: skill_service(a).inspect(a["name"]), "Inspect one installed skill.", platforms=frozenset({Platform.LOCAL}))
