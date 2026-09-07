@@ -114,6 +114,10 @@ class DbtColumnGraph:
         return schema
 
     def _column_node(self, asset_id: str, column: str) -> ColumnNode:
+        column_cf = column.casefold()
+        for existing in self.column_nodes.values():
+            if existing.asset_id == asset_id and existing.column.casefold() == column_cf:
+                return existing
         node = self.nodes[asset_id]
         item = ColumnNode(
             asset_id=asset_id,
