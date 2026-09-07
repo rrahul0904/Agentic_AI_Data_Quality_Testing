@@ -89,6 +89,9 @@ from agentic_data_platform.lineage.engine import (
 )
 from .registry import ToolDefinition, ToolRegistry
 from agentic_data_platform.dbt.manifest_graph import DbtArtifacts, DbtManifestGraph
+from agentic_data_platform.dbt.runtime import DbtRuntime
+from agentic_data_platform.dbt.validators import run_validators as dbt_run_validators
+from agentic_data_platform.dbt.generation import generate_schema_tests, generate_unit_tests
 
 
 def _target(args: dict[str, Any]) -> Path:
@@ -277,6 +280,74 @@ def build_tool_registry() -> ToolRegistry:
             "model_gap_count": len(missing_models),
             "column_gap_count": len(missing_columns),
         }
+
+    def dbt_runtime(a: dict[str, Any]) -> DbtRuntime:
+        project = Path(a.get("dbt_project") or (_target(a) / "dbt")).expanduser().resolve()
+        profiles = a.get("profiles_dir")
+        return DbtRuntime(
+            project,
+            profiles_dir=profiles,
+            executable=a.get("dbt_executable", "dbt"),
+            timeout=int(a.get("timeout", 1800)),
+        )
+
+    def dbt_execute(a: dict[str, Any], verb: str) -> dict[str, Any]:
+        options = {
+            "select": a.get("select"),
+            "exclude": a.get("exclude"),
+            "target": a.get("target"),
+            "vars": a.get("vars"),
+            "state": a.get("state"),
+            "defer": bool(a.get("defer", False)),
+            "timeout": int(a.get("timeout", 1800)),
+        }
+        if verb == "ls":
+            options["output"] = a.get("output", "json")
+        return dbt_runtime(a).execute(verb, **options)
+
+    add("dbt_parse", Capability.DBT, lambda a: dbt_execute(a, "parse"), "Run governed dbt parse and capture artifacts.")
+    add("dbt_ls", Capability.DBT, lambda a: dbt_execute(a, "ls"), "Run governed dbt ls with selector support.")
+    add("dbt_compile", Capability.DBT, lambda a: dbt_execute(a, "compile"), "Compile selected dbt resources and capture artifacts.")
+    add("dbt_run", Capability.DBT, lambda a: dbt_execute(a, "run"), "Run selected dbt models with structured artifact verification.", risk=Risk.MUTATING)
+    add("dbt_test", Capability.DBT, lambda a: dbt_execute(a, "test"), "Execute selected dbt tests and verify run_results.")
+    add("dbt_build", Capability.DBT, lambda a: dbt_execute(a, "build"), "Build selected dbt resources with artifact-level success verification.", risk=Risk.MUTATING)
+    add("dbt_seed", Capability.DBT, lambda a: dbt_execute(a, "seed"), "Load dbt seeds through the governed runtime.", risk=Risk.MUTATING)
+    add("dbt_snapshot", Capability.DBT, lambda a: dbt_execute(a, "snapshot"), "Execute dbt snapshots through the governed runtime.", risk=Risk.MUTATING)
+
+    add(
+        "dbt_validate",
+        Capability.VERIFY,
+        lambda a: dbt_run_validators(
+            Path(a.get("dbt_project") or (_target(a) / "dbt")),
+            dialect=a.get("dialect", "snowflake"),
+            touched_models=a.get("touched_models", ()),
+            session_start_epoch=a.get("session_start_epoch"),
+            task_requires_build=bool(a.get("task_requires_build", False)),
+        ),
+        "Run all pinned deterministic dbt completion validators.",
+    )
+    add(
+        "dbt_test_generate",
+        Capability.GENERATE,
+        lambda a: generate_schema_tests(
+            _dbt(a).artifacts.manifest,
+            a["model"],
+            relationships=a.get("relationships"),
+            accepted_values=a.get("accepted_values"),
+        ),
+        "Generate dbt schema-test YAML proposals from manifest metadata.",
+    )
+    add(
+        "dbt_unit_test_gen",
+        Capability.GENERATE,
+        lambda a: generate_unit_tests(
+            _dbt(a).artifacts.manifest,
+            a["model"],
+            dialect=a.get("dialect", "snowflake"),
+            max_scenarios=int(a.get("max_scenarios", 3)),
+        ),
+        "Generate dbt 1.8+ unit-test YAML from compiled SQL, dependencies, types and lineage.",
+    )
 
     add("dbt_test_coverage", Capability.DBT, dbt_test_coverage, "Calculate deterministic dbt model test coverage.")
     add("dbt_documentation_gaps", Capability.DBT, dbt_documentation_gaps, "Find dbt model and column documentation gaps.")
