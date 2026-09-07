@@ -324,7 +324,7 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("execution remains available only through a governed platform adapter")
         print(json.dumps(payload, indent=2, default=str))
         return 0
-    except (KeyError, ValueError, FileNotFoundError, json.JSONDecodeError) as exc:
+    except (KeyError, ValueError, PermissionError, FileNotFoundError, json.JSONDecodeError) as exc:
         print(json.dumps({"status": "ERROR", "error": str(exc)}))
         return 2
 
