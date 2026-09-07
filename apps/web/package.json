@@ -1,12 +1,13 @@
 {
   "name": "ade-operator-ui",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.4.0",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "next": "15.5.24",

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from datetime import datetime, timezone
 import os
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -54,6 +56,22 @@ class ToolInput(BaseModel):
     dry_run: bool = False
 
 
+class SqlWorkspaceInput(BaseModel):
+    sql: str = Field(min_length=1)
+    dialect: str | None = "snowflake"
+
+
+class ReconcileRowCountInput(BaseModel):
+    source_value: int
+    target_value: int
+    absolute_tolerance: float = Field(default=0, ge=0)
+    percentage_tolerance: float = Field(default=0, ge=0)
+
+
+class AgentQueryInput(BaseModel):
+    question: str = Field(min_length=1, max_length=1000)
+
+
 def _record_payload(record: Any) -> dict[str, Any]:
     value = asdict(record)
     for key, item in list(value.items()):
@@ -62,12 +80,29 @@ def _record_payload(record: Any) -> dict[str, Any]:
     return value
 
 
+def _program_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def _project_root() -> Path:
+    configured = os.getenv("ADE_DEMO_PROJECT")
+    return Path(configured).expanduser().resolve() if configured else _program_root() / "hospitality-snowflake-data-platform"
+
+
+def _quality_database() -> Path:
+    configured = os.getenv("ADE_QUALITY_DATABASE")
+    return Path(configured).expanduser().resolve() if configured else _program_root() / ".ade" / "quality.db"
+
+
+def _shiftforge_fixture() -> Path:
+    return _program_root() / "shiftforge" / "examples" / "revinate"
+
+
 def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAPI:
-    # A local durable default makes the interactive API useful without extra setup.
     repo = repository or SQLiteControlPlaneRepository(os.getenv("ADE_DATABASE_PATH", "ade.db"))
     repo.initialize()
     registry = build_tool_registry()
-    app = FastAPI(title="UMA — Unified Data Migration Accelerator", version="0.3.0")
+    app = FastAPI(title="Agentic Data Engineering OS", version="0.4.0")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=os.getenv("ADE_UI_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(","),
@@ -75,6 +110,336 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
         allow_methods=["GET", "POST"],
         allow_headers=["content-type"],
     )
+
+    def invoke_read(tool_name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+        definition = registry.describe(tool_name)
+        request = ToolRequest(
+            tool=tool_name,
+            operation=tool_name,
+            environment=Environment.DEV,
+            risk=definition.risk,
+            args=args or {},
+        )
+        return registry.invoke(
+            ToolInvocation(
+                request,
+                run_id=f"api-v1-{tool_name}",
+                dry_run=False,
+                actor_mode=ActorMode.ANALYST,
+            )
+        )
+
+    def demo_project_args() -> dict[str, Any]:
+        return {"project": str(_project_root())}
+
+    def quality_args(**extra: Any) -> dict[str, Any]:
+        return {"database": str(_quality_database()), **extra}
+
+    def migration_args() -> dict[str, Any]:
+        return {"project": str(_shiftforge_fixture())}
+
+    @app.get("/api/v1/overview")
+    def operator_overview() -> dict[str, Any]:
+        inventory = invoke_read("platform_inventory", demo_project_args())
+        health = invoke_read("platform_health", demo_project_args())
+        dbt_coverage = invoke_read("dbt_test_coverage", demo_project_args())
+        quality = invoke_read("quality_summary", quality_args())
+        migration = invoke_read("migration_show_blockers", migration_args())
+        tools = registry.definitions()
+
+        checks = health["checks"]
+        penalties = {"FAIL": 20, "WARN": 7, "SKIP": 2}
+        score = max(0, 100 - sum(penalties.get(item["status"], 0) for item in checks.values()))
+        if quality["status_counts"].get("FAIL", 0):
+            score = max(0, score - min(12, quality["status_counts"]["FAIL"] * 3))
+        if migration.get("count", 0):
+            score = max(0, score - min(10, migration["count"] * 2))
+
+        findings: list[dict[str, Any]] = []
+        for name, item in checks.items():
+            if item["status"] in {"FAIL", "WARN", "SKIP"}:
+                findings.append({
+                    "severity": "critical" if item["status"] == "FAIL" else "info" if item["status"] == "SKIP" else "warning",
+                    "source": "platform_health",
+                    "title": name.replace("_", " "),
+                    "detail": item["detail"],
+                })
+        for item in quality.get("recent_results", [])[:5]:
+            if item["status"] != "PASS":
+                findings.append({
+                    "severity": "critical" if item["severity"] in {"ERROR", "CRITICAL"} else "warning",
+                    "source": "quality_store",
+                    "title": item["check_id"],
+                    "detail": f'{item["asset"]}: {item["status"]}',
+                })
+
+        sources = inventory["sources"]
+        return {
+            "mode": "LOCAL_SIMULATION" if os.getenv("ADE_DEMO_MODE", "true").lower() != "false" else inventory["mode"],
+            "project": inventory["hospitality_project"],
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "health_score": score,
+            "health_status": health["status"],
+            "counts": {
+                "sources": sources["oracle_tables"] + sources["postgres_tables"] + sources["file_feeds"],
+                "oracle_tables": sources["oracle_tables"],
+                "postgres_tables": sources["postgres_tables"],
+                "file_feeds": sources["file_feeds"],
+                "airflow_dags": inventory["airflow"]["dag_count"],
+                "dbt_models": inventory["dbt"]["models"],
+                "dbt_tests": inventory["dbt"]["tests"],
+                "dbt_snapshots": inventory["dbt"]["snapshots"],
+                "tools": len(tools),
+            },
+            "dbt_coverage": dbt_coverage,
+            "quality": quality,
+            "migration": {"blockers": migration.get("count", 0), "engine": "ShiftForge"},
+            "live_integrations": {
+                "snowflake": inventory["snowflake"]["live_status"],
+                "oracle": "SKIPPED - local Oracle simulation active",
+            },
+            "findings": findings[:10],
+            "health_components": checks,
+        }
+
+    @app.get("/api/v1/platform/inventory")
+    def platform_inventory() -> dict[str, Any]:
+        return invoke_read("platform_inventory", demo_project_args())
+
+    @app.get("/api/v1/platform/health")
+    def platform_health() -> dict[str, Any]:
+        return invoke_read("platform_health", demo_project_args())
+
+    @app.get("/api/v1/assets")
+    def assets(query: str = "", kind: str | None = None, limit: int = 250) -> dict[str, Any]:
+        graph = invoke_read("platform_graph", demo_project_args())
+        needle = query.casefold().strip()
+        items = []
+        for item in graph["nodes"]:
+            if kind and item["kind"] != kind:
+                continue
+            if needle and needle not in item["name"].casefold() and needle not in item["kind"].casefold():
+                continue
+            items.append(item)
+        bounded = max(1, min(limit, 1000))
+        return {
+            "total": len(items),
+            "returned": min(len(items), bounded),
+            "node_types": graph["node_types"],
+            "edge_types": graph["edge_types"],
+            "items": items[:bounded],
+        }
+
+    @app.get("/api/v1/lineage/{node}")
+    def platform_lineage(node: str, depth: int = 6) -> dict[str, Any]:
+        return invoke_read("platform_lineage", {**demo_project_args(), "node": node, "depth": depth})
+
+    @app.get("/api/v1/impact/{node}")
+    def platform_impact(node: str, depth: int = 8) -> dict[str, Any]:
+        return invoke_read("platform_impact", {**demo_project_args(), "node": node, "depth": depth})
+
+    @app.post("/api/v1/sql/review")
+    def sql_review(payload: SqlWorkspaceInput) -> dict[str, Any]:
+        return invoke_read("sql_review", {"sql": payload.sql, "dialect": payload.dialect})
+
+    @app.post("/api/v1/sql/lineage")
+    def sql_workspace_lineage(payload: SqlWorkspaceInput) -> dict[str, Any]:
+        return invoke_read("sql_column_lineage", {"sql": payload.sql, "dialect": payload.dialect})
+
+    @app.get("/api/v1/dbt/summary")
+    def dbt_summary() -> dict[str, Any]:
+        return invoke_read("dbt_manifest_summary", demo_project_args())
+
+    @app.get("/api/v1/dbt/coverage")
+    def dbt_coverage() -> dict[str, Any]:
+        return invoke_read("dbt_test_coverage", demo_project_args())
+
+    @app.get("/api/v1/dbt/documentation-gaps")
+    def dbt_documentation_gaps() -> dict[str, Any]:
+        return invoke_read("dbt_documentation_gaps", demo_project_args())
+
+    @app.get("/api/v1/dbt/lineage/{node}")
+    def dbt_lineage(node: str, depth: int = 6) -> dict[str, Any]:
+        return invoke_read("dbt_lineage", {**demo_project_args(), "node": node, "depth": depth})
+
+    @app.get("/api/v1/dbt/impact/{node}")
+    def dbt_impact(node: str, depth: int = 8) -> dict[str, Any]:
+        return invoke_read("dbt_impact", {**demo_project_args(), "node": node, "depth": depth})
+
+    @app.get("/api/v1/airflow/inventory")
+    def airflow_inventory() -> dict[str, Any]:
+        summary = invoke_read("airflow_inventory", demo_project_args())
+        details = [
+            invoke_read("airflow_dag_details", {**demo_project_args(), "dag_id": dag_id})
+            for dag_id in summary["dags"]
+        ]
+        return {**summary, "details": details}
+
+    @app.get("/api/v1/airflow/health")
+    def airflow_health() -> dict[str, Any]:
+        return invoke_read("airflow_health", demo_project_args())
+
+    @app.get("/api/v1/airflow/failures")
+    def airflow_failures() -> dict[str, Any]:
+        return invoke_read("airflow_failure_summary", demo_project_args())
+
+    @app.get("/api/v1/quality/summary")
+    def quality_summary() -> dict[str, Any]:
+        return invoke_read("quality_summary", quality_args())
+
+    @app.get("/api/v1/quality/recent")
+    def quality_recent(limit: int = 50) -> dict[str, Any]:
+        return invoke_read("quality_recent", quality_args(limit=limit))
+
+    @app.get("/api/v1/reconciliation/history")
+    def reconciliation_history(limit: int = 50) -> dict[str, Any]:
+        return invoke_read("reconciliation_history", quality_args(limit=limit))
+
+    @app.post("/api/v1/reconciliation/row-count")
+    def reconciliation_row_count(payload: ReconcileRowCountInput) -> dict[str, Any]:
+        return invoke_read("reconcile_row_count", payload.model_dump())
+
+    @app.get("/api/v1/migration/inventory")
+    def migration_inventory() -> dict[str, Any]:
+        return invoke_read("migration_inventory", migration_args())
+
+    @app.get("/api/v1/migration/findings")
+    def migration_findings() -> dict[str, Any]:
+        return invoke_read("migration_show_findings", migration_args())
+
+    @app.get("/api/v1/migration/blockers")
+    def migration_blockers() -> dict[str, Any]:
+        return invoke_read("migration_show_blockers", migration_args())
+
+    @app.get("/api/v1/warehouses")
+    def warehouses() -> dict[str, Any]:
+        return invoke_read("warehouse_status", {})
+
+    @app.get("/api/v1/data-diff/demo")
+    def data_diff_demo() -> dict[str, Any]:
+        return invoke_read("data_diff_duckdb_demo", {})
+
+    @app.get("/api/v1/dbt/advanced")
+    def dbt_advanced() -> dict[str, Any]:
+        args = demo_project_args()
+        return {
+            "incremental": invoke_read("dbt_incremental_analysis", args),
+            "snapshots": invoke_read("dbt_snapshot_analysis", args),
+            "macros": invoke_read("dbt_macro_analysis", args),
+            "failed_models": invoke_read("dbt_failed_models", args),
+            "source_freshness": invoke_read("dbt_source_freshness", args),
+            "leaf_candidates": invoke_read("dbt_leaf_candidates", args),
+            "compiled_sql_review": invoke_read("dbt_compiled_sql_review", {**args, "limit": 25}),
+        }
+
+    @app.get("/api/v1/airflow/operations")
+    def airflow_operations() -> dict[str, Any]:
+        args = demo_project_args()
+        return {
+            "retry": invoke_read("airflow_retry_analysis", args),
+            "schedule": invoke_read("airflow_schedule_analysis", args),
+            "backfill": invoke_read("airflow_backfill_analysis", args),
+            "connections": invoke_read("airflow_connection_analysis", args),
+            "health": invoke_read("airflow_pipeline_health", args),
+            "runtime": invoke_read("airflow_runtime_readiness", args),
+        }
+
+    @app.get("/api/v1/airflow/failure-lab")
+    def airflow_failure_lab() -> dict[str, Any]:
+        return invoke_read("airflow_failure_lab", {})
+
+    @app.get("/api/v1/root-cause/{asset}")
+    def root_cause(asset: str) -> dict[str, Any]:
+        return invoke_read("platform_root_cause", {
+            **demo_project_args(),
+            "database": str(_quality_database()),
+            "asset": asset,
+        })
+
+    @app.get("/api/v1/health/pipeline")
+    def pipeline_health_score() -> dict[str, Any]:
+        return invoke_read("pipeline_health_score", {
+            **demo_project_args(),
+            "database": str(_quality_database()),
+        })
+
+    @app.post("/api/v1/remediation/sql")
+    def remediation_sql(payload: SqlWorkspaceInput) -> dict[str, Any]:
+        return invoke_read("propose_sql_repair", {"sql": payload.sql, "dialect": payload.dialect})
+
+    @app.get("/api/v1/remediation/dbt-tests")
+    def remediation_dbt_tests(limit: int = 25) -> dict[str, Any]:
+        return invoke_read("propose_dbt_tests", {**demo_project_args(), "limit": limit})
+
+    @app.post("/api/v1/agent/query")
+    def agent_query(payload: AgentQueryInput) -> dict[str, Any]:
+        question = payload.question.strip()
+        lowered = question.casefold()
+        tools_used: list[str] = []
+        result: Any
+        data_sources: list[str] = []
+
+        def use(name: str, args: dict[str, Any]) -> dict[str, Any]:
+            tools_used.append(name)
+            return invoke_read(name, args)
+
+        if "migration" in lowered and "blocker" in lowered:
+            result = use("migration_show_blockers", migration_args())
+            data_sources = ["ShiftForge conversion report"]
+        elif "no tests" in lowered or "without tests" in lowered:
+            result = use("dbt_test_coverage", demo_project_args())
+            data_sources = ["dbt manifest.json"]
+        elif "which dag" in lowered or ("dag" in lowered and "load" in lowered):
+            inventory = use("airflow_inventory", demo_project_args())
+            term = "reservation" if "reservation" in lowered else ""
+            result = {
+                "matches": [dag for dag in inventory["dags"] if term in dag.casefold()] if term else inventory["dags"],
+                "count": len([dag for dag in inventory["dags"] if term in dag.casefold()]) if term else inventory["dag_count"],
+            }
+            data_sources = ["Airflow DAG source AST"]
+        elif "reconciliation" in lowered:
+            result = use("reconciliation_history", quality_args(limit=12))
+            data_sources = ["SQLite quality evidence"]
+        elif "depends on" in lowered:
+            reference = question[lowered.index("depends on") + len("depends on"):].strip(" ?.")
+            result = use("platform_impact", {**demo_project_args(), "node": reference, "depth": 8})
+            data_sources = ["cross-system asset graph", "dbt manifest", "Airflow metadata"]
+        elif "lineage" in lowered:
+            marker = lowered.find(" for ")
+            reference = question[marker + 5:].strip(" ?.") if marker >= 0 else "fact_reservation"
+            result = use("platform_lineage", {**demo_project_args(), "node": reference, "depth": 8})
+            data_sources = ["cross-system asset graph", "dbt manifest", "Airflow metadata"]
+        elif "unhealthy" in lowered or "health" in lowered:
+            asset = "fact_reservation" if "reservation" in lowered else None
+            result = use("platform_root_cause", {
+                **demo_project_args(),
+                "database": str(_quality_database()),
+                "asset": asset,
+            })
+            data_sources = ["platform health", "Airflow static evidence", "dbt run_results.json", "SQLite quality evidence"]
+        else:
+            result = {
+                "supported_questions": [
+                    "Why is fact_reservation unhealthy?",
+                    "What depends on stg_oracle_reservation?",
+                    "Show lineage for fact_reservation.",
+                    "Which DAG loads reservations?",
+                    "Why did reconciliation fail?",
+                    "What dbt models have no tests?",
+                    "Show migration blockers.",
+                ]
+            }
+
+        return {
+            "question": question,
+            "result": result,
+            "evidence": {
+                "tools_used": tools_used,
+                "data_sources": data_sources,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "mode": "DETERMINISTIC_TOOL_ROUTER",
+            },
+        }
 
     @app.post("/projects")
     def create_project(payload: ProjectInput) -> dict[str, Any]:
@@ -124,26 +489,53 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     @app.get("/tools")
     def list_tools() -> list[dict[str, Any]]:
         return [
-            {"name": item.name, "description": item.description, "capability": item.capability.value,
-             "risk": item.risk.value, "input_schema": item.input_schema, "output_schema": item.output_schema}
+            {
+                "name": item.name,
+                "description": item.description,
+                "capability": item.capability.value,
+                "risk": item.risk.value,
+                "input_schema": item.input_schema,
+                "output_schema": item.output_schema,
+            }
             for item in registry.definitions()
         ]
+
+    @app.get("/api/v1/tools")
+    def list_v1_tools() -> list[dict[str, Any]]:
+        return list_tools()
 
     @app.post("/tools/{tool_name}")
     def invoke_tool(tool_name: str, payload: ToolInput) -> dict[str, Any]:
         try:
             definition = registry.describe(tool_name)
             request = ToolRequest(
-                tool=tool_name, operation=tool_name, environment=payload.environment, risk=definition.risk,
+                tool=tool_name,
+                operation=tool_name,
+                environment=payload.environment,
+                risk=definition.risk,
                 args=payload.args,
             )
-            return registry.invoke(ToolInvocation(request, run_id=f"api-{tool_name}", dry_run=payload.dry_run, actor_mode=payload.actor_mode))
+            return registry.invoke(
+                ToolInvocation(
+                    request,
+                    run_id=f"api-{tool_name}",
+                    dry_run=payload.dry_run,
+                    actor_mode=payload.actor_mode,
+                )
+            )
         except (KeyError, ValueError, PermissionError, FileNotFoundError) as exc:
             raise HTTPException(400, str(exc)) from exc
 
     @app.post("/approvals")
     def approve(payload: ApprovalInput) -> dict[str, Any]:
-        record = ApprovalRecord(payload.run_id, payload.approved_by, payload.scope, action=payload.action, environment=payload.environment, expires_at=payload.expires_at)
+        record = ApprovalRecord(
+            payload.run_id,
+            payload.approved_by,
+            payload.scope,
+            action=payload.action,
+            environment=payload.environment,
+            expires_at=payload.expires_at,
+        )
         repo.save_approval(record)
         return _record_payload(record)
 

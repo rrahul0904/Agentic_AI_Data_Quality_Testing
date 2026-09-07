@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./styles.css";
 
 export const metadata: Metadata = {
-  title: "UMA — Unified Data Migration Accelerator",
-  description: "Governed migration operations with durable evidence",
+  title: "Agentic Data Engineering OS",
+  description: "Operator console for deterministic data engineering intelligence, quality, lineage, and migration",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

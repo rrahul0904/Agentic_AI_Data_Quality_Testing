@@ -1,67 +1,63 @@
 # Agentic AI Data Quality Testing
 
-An integrated, local-first Agentic Data Engineering OS. The control plane
-provides deterministic discovery, dbt/Airflow lineage and impact analysis,
-quality evidence, reconciliation, SQL review, and governed tool execution.
+**Agentic Data Engineering OS** is a local-first control plane for deterministic data-platform discovery, SQL intelligence, dbt and Airflow lineage, impact analysis, data-quality evidence, source-target reconciliation, warehouse readiness, and migration engineering.
 
 ```text
-                 Agentic Data Engineering OS
-                              |
-          +-------------------+-------------------+
-          |                   |                   |
-       UMA / LDH          Hospitality          ShiftForge
-      control plane       proving ground      migration engine
-          |                   |                   |
-          +-------------------+-------------------+
-                              |
-              Asset graph + quality evidence
-                              |
-            Snowflake / Postgres / Oracle / DuckDB
+                         Operator Console
+                               |
+                         FastAPI / v1
+                               |
+                         ToolRegistry
+              +----------------+----------------+
+              |                |                |
+          SQL / dbt        Airflow / DQ      ShiftForge
+              |                |                |
+              +----------------+----------------+
+                               |
+                     Cross-system asset graph
+                               |
+              Oracle + Postgres + Files
+                               |
+                           Snowflake
 ```
 
-## Components
+## Working operator-console demo
 
-- `src/agentic_data_platform` — governed Python control plane (`ade` and
-  `agentic-data-platform`), registry, permissions, dbt/Airflow intelligence,
-  graph, quality store, SQLGlot review, and warehouse facade.
-- `local-data-harness` — recovered Node v0.2 local harness with static dbt,
-  Airflow, SQL, PII, Snowflake configuration, and quality tools.
-- `shiftforge` — recovered standalone Python migration engine. It remains
-  independently usable and is callable through the root structured adapter.
-- `hospitality-snowflake-data-platform` — deterministic enterprise workload
-  with 144 Oracle tables, 157 PostgreSQL tables, 18 feeds, 40 ingestion jobs,
-  46 base Airflow DAGs plus reservation aliases, and a 70-model/4-snapshot
-  reservation-oriented dbt project.
-- `integration/e2e-tests` — Snowflake-free vertical-slice tests.
-
-## Working local demo
-
-The basic demo does **not** require Docker, Snowflake credentials, or a live
-Oracle database. It runs the platform in local simulation mode and explicitly
-reports unavailable live integrations as `SKIP`.
+The v0.4 demo uses real repository metadata and deterministic local evidence. It **does not require Docker, Snowflake credentials, or a live Oracle service**.
 
 ```bash
 git clone https://github.com/rrahul0904/Agentic_AI_Data_Quality_Testing.git
 cd Agentic_AI_Data_Quality_Testing
-
 ./scripts/setup-demo.sh
 source .venv/bin/activate
-make demo
+make demo-ui
 ```
 
-The demo exercises:
+Open:
+- Operator console: `http://127.0.0.1:3000`
+- FastAPI: `http://127.0.0.1:8001`
+- API docs: `http://127.0.0.1:8001/docs`
 
-1. environment doctor checks,
-2. hospitality source/platform inventory,
-3. static Airflow health,
-4. dbt lineage for `fact_reservation`,
-5. cross-system impact for `stg_oracle_reservation`,
-6. an intentional source/target reconciliation failure,
-7. the Local Data Harness quality gate,
-8. a structured ShiftForge migration inventory,
-9. final platform health.
+The console exposes **Overview, Assets, Lineage, SQL Intelligence, dbt, Airflow, Data Quality, Reconciliation, Migration, Warehouses, Runs/Evidence, and a deterministic Agent panel**. FinOps and Governance are visibly marked partial rather than filled with invented live data.
 
-For verification rather than presentation:
+See `docs/DEMO_WALKTHROUGH.md` for the presentation flow.
+
+## Enterprise proving ground
+
+The hospitality workload currently contains 144 Oracle logical tables, 157 PostgreSQL logical tables, 18 file feeds, 40 metadata-driven ingestion jobs, 55 Airflow DAGs including aliases, 70 dbt models, 4 snapshots, parsed dbt tests, static Snowflake DDL, and deterministic dirty-data fixtures.
+
+Counts shown in the product are calculated by backend tools at runtime; the frontend does not hardcode them.
+
+## Components
+
+- `src/agentic_data_platform` — governed Python control plane, v1 API, ToolRegistry, permissions, SQLGlot intelligence, dbt/Airflow intelligence, cross-system graph, warehouse facade, quality store, and reconciliation.
+- `apps/web` — dense Next.js operator console driven by the v1 API.
+- `local-data-harness` — recovered Node harness with static dbt/Airflow/SQL/PII/Snowflake quality tools.
+- `shiftforge` — standalone deterministic dbt migration/conversion engine integrated through structured Python calls.
+- `hospitality-snowflake-data-platform` — enterprise reference workload.
+- `integration/e2e-tests` — Snowflake-free vertical-slice verification.
+
+## Verification
 
 ```bash
 make unit-test
@@ -69,43 +65,22 @@ make integration-test
 make lint
 make quality
 make shiftforge-test
+make frontend-typecheck
+make frontend-build
 ```
 
-Useful direct commands:
-
-```bash
-PYTHONPATH=src python -m agentic_data_platform.cli platform inventory \
-  --project hospitality-snowflake-data-platform
-PYTHONPATH=src python -m agentic_data_platform.cli dbt lineage fact_reservation \
-  --project hospitality-snowflake-data-platform
-PYTHONPATH=src python -m agentic_data_platform.cli platform impact stg_oracle_reservation \
-  --project hospitality-snowflake-data-platform
-PYTHONPATH=src python -m agentic_data_platform.cli reconcile row-count \
-  --source-value 10000 --target-value 9998
-```
-
-`/tools` and `/tools/{tool_name}` on the FastAPI application expose the same
-structured deterministic tools used by the CLI. The default API data store is
-local SQLite; set `ADE_DATABASE_PATH` to select another path.
+The CLI engineering demo remains available with `make demo`.
 
 ## Local versus live
 
-The hospitality framework supports local simulation and a Snowflake execution
-mode. Local tests never claim Snowflake work. Docker, live Snowflake, and live
-Oracle are optional and report `SKIP` when unavailable. Credentials are read
-from the environment and are never returned or committed.
+The demo labels simulated paths as `LOCAL SIMULATION`. Live Snowflake and Oracle checks remain `SKIP` until credentials/services are configured. The platform never converts an unavailable live integration into a fake PASS.
 
 ## Safety
 
-Tools are the source of truth: the model does not invent query results, graph
-edges, migration findings, or quality status. Analyst and Plan modes cannot
-invoke mutation-risk tools. Builder operations remain governed by risk,
-environment, and explicit approval.
+Deterministic tools are the source of truth. Analyst and Plan modes cannot invoke mutation-risk tools; Builder operations remain governed by risk, environment, and explicit approval. Operator-console convenience endpoints invoke ToolRegistry in Analyst mode rather than bypassing it.
 
 ## Current limits
 
-The SQLGlot lineage implementation is a first production-oriented pass, but
-full multi-model column lineage, deep Snowflake FinOps/RBAC/history,
-large-scale warehouse-executed data diff, MCP/TUI/provider integrations, and
-autonomous remediation are still roadmap work. See
-`specs/ALTIMATE_PARITY_MATRIX.md` and `specs/BEYOND_ALTIMATE_ROADMAP.md`.
+Full multi-model lineage, deep Snowflake FinOps/RBAC/query-history intelligence, large-scale live cross-warehouse data diff, advanced Airflow runtime root-cause analysis, MCP/skills/provider integrations, trace playback, production TUI, and autonomous remediation remain roadmap work.
+
+Track parity in `specs/ALTIMATE_PARITY_MATRIX.md` and `specs/BEYOND_ALTIMATE_ROADMAP.md`. Registered deterministic tools are summarized in `specs/TOOL_CATALOG.md`.
