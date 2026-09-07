@@ -9,6 +9,8 @@ from typing import Any, Iterable
 
 from agentic_data_platform.memory.store import MemoryStore
 from agentic_data_platform.skills.registry import Skill, SkillRegistry
+from agentic_data_platform.skills.service import SkillService
+from agentic_data_platform.training.store import TrainingStore
 
 
 _WORD = re.compile(r"[A-Za-z0-9_]{2,}")
@@ -32,12 +34,14 @@ class ContextSelection:
     messages: tuple[dict[str, Any], ...]
     memory_ids: tuple[str, ...]
     training_ids: tuple[str, ...]
+    training_chunk_ids: tuple[str, ...]
     skill_names: tuple[str, ...]
 
     def metadata(self) -> dict[str, Any]:
         return {
             "memory_ids": list(self.memory_ids),
             "training_ids": list(self.training_ids),
+            "training_chunk_ids": list(self.training_chunk_ids),
             "skill_names": list(self.skill_names),
         }
 
@@ -49,13 +53,17 @@ class ContextSourceManager:
         self,
         memory: MemoryStore | None = None,
         *,
+        training_store: TrainingStore | None = None,
         skill_registry: SkillRegistry | None = None,
+        skill_service: SkillService | None = None,
         max_memories: int = 6,
         max_training: int = 6,
         max_skills: int = 8,
     ) -> None:
         self.memory = memory
+        self.training_store = training_store
         self.skill_registry = skill_registry
+        self.skill_service = skill_service
         self.max_memories = max_memories
         self.max_training = max_training
         self.max_skills = max_skills
@@ -70,6 +78,7 @@ class ContextSourceManager:
         messages: list[dict[str, Any]] = []
         memory_ids: list[str] = []
         training_ids: list[str] = []
+        training_chunk_ids: list[str] = []
         skill_names: list[str] = []
 
         if self.memory is not None:
@@ -136,7 +145,35 @@ class ContextSourceManager:
                 for training_id in training_ids:
                     self.memory.mark_training_applied(training_id)
 
-        registry = self.skill_registry
+        if self.training_store is not None and query.strip():
+            training_context = self.training_store.context(
+                query,
+                limit=self.max_training,
+                max_chars=12000,
+            )
+            chunks = training_context.get("chunks", [])
+            if chunks:
+                training_chunk_ids = [
+                    str(item["chunk_id"]) for item in chunks if item.get("chunk_id")
+                ]
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": "Relevant indexed project training:\n"
+                        + "\n\n".join(
+                            f"[{item['source']}#{item['chunk_index']}] {item['content']}"
+                            for item in chunks
+                        ),
+                        "context_source": "training_corpus",
+                        "context_ids": training_chunk_ids,
+                    }
+                )
+
+        registry = (
+            self.skill_service.active_registry()
+            if self.skill_service is not None
+            else self.skill_registry
+        )
         if registry is None and project_root is not None:
             registry = SkillRegistry.discover(project_root)
         if registry is not None:
@@ -167,5 +204,6 @@ class ContextSourceManager:
             messages=tuple(messages),
             memory_ids=tuple(memory_ids),
             training_ids=tuple(training_ids),
+            training_chunk_ids=tuple(training_chunk_ids),
             skill_names=tuple(skill_names),
         )
