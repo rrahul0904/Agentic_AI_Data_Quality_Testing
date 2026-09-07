@@ -620,22 +620,6 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             for domain, operations in DOMAIN_TOOLS.items()
         }
 
-    @app.post("/api/v1/{domain}/{operation}")
-    def invoke_domain(domain: str, operation: str, payload: ToolInput) -> dict[str, Any]:
-        operations = DOMAIN_TOOLS.get(domain)
-        if operations is None:
-            raise HTTPException(404, f"unknown API domain: {domain}")
-        tool_name = operations.get(operation)
-        if tool_name is None:
-            raise HTTPException(404, f"unknown {domain} operation: {operation}")
-        return invoke_governed(
-            tool_name,
-            payload.args,
-            actor_mode=payload.actor_mode,
-            environment=payload.environment,
-            dry_run=payload.dry_run,
-        )
-
     # --- Phase 2 stable runtime API -------------------------------------------------
 
     def runtime_args(**extra: Any) -> dict[str, Any]:
@@ -1083,6 +1067,22 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             tool_name,
             runtime_args(**payload.args),
             actor_mode=mode,
+        )
+
+    @app.post("/api/v1/{domain}/{operation}")
+    def invoke_domain(domain: str, operation: str, payload: ToolInput) -> dict[str, Any]:
+        operations = DOMAIN_TOOLS.get(domain)
+        if operations is None:
+            raise HTTPException(404, f"unknown API domain: {domain}")
+        tool_name = operations.get(operation)
+        if tool_name is None:
+            raise HTTPException(404, f"unknown {domain} operation: {operation}")
+        return invoke_governed(
+            tool_name,
+            payload.args,
+            actor_mode=payload.actor_mode,
+            environment=payload.environment,
+            dry_run=payload.dry_run,
         )
 
     @app.post("/projects")
