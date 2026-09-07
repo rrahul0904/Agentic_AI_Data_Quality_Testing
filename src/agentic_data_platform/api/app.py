@@ -171,7 +171,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
         CORSMiddleware,
         allow_origins=os.getenv("ADE_UI_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(","),
         allow_credentials=False,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PATCH", "DELETE"],
         allow_headers=["content-type"],
     )
 
@@ -192,15 +192,18 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             risk=definition.risk,
             args=args or {},
         )
-        return registry.invoke(
-            ToolInvocation(
-                request,
-                run_id=f"api-v1-{tool_name}",
-                approved=approved,
-                dry_run=dry_run,
-                actor_mode=actor_mode,
+        try:
+            return registry.invoke(
+                ToolInvocation(
+                    request,
+                    run_id=f"api-v1-{tool_name}",
+                    approved=approved,
+                    dry_run=dry_run,
+                    actor_mode=actor_mode,
+                )
             )
-        )
+        except (KeyError, ValueError, PermissionError, FileNotFoundError) as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     def invoke_read(tool_name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
         return invoke_governed(tool_name, args, actor_mode=ActorMode.ANALYST)
