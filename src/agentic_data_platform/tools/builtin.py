@@ -154,6 +154,43 @@ def _target(args: dict[str, Any]) -> Path:
     return Path(args.get("project") or args.get("project_path") or args.get("target_dir") or ".").expanduser().resolve()
 
 
+def _session_store(args: dict[str, Any]) -> SessionStore:
+    path = args.get("session_database") or (_target(args) / ".ade" / "sessions.db")
+    return SessionStore(path)
+
+
+def _session_runtime(args: dict[str, Any]) -> SessionRuntime:
+    training = TrainingStore(
+        args.get("training_database")
+        or (_target(args) / ".ade" / "training.db")
+    )
+    return SessionRuntime(_session_store(args), training=training)
+
+
+def _memory_store(args: dict[str, Any]) -> MemoryStore:
+    path = args.get("memory_database") or (_target(args) / ".ade" / "memory.db")
+    return MemoryStore(path)
+
+
+def _trace_store(args: dict[str, Any]) -> TraceStore:
+    path = args.get("trace_database") or (_target(args) / ".ade" / "traces.db")
+    return TraceStore(path)
+
+
+def _job_engine(args: dict[str, Any]) -> BackgroundJobEngine:
+    path = str(
+        Path(
+            args.get("job_database")
+            or (_target(args) / ".ade" / "jobs.db")
+        ).expanduser().resolve()
+    )
+    engine = _JOB_ENGINES.get(path)
+    if engine is None:
+        engine = BackgroundJobEngine(path, max_workers=int(args.get("max_workers", 4)))
+        _JOB_ENGINES[path] = engine
+    return engine
+
+
 def _dbt(args: dict[str, Any]) -> DbtManifestGraph:
     target = Path(args.get("target_dir") or (_target(args) / "dbt" / "target")).expanduser().resolve()
     return DbtManifestGraph(DbtArtifacts.load(target))
