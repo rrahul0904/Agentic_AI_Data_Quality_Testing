@@ -82,6 +82,15 @@ from agentic_data_platform.metadata.index import MetadataIndex
 from agentic_data_platform.metadata.service import MetadataService
 from agentic_data_platform.training import TrainingStore
 from agentic_data_platform.skills import SkillService
+from agentic_data_platform.session import (
+    SessionRuntime,
+    SessionStore,
+    cap_tool_result as session_cap_tool_result,
+    retry_plan as session_retry_plan,
+)
+from agentic_data_platform.memory import MemoryStore
+from agentic_data_platform.tracing import TraceStore
+from agentic_data_platform.jobs import BackgroundJobEngine
 from agentic_data_platform.mcp import (
     McpAuthStore,
     McpCatalog,
@@ -94,6 +103,7 @@ from agentic_data_platform.mcp import (
 )
 from agentic_data_platform.providers import (
     ModelCatalog,
+    ModelRecord,
     ProviderRegistry,
     configured_auth as provider_configured_auth,
     family_vendor as provider_family_vendor,
@@ -135,6 +145,9 @@ from agentic_data_platform.dbt.manifest_graph import DbtArtifacts, DbtManifestGr
 from agentic_data_platform.dbt.runtime import DbtRuntime
 from agentic_data_platform.dbt.validators import run_validators as dbt_run_validators
 from agentic_data_platform.dbt.generation import generate_schema_tests, generate_unit_tests
+
+
+_JOB_ENGINES: dict[str, BackgroundJobEngine] = {}
 
 
 def _target(args: dict[str, Any]) -> Path:
