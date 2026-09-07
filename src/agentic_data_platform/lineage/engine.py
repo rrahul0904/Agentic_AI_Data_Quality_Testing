@@ -134,6 +134,27 @@ def analyze_column_lineage(
                 elif isinstance(expression, exp.Placeholder):
                     unresolved.append(f"{output_name}: unresolved placeholder {item.name}")
 
+                if not item.downstream:
+                    terminal = str(item.name or "").strip(chr(34) + chr(96))
+                    parts = [
+                        part.strip(chr(34) + chr(96))
+                        for part in terminal.split(".")
+                        if part
+                    ]
+                    if len(parts) >= 2 and parts[-1] != "*":
+                        table = ".".join(parts[:-1])
+                        column = parts[-1]
+                        known_tables = {str(name).casefold() for name in (schema or {})}
+                        known_simple = {
+                            name.split(".")[-1].casefold() for name in known_tables
+                        }
+                        if (
+                            not known_tables
+                            or table.casefold() in known_tables
+                            or table.split(".")[-1].casefold() in known_simple
+                        ):
+                            leaves.add(ColumnRef(table, column))
+
             for message in ambiguity:
                 column_name = message.split(":", 1)[0]
                 if any(
