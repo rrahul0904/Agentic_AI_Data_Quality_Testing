@@ -1045,13 +1045,14 @@ def build_tool_registry() -> ToolRegistry:
         service = _metadata_service(a)
         rows = service.connection.execute(
             """
-            SELECT connection_name,
-                   COUNT(DISTINCT object_id) AS tables_count,
-                   COUNT(column_name) AS columns_count,
-                   MAX(refreshed_at) AS last_indexed
-            FROM metadata_columns
-            GROUP BY connection_name
-            ORDER BY connection_name
+            SELECT o.connection_name,
+                   COUNT(DISTINCT o.object_id) AS tables_count,
+                   COUNT(c.column_name) AS columns_count,
+                   MAX(COALESCE(c.refreshed_at, o.refreshed_at)) AS last_indexed
+            FROM metadata_objects o
+            LEFT JOIN metadata_columns c ON c.object_id = o.object_id
+            GROUP BY o.connection_name
+            ORDER BY o.connection_name
             """
         ).fetchall()
         warehouses = [
