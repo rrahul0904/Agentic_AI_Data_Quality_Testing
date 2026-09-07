@@ -64,6 +64,17 @@ from agentic_data_platform.quality.warehouse_diff import WarehouseDiffEngine
 from agentic_data_platform.sql.intelligence import (
     column_downstream, column_lineage, column_upstream, review_sql, sql_lineage,
 )
+from agentic_data_platform.sql.core_wrappers import (
+    classify_schema_pii as core_classify_schema_pii,
+    compare_sql as core_compare_sql,
+    export_ddl as core_export_ddl,
+    extract_sql_metadata as core_extract_sql_metadata,
+    generate_sql_tests as core_generate_sql_tests,
+    migration_safety as core_migration_safety,
+    parse_dbt_project as core_parse_dbt_project,
+    query_pii as core_query_pii,
+    track_lineage as core_track_lineage,
+)
 from agentic_data_platform.sql.core_compat import (
     complete_sql as core_complete_sql,
     correct_sql as core_correct_sql,
@@ -902,6 +913,15 @@ def build_tool_registry() -> ToolRegistry:
     add("altimate_core_rewrite", Capability.GENERATE, lambda a: sql_rewrite_impl(a["sql"], a.get("dialect"), a.get("schema_context")), "Compatibility alias for deterministic SQL rewrite.", platforms=sql_platforms)
     add("altimate_core_column_lineage", Capability.VERIFY, lambda a: production_column_lineage(a["sql"], dialect=a.get("dialect"), schema=a.get("schema_context"), sources=a.get("sources")), "Compatibility alias for column lineage.", platforms=sql_platforms)
     add("altimate_core_schema_diff", Capability.VERIFY, lambda a: data_diff_schema_impl(a["source_schema"], a["target_schema"]), "Compatibility alias for schema diff.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
+    add("altimate_core_classify_pii", Capability.VERIFY, lambda a: core_classify_schema_pii(schema_context=a.get("schema_context"), schema_path=a.get("schema_path")), "Classify PII columns across schema context.", platforms=sql_platforms)
+    add("altimate_core_query_pii", Capability.VERIFY, lambda a: core_query_pii(a["sql"], schema_context=a.get("schema_context"), schema_path=a.get("schema_path")), "Analyze query-level PII exposure.", platforms=sql_platforms)
+    add("altimate_core_compare", Capability.VERIFY, lambda a: core_compare_sql(a["left_sql"], a["right_sql"], dialect=a.get("dialect")), "Structurally compare two SQL queries.", platforms=sql_platforms)
+    add("altimate_core_export_ddl", Capability.GENERATE, lambda a: core_export_ddl(schema_context=a.get("schema_context"), schema_path=a.get("schema_path")), "Export structured schema context as CREATE TABLE DDL.", platforms=sql_platforms)
+    add("altimate_core_extract_metadata", Capability.DISCOVER, lambda a: core_extract_sql_metadata(a["sql"], dialect=a.get("dialect")), "Extract tables, columns, functions and CTEs from SQL.", platforms=sql_platforms)
+    add("altimate_core_migration", Capability.VERIFY, lambda a: core_migration_safety(a["old_ddl"], a["new_ddl"], dialect=a.get("dialect")), "Analyze DDL migration safety and data-loss risk.", platforms=sql_platforms)
+    add("altimate_core_parse_dbt", Capability.DBT, lambda a: core_parse_dbt_project(a["project_dir"]), "Parse dbt project artifacts into models, sources, tests and seeds.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
+    add("altimate_core_testgen", Capability.GENERATE, lambda a: core_generate_sql_tests(a["sql"], dialect=a.get("dialect"), schema_context=a.get("schema_context"), schema_path=a.get("schema_path")), "Generate deterministic SQL boundary, NULL, join and schema test scenarios.", platforms=sql_platforms)
+    add("altimate_core_track_lineage", Capability.VERIFY, lambda a: core_track_lineage(list(a.get("queries") or ()), dialect=a.get("dialect"), schema_context=a.get("schema_context"), schema_path=a.get("schema_path")), "Track column lineage across multiple SQL queries.", platforms=sql_platforms)
 
     def column_lineage_handler(a: dict[str, Any]) -> dict[str, Any]:
         if a.get("sql"):
