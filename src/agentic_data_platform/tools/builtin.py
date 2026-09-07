@@ -982,6 +982,8 @@ def build_tool_registry() -> ToolRegistry:
     add("column_lineage_diff", Capability.VERIFY, column_diff_handler, "Compare project column-lineage edges across dbt artifact states.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
     add("project_column_graph", Capability.DISCOVER, lambda a: _column_graph(a).graph(), "Build the dbt project-wide column graph from compiled SQL and catalog metadata.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
     add("column_path", Capability.DISCOVER, lambda a: _column_graph(a).path(a["source_asset"], a["source_column"], a["target_asset"], a["target_column"]), "Find a concrete multi-hop project column path.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
+    add("lineage_check", Capability.VERIFY, lambda a: production_column_lineage(a["sql"], dialect=a.get("dialect", "snowflake"), schema=a.get("schema_context"), sources=a.get("sources")), "Reference-compatible column-level SQL lineage check.", platforms=sql_platforms)
+    add("impact_analysis", Capability.VERIFY, lambda a: (_column_graph({"target_dir": Path(a.get("manifest_path", "target/manifest.json")).expanduser().resolve().parent, **a}).impact(a["model"], a["column"]) if a.get("column") else _dbt({"target_dir": Path(a.get("manifest_path", "target/manifest.json")).expanduser().resolve().parent, **a}).impact(a["model"])), "Analyze dbt model/column downstream blast radius.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
     def connection_test_handler(a: dict[str, Any]) -> dict[str, Any]:
         store = _connection_store(a)
         profile = store.resolve_config(a["name"])
@@ -1025,6 +1027,115 @@ def build_tool_registry() -> ToolRegistry:
     add("connection_test", Capability.VERIFY, connection_test_handler, "Test one configured connection without revealing secrets.", platforms=frozenset({Platform.LOCAL}))
     add("connection_default", Capability.GENERATE, lambda a: {"default": _connection_store(a).set_default(a.get("name"))}, "Set or clear the default connection.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
     add("connection_discover", Capability.DISCOVER, lambda a: _connection_store(a).discover(dbt_profiles=a.get("dbt_profiles")), "Discover environment and dbt profile connections without persisting secrets.", platforms=frozenset({Platform.LOCAL}))
+
+    def warehouse_add_handler(a: dict[str, Any]) -> dict[str, Any]:
+        config = dict(a.get("config") or {})
+        platform = str(config.pop("type", a.get("platform") or "")).casefold()
+        if not platform:
+            raise ValueError('warehouse config requires "type"')
+        return _connection_store(a).add(
+            a["name"],
+            platform,
+            config,
+            source=a.get("source", "warehouse_add"),
+            replace=bool(a.get("replace", False)),
+        )
+
+    def schema_cache_status_handler(a: dict[str, Any]) -> dict[str, Any]:
+        service = _metadata_service(a)
+        rows = service.connection.execute(
+            """
+            SELECT connection_name,
+                   COUNT(DISTINCT object_id) AS tables_count,
+                   COUNT(column_name) AS columns_count,
+                   MAX(refreshed_at) AS last_indexed
+            FROM metadata_columns
+            GROUP BY connection_name
+            ORDER BY connection_name
+            """
+        ).fetchall()
+        warehouses = [
+            {
+                "name": str(row["connection_name"]),
+                "type": next(
+                    (
+                        item["platform"]
+                        for item in _connection_store(a).list()
+                        if item["name"] == row["connection_name"]
+                    ),
+                    "unknown",
+                ),
+                "schemas_count": len(
+                    {
+                        item["schema_name"]
+                        for item in service.search_assets(
+                            "",
+                            connection_name=str(row["connection_name"]),
+                            limit=5000,
+                        )
+                        if item.get("schema_name")
+                    }
+                ),
+                "tables_count": int(row["tables_count"] or 0),
+                "columns_count": int(row["columns_count"] or 0),
+                "last_indexed": row["last_indexed"],
+            }
+            for row in rows
+        ]
+        return {
+            "status": "PASS",
+            "cache_path": service.path,
+            "total_tables": sum(item["tables_count"] for item in warehouses),
+            "total_columns": sum(item["columns_count"] for item in warehouses),
+            "warehouses": warehouses,
+        }
+
+    def schema_detect_pii_handler(a: dict[str, Any]) -> dict[str, Any]:
+        service = _metadata_service(a)
+        columns = service.search_columns(
+            "",
+            connection_name=a.get("warehouse") or a.get("connection"),
+            limit=int(a.get("limit", 10000)),
+        )
+        schema_name = str(a.get("schema_name") or "").casefold()
+        table_name = str(a.get("table") or "").casefold()
+        filtered = [
+            item
+            for item in columns
+            if (
+                not schema_name
+                or str(item.get("schema_name") or "").casefold() == schema_name
+            )
+            and (
+                not table_name
+                or str(item.get("object_name") or "").casefold() == table_name
+            )
+        ]
+        result = classify_metadata_columns(filtered)
+        by_category: dict[str, int] = {}
+        tables = set()
+        for finding in result.get("findings", ()):
+            category = str(finding.get("category") or "unknown")
+            by_category[category] = by_category.get(category, 0) + 1
+            if finding.get("object_id"):
+                tables.add(str(finding["object_id"]))
+        return {
+            "status": "PASS",
+            "success": True,
+            "columns_scanned": len(filtered),
+            "finding_count": len(result.get("findings", ())),
+            "tables_with_pii": len(tables),
+            "by_category": dict(sorted(by_category.items())),
+            "findings": result.get("findings", []),
+        }
+
+    add("warehouse_add", Capability.GENERATE, warehouse_add_handler, "Reference-compatible warehouse connection add with secret-safe config storage.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("warehouse_list", Capability.DISCOVER, lambda a: {"warehouses": _connection_store(a).list(), "default": _connection_store(a).default()}, "Reference-compatible warehouse connection listing.", platforms=frozenset({Platform.LOCAL}))
+    add("warehouse_remove", Capability.GENERATE, lambda a: {"removed": _connection_store(a).remove(a["name"])}, "Reference-compatible warehouse removal.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("warehouse_test", Capability.VERIFY, connection_test_handler, "Reference-compatible warehouse connectivity test.", platforms=frozenset({Platform.LOCAL}))
+    add("warehouse_discover", Capability.DISCOVER, lambda a: discover_docker_connections(), "Discover supported warehouse containers through Docker.", platforms=frozenset({Platform.LOCAL}))
+    add("schema_cache_status", Capability.DISCOVER, schema_cache_status_handler, "Return local schema cache totals and per-warehouse freshness.", platforms=frozenset({Platform.LOCAL}))
+    add("schema_detect_pii", Capability.VERIFY, schema_detect_pii_handler, "Scan indexed warehouse columns for deterministic PII classifications.", platforms=frozenset({Platform.LOCAL}))
 
     add("schema_refresh", Capability.DISCOVER, schema_refresh_handler, "Refresh persistent warehouse metadata using a configured read-only connector.", platforms=frozenset({Platform.LOCAL}))
     add("schema_index", Capability.DISCOVER, schema_refresh_handler, "Index live warehouse metadata into the local metadata service.", platforms=frozenset({Platform.LOCAL}))
@@ -1195,6 +1306,60 @@ def build_tool_registry() -> ToolRegistry:
     add("finops_warehouse_advisor", Capability.PLAN, lambda a: finops_warehouse_advisor(finops_connector(a), days=int(a.get("days", 7))), "Generate evidence-backed warehouse right-sizing recommendations.", platforms=frozenset({Platform.LOCAL}))
     add("finops_idle_resources", Capability.VERIFY, lambda a: finops_idle_resources(finops_connector(a), days=int(a.get("days", 7))), "Detect idle warehouse resources from measured usage.", platforms=frozenset({Platform.LOCAL}))
     add("finops_report", Capability.VERIFY, finops_report_handler, "Build complete query, cost, and warehouse FinOps report.", platforms=frozenset({Platform.LOCAL}))
+
+    def finops_analyze_credits_handler(a: dict[str, Any]) -> dict[str, Any]:
+        try:
+            connector = finops_connector(a)
+            cost = finops_cost_summary(
+                connector,
+                days=int(a.get("days", 30)),
+                credit_price_usd=a.get("credit_price_usd"),
+                region=a.get("region", "region-us"),
+            )
+            usage = finops_warehouse_usage(
+                connector,
+                days=int(a.get("days", 30)),
+            )
+            advisor = finops_warehouse_advisor(
+                connector,
+                days=int(a.get("days", 30)),
+            )
+        except ExternalConnectionUnavailable as exc:
+            return {
+                "status": "SKIP_EXTERNAL",
+                "reason": str(exc),
+                "total_credits": 0,
+                "warehouse_summary": [],
+                "recommendations": [],
+                "daily_usage": [],
+            }
+        return {
+            "status": "PASS",
+            "total_credits": float(
+                cost.get("credits_used")
+                or cost.get("total_credits")
+                or cost.get("credits")
+                or 0
+            ),
+            "days_analyzed": int(a.get("days", 30)),
+            "warehouse_summary": usage.get("warehouses", usage.get("rows", [])),
+            "recommendations": advisor.get("recommendations", []),
+            "daily_usage": cost.get("daily_usage", []),
+            "cost_summary": cost,
+        }
+
+    def finops_role_graph(a: dict[str, Any]) -> dict[str, Any]:
+        inventory = rbac_inventory_handler(a)
+        if inventory.get("status") != "PASS":
+            return inventory
+        return inventory["graph"]
+
+    add("finops_analyze_credits", Capability.VERIFY, finops_analyze_credits_handler, "Reference-compatible credit/cost consumption analysis.", platforms=frozenset({Platform.LOCAL}))
+    add("finops_unused_resources", Capability.VERIFY, lambda a: finops_idle_resources(finops_connector(a), days=int(a.get("days", 30))), "Reference-compatible idle and unused warehouse-resource analysis.", platforms=frozenset({Platform.LOCAL}))
+    add("finops_warehouse_advice", Capability.PLAN, lambda a: finops_warehouse_advisor(finops_connector(a), days=int(a.get("days", 30))), "Reference-compatible warehouse right-sizing advice.", platforms=frozenset({Platform.LOCAL}))
+    add("finops_role_grants", Capability.DISCOVER, lambda a: {"status": "PASS", "graph": finops_role_graph(a), "role": a.get("role"), "object_name": a.get("object_name")}, "Reference-compatible warehouse RBAC grants view.", platforms=frozenset({Platform.LOCAL}))
+    add("finops_role_hierarchy", Capability.DISCOVER, lambda a: {"status": "PASS", "graph": finops_role_graph(a)}, "Reference-compatible role hierarchy view.", platforms=frozenset({Platform.LOCAL}))
+    add("finops_user_roles", Capability.DISCOVER, lambda a: {"status": "PASS", "graph": finops_role_graph(a)}, "Reference-compatible user-to-role assignment view.", platforms=frozenset({Platform.LOCAL}))
 
     add("warehouse_status", Capability.DISCOVER, _warehouse_status, "Report adapter, driver, credentials and local-simulation availability.", platforms=frozenset({Platform.LOCAL}))
     add("warehouse_driver_status", Capability.DISCOVER, lambda a: warehouse_driver_status(a["platform"]), "Report warehouse driver package and installation state.", platforms=frozenset({Platform.LOCAL}))
