@@ -80,6 +80,16 @@ from agentic_data_platform.sql.parity import (
 from agentic_data_platform.connectors.factory import ExternalConnectionUnavailable, connector_from_args
 from agentic_data_platform.metadata.index import MetadataIndex
 from agentic_data_platform.metadata.service import MetadataService
+from agentic_data_platform.governance import (
+    classify_metadata_columns,
+    excessive_privileges as governance_excessive_privileges,
+    object_access as governance_object_access,
+    pii_exposure as governance_pii_exposure,
+    pii_policy_check as governance_pii_policy_check,
+    propagate_pii as governance_propagate_pii,
+    rbac_inventory as governance_rbac_inventory,
+    sensitive_access_report as governance_sensitive_access_report,
+)
 from agentic_data_platform.finops import (
     cost_summary as finops_cost_summary,
     expensive_queries as finops_expensive_queries,
@@ -529,6 +539,125 @@ def build_tool_registry() -> ToolRegistry:
     add("schema_search", Capability.DISCOVER, lambda a: {"assets": _metadata_service(a).search_assets(a.get("query", ""), connection_name=a.get("connection"), limit=int(a.get("limit", 50)))}, "Search persistent warehouse objects.", platforms=frozenset({Platform.LOCAL}))
     add("schema_inspect", Capability.DISCOVER, lambda a: _metadata_service(a).inspect(a["connection"], a["schema"], a["object"]), "Inspect indexed object and column metadata.", platforms=frozenset({Platform.LOCAL}))
     add("schema_tags", Capability.DISCOVER, lambda a: {"tags": _metadata_service(a).tags(a["connection"], a["schema"], a["object"])}, "Return indexed object tags.", platforms=frozenset({Platform.LOCAL}))
+    def pii_scan_handler(a: dict[str, Any]) -> dict[str, Any]:
+        service = _metadata_service(a)
+        columns = service.search_columns(
+            a.get("query", ""),
+            connection_name=a.get("connection"),
+            limit=int(a.get("limit", 1000)),
+        )
+        result = classify_metadata_columns(columns)
+        persisted = 0
+        if bool(a.get("persist", True)):
+            for finding in result["findings"]:
+                if finding.get("object_id") and finding.get("column"):
+                    service.set_pii(
+                        str(finding["object_id"]),
+                        str(finding["column"]),
+                        str(finding["category"]),
+                        float(finding["confidence"]),
+                    )
+                    persisted += 1
+        return {**result, "persisted": persisted}
+
+    def pii_graph_handler(a: dict[str, Any]) -> dict[str, Any]:
+        graph = _column_graph(a).graph()
+        findings = a.get("findings")
+        if findings is None:
+            columns = _metadata_service(a).search_columns(
+                "",
+                connection_name=a.get("connection"),
+                pii_only=True,
+                limit=int(a.get("limit", 5000)),
+            )
+            findings = [
+                {
+                    "node_id": item.get("node_id"),
+                    "asset_id": item.get("asset_id"),
+                    "column": item.get("column_name"),
+                    "category": item.get("pii_category"),
+                    "confidence": item.get("pii_confidence"),
+                    "evidence": ["persisted metadata classification"],
+                }
+                for item in columns
+                if item.get("pii_category")
+            ]
+        return governance_propagate_pii(
+            graph,
+            findings,
+            minimum_confidence=float(a.get("minimum_confidence", 0.7)),
+        )
+
+    def pii_exposure_handler(a: dict[str, Any]) -> dict[str, Any]:
+        graph = _column_graph(a).graph()
+        findings = a.get("findings") or []
+        if not findings:
+            columns = _metadata_service(a).search_columns(
+                "",
+                connection_name=a.get("connection"),
+                pii_only=True,
+                limit=int(a.get("limit", 5000)),
+            )
+            findings = [
+                {
+                    "node_id": item.get("node_id"),
+                    "asset_id": item.get("asset_id"),
+                    "column": item.get("column_name"),
+                    "category": item.get("pii_category"),
+                    "confidence": item.get("pii_confidence"),
+                    "evidence": ["persisted metadata classification"],
+                }
+                for item in columns
+                if item.get("pii_category")
+            ]
+        return governance_pii_exposure(graph, findings)
+
+    def pii_policy_handler(a: dict[str, Any]) -> dict[str, Any]:
+        schema_context = a.get("schema_context")
+        if schema_context is None:
+            schema_context = _metadata_service(a).schema_context(
+                connection_name=a.get("connection"),
+                query=a.get("asset_query", ""),
+                limit=int(a.get("asset_limit", 500)),
+            )
+        return governance_pii_policy_check(
+            a["sql"],
+            schema_context,
+            allow_categories=a.get("allow_categories", ()),
+            action=a.get("action", "query"),
+        )
+
+    def rbac_inventory_handler(a: dict[str, Any]) -> dict[str, Any]:
+        try:
+            connector = finops_connector(a)
+        except ExternalConnectionUnavailable as exc:
+            return {"status": "SKIP_EXTERNAL", "reason": str(exc), "graph": {"nodes": [], "edges": []}}
+        return governance_rbac_inventory(connector)
+
+    def pii_access_handler(a: dict[str, Any]) -> dict[str, Any]:
+        inventory = rbac_inventory_handler(a)
+        if inventory.get("status") != "PASS":
+            return inventory
+        pii_objects = a.get("pii_objects")
+        if pii_objects is None:
+            pii_objects = _metadata_service(a).search_columns(
+                "",
+                connection_name=a.get("connection"),
+                pii_only=True,
+                limit=int(a.get("limit", 5000)),
+            )
+        return governance_sensitive_access_report(inventory["graph"], pii_objects)
+
+    add("pii_scan", Capability.VERIFY, pii_scan_handler, "Classify and optionally persist PII metadata evidence.", platforms=frozenset({Platform.LOCAL}))
+    add("pii_lineage", Capability.DISCOVER, pii_graph_handler, "Propagate evidence-backed PII classifications through dbt column lineage.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
+    add("pii_exposure", Capability.VERIFY, pii_exposure_handler, "Find downstream dbt assets exposed to PII.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
+    add("pii_policy_check", Capability.VERIFY, pii_policy_handler, "Block SQL that references disallowed PII categories.", platforms=frozenset({Platform.LOCAL}))
+    add("pii_downstream_assets", Capability.DISCOVER, pii_exposure_handler, "Return downstream assets carrying propagated PII.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
+    add("rbac_audit", Capability.VERIFY, rbac_inventory_handler, "Build warehouse user-role-object access graph.", platforms=frozenset({Platform.LOCAL}))
+    add("rbac_object_access", Capability.DISCOVER, lambda a: governance_object_access(rbac_inventory_handler(a)["graph"], a["object"]), "List principals with access to a warehouse object.", platforms=frozenset({Platform.LOCAL}))
+    add("rbac_risk", Capability.VERIFY, lambda a: governance_excessive_privileges(rbac_inventory_handler(a)["graph"], observed_objects_by_principal=a.get("observed_objects_by_principal"), minimum_grants=int(a.get("minimum_grants", 20)), unused_ratio_threshold=float(a.get("unused_ratio_threshold", 0.8))), "Detect excessive role/user grants using observed-access evidence.", platforms=frozenset({Platform.LOCAL}))
+    add("pii_access_report", Capability.VERIFY, pii_access_handler, "Correlate PII metadata with warehouse RBAC access.", platforms=frozenset({Platform.LOCAL}))
+
     add("metadata_status", Capability.DISCOVER, lambda a: _metadata_service(a).status(a.get("connection")), "Report metadata index counts and latest refresh evidence.", platforms=frozenset({Platform.LOCAL}))
     add("autocomplete", Capability.DISCOVER, metadata_autocomplete_handler, "Return SQL autocomplete candidates from persistent live metadata.", platforms=frozenset({Platform.LOCAL}))
 
