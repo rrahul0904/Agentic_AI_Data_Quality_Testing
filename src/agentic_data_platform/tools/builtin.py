@@ -149,6 +149,13 @@ from agentic_data_platform.finops import (
     warehouse_usage as finops_warehouse_usage,
 )
 from agentic_data_platform.connections.store import ConnectionStore
+from agentic_data_platform.connections.dbt_profiles import discover_dbt_profiles
+from agentic_data_platform.tools.parity_utils import (
+    PostConnectSuggestions,
+    normalize_error as parity_normalize_error,
+    validate_table_name,
+    validate_warehouse_name,
+)
 from agentic_data_platform.lineage.dbt import DbtColumnGraph
 from agentic_data_platform.lineage.engine import (
     analyze_column_lineage as production_column_lineage,
@@ -163,6 +170,7 @@ from agentic_data_platform.dbt.generation import generate_schema_tests, generate
 
 
 _JOB_ENGINES: dict[str, BackgroundJobEngine] = {}
+_SUGGESTIONS = PostConnectSuggestions()
 
 
 def _target(args: dict[str, Any]) -> Path:
@@ -326,6 +334,49 @@ def build_tool_registry() -> ToolRegistry:
             name=name, capability=capability, risk=risk, supported_platforms=platforms, handler=handler,
             description=description, input_schema=schema or {"type": "object"}, output_schema={"type": "object"},
         ))
+
+    def tool_lookup_handler(a: dict[str, Any]) -> dict[str, Any]:
+        try:
+            definition = registry.describe(a["tool_name"])
+        except KeyError:
+            return {
+                "status": "NOT_FOUND",
+                "tool_name": a.get("tool_name"),
+                "available_tools": [item.name for item in registry.definitions()],
+            }
+        schema = definition.input_schema or {}
+        required = set(schema.get("required") or ())
+        parameters = []
+        for name, field in (schema.get("properties") or {}).items():
+            field = field if isinstance(field, dict) else {}
+            parameters.append(
+                {
+                    "name": name,
+                    "type": field.get("type", "unknown"),
+                    "required": name in required,
+                    "description": field.get("description", ""),
+                }
+            )
+        return {
+            "status": "PASS",
+            "tool": {
+                "name": definition.name,
+                "description": definition.description,
+                "capability": definition.capability.value,
+                "risk": definition.risk.value,
+                "enabled": definition.enabled,
+                "platforms": sorted(item.value for item in definition.supported_platforms),
+                "input_schema": schema,
+                "output_schema": definition.output_schema,
+                "parameters": parameters,
+            },
+        }
+
+    add("tool_lookup", Capability.DISCOVER, tool_lookup_handler, "Look up a deterministic tool's full contract, risk and parameter schema.", platforms=frozenset({Platform.LOCAL}))
+    add("input_validation", Capability.VERIFY, lambda a: {"status": "PASS" if not (validate_warehouse_name(a.get("warehouse")) or validate_table_name(a.get("table")) if "table" in a else validate_warehouse_name(a.get("warehouse"))) else "FAIL", "warehouse_error": validate_warehouse_name(a.get("warehouse")), "table_error": validate_table_name(a.get("table")) if "table" in a else None}, "Validate warehouse and table names before routing external operations.", platforms=frozenset({Platform.LOCAL}))
+    add("response_normalization", Capability.VERIFY, lambda a: {"status": "PASS", "error": parity_normalize_error(a.get("error"))}, "Normalize external error envelopes without leaking arbitrary object details.", platforms=frozenset({Platform.LOCAL}))
+    add("post_connect_suggestions", Capability.DISCOVER, lambda a: {"status": "PASS", "suggestions": _SUGGESTIONS.post_connect(warehouse_type=a.get("warehouse_type", "warehouse"), schema_indexed=bool(a.get("schema_indexed", False)), dbt_detected=bool(a.get("dbt_detected", False)), connection_count=int(a.get("connection_count", 1))), "progressive": _SUGGESTIONS.progressive(a.get("last_tool_used", "")) if a.get("last_tool_used") else None}, "Return contextual post-connect and progressive capability suggestions.", platforms=frozenset({Platform.LOCAL}))
+    add("dbt_profiles", Capability.DISCOVER, lambda a: discover_dbt_profiles(path=a.get("path"), project_dir=a.get("project_dir") or a.get("project")), "Discover dbt profiles.yml warehouse outputs with credential redaction.", platforms=frozenset({Platform.LOCAL}))
 
     add("platform_discover", Capability.DISCOVER, lambda a: PlatformDiscovery(_target(a)).discover(), "Discover data-platform components and deterministic counts.")
     add("platform_inventory", Capability.DISCOVER, lambda a: PlatformDiscovery(_target(a)).inventory(), "Inventory dbt, Airflow, sources, Snowflake static objects and integrations.")
