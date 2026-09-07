@@ -78,6 +78,12 @@ from agentic_data_platform.sql.parity import (
 )
 from agentic_data_platform.connectors.factory import ExternalConnectionUnavailable, connector_from_args
 from agentic_data_platform.metadata.index import MetadataIndex
+from agentic_data_platform.lineage.dbt import DbtColumnGraph
+from agentic_data_platform.lineage.engine import (
+    analyze_column_lineage as production_column_lineage,
+    column_downstream as production_column_downstream,
+    column_upstream as production_column_upstream,
+)
 from .registry import ToolDefinition, ToolRegistry
 from agentic_data_platform.dbt.manifest_graph import DbtArtifacts, DbtManifestGraph
 
@@ -93,6 +99,15 @@ def _dbt(args: dict[str, Any]) -> DbtManifestGraph:
 
 def _depth(args: dict[str, Any]) -> int | None:
     return int(args["depth"]) if args.get("depth") is not None else None
+
+
+def _column_graph(args: dict[str, Any], key: str = "target_dir") -> DbtColumnGraph:
+    raw = args.get(key)
+    if raw:
+        target = Path(raw).expanduser().resolve()
+    else:
+        target = (_target(args) / "dbt" / "target").resolve()
+    return DbtColumnGraph.load(target, dialect=args.get("dialect", "snowflake"))
 
 
 def _dbt_handler(method: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
@@ -292,11 +307,60 @@ def build_tool_registry() -> ToolRegistry:
     add("sql_translate", Capability.GENERATE, lambda a: sql_translate_impl(a["sql"], a["source_dialect"], a["target_dialect"]), "Translate SQL across major dialects with semantic-risk warnings.", platforms=sql_platforms)
     add("sql_fingerprint", Capability.VERIFY, lambda a: sql_fingerprint_impl(a["sql"], a.get("dialect")), "Return PII-safe structural SQL fingerprint.", platforms=sql_platforms)
 
+    def column_lineage_handler(a: dict[str, Any]) -> dict[str, Any]:
+        if a.get("sql"):
+            return production_column_lineage(
+                a["sql"],
+                dialect=a.get("dialect"),
+                schema=a.get("schema") or a.get("schema_context"),
+                sources=a.get("sources"),
+            )
+        graph = _column_graph(a)
+        if a.get("asset") and a.get("column"):
+            return {
+                "column": graph.resolve_column(a["asset"], a["column"]),
+                "upstream": graph.upstream(a["asset"], a["column"], _depth(a))["upstream"],
+                "downstream": graph.downstream(a["asset"], a["column"], _depth(a))["downstream"],
+            }
+        return graph.graph()
+
+    def column_upstream_handler(a: dict[str, Any]) -> dict[str, Any]:
+        if a.get("sql"):
+            result = production_column_lineage(
+                a["sql"],
+                dialect=a.get("dialect"),
+                schema=a.get("schema") or a.get("schema_context"),
+                sources=a.get("sources"),
+            )
+            return production_column_upstream(result, a["column"])
+        return _column_graph(a).upstream(a["asset"], a["column"], _depth(a))
+
+    def column_downstream_handler(a: dict[str, Any]) -> dict[str, Any]:
+        if a.get("sql"):
+            result = production_column_lineage(
+                a["sql"],
+                dialect=a.get("dialect"),
+                schema=a.get("schema") or a.get("schema_context"),
+                sources=a.get("sources"),
+            )
+            return production_column_downstream(result, a["column"], a.get("table"))
+        return _column_graph(a).downstream(a["asset"], a["column"], _depth(a))
+
+    def column_diff_handler(a: dict[str, Any]) -> dict[str, Any]:
+        current = _column_graph(a)
+        previous = _column_graph(a, "previous_target_dir")
+        return previous.diff(current)
+
     add("sql_review", Capability.VERIFY, lambda a: review_sql(a["sql"], a.get("dialect")), "Review SQL with deterministic AST safety and performance rules.", platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE, Platform.BIGQUERY, Platform.REDSHIFT, Platform.SPARK}))
-    add("sql_lineage", Capability.DISCOVER, lambda a: sql_lineage(a["sql"], a.get("dialect")), "Calculate first-version table and column SQL lineage.", platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE, Platform.BIGQUERY, Platform.REDSHIFT, Platform.SPARK}))
-    add("sql_column_lineage", Capability.DISCOVER, lambda a: column_lineage(a["sql"], a.get("dialect")), "Map projected columns to source columns.", platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE, Platform.BIGQUERY, Platform.REDSHIFT, Platform.SPARK}))
-    add("column_upstream", Capability.DISCOVER, lambda a: column_upstream(a["sql"], a["column"], a.get("dialect")), "Find SQL column upstream lineage.", platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE, Platform.BIGQUERY, Platform.REDSHIFT, Platform.SPARK}))
-    add("column_downstream", Capability.DISCOVER, lambda a: column_downstream(a["sql"], a["column"], a.get("dialect")), "Find SQL column downstream projections.", platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE, Platform.BIGQUERY, Platform.REDSHIFT, Platform.SPARK}))
+    add("sql_lineage", Capability.DISCOVER, lambda a: {**sql_lineage(a["sql"], a.get("dialect")), "production": production_column_lineage(a["sql"], dialect=a.get("dialect"), schema=a.get("schema") or a.get("schema_context"), sources=a.get("sources"))}, "Calculate table and production column SQL lineage.", platforms=sql_platforms)
+    add("sql_column_lineage", Capability.DISCOVER, lambda a: production_column_lineage(a["sql"], dialect=a.get("dialect"), schema=a.get("schema") or a.get("schema_context"), sources=a.get("sources")), "Resolve scope-aware projected columns to source columns with ambiguity evidence.", platforms=sql_platforms)
+    add("column_lineage", Capability.DISCOVER, column_lineage_handler, "Resolve SQL or dbt project-wide column lineage.", platforms=sql_platforms)
+    add("column_upstream", Capability.DISCOVER, column_upstream_handler, "Traverse SQL or dbt project column upstream lineage.", platforms=sql_platforms)
+    add("column_downstream", Capability.DISCOVER, column_downstream_handler, "Traverse SQL or dbt project column downstream lineage.", platforms=sql_platforms)
+    add("column_impact", Capability.DISCOVER, lambda a: _column_graph(a).impact(a["asset"], a["column"], _depth(a)), "Calculate dbt downstream impact for a changed column.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
+    add("column_lineage_diff", Capability.VERIFY, column_diff_handler, "Compare project column-lineage edges across dbt artifact states.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
+    add("project_column_graph", Capability.DISCOVER, lambda a: _column_graph(a).graph(), "Build the dbt project-wide column graph from compiled SQL and catalog metadata.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
+    add("column_path", Capability.DISCOVER, lambda a: _column_graph(a).path(a["source_asset"], a["source_column"], a["target_asset"], a["target_column"]), "Find a concrete multi-hop project column path.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
     add("metadata_search", Capability.DISCOVER, lambda a: {"assets": MetadataIndex(a.get("database", ":memory:")).search_assets(a.get("query", ""), kind=a.get("kind"))}, "Search the local schema-aware metadata index.", platforms=frozenset({Platform.LOCAL}))
     add("metadata_column_search", Capability.DISCOVER, lambda a: {"columns": MetadataIndex(a.get("database", ":memory:")).search_columns(a.get("query", ""), pii_only=a.get("pii_only", False))}, "Search indexed columns and PII flags.", platforms=frozenset({Platform.LOCAL}))
     add("warehouse_status", Capability.DISCOVER, _warehouse_status, "Report adapter, driver, credentials and local-simulation availability.", platforms=frozenset({Platform.LOCAL}))
