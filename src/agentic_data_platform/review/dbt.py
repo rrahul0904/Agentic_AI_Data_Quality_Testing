@@ -336,3 +336,72 @@ def format_review_body(review: Mapping[str, Any]) -> str:
         "This verdict is produced by deterministic validators and tools; an LLM does not decide blocking status.",
     ]
     return "\n".join(lines)
+
+
+def change_impact(review: Mapping[str, Any]) -> dict[str, Any]:
+    impacts = list(review.get("evidence", {}).get("impacts", ()))
+    return {
+        "status": "PASS",
+        "changed_models": review.get("evidence", {}).get("changed_models", ()),
+        "impacts": impacts,
+        "affected_assets": sum(
+            len(item.get("transitive_downstream", ())) for item in impacts
+        ),
+        "highest_severity": (
+            "HIGH"
+            if any(item.get("severity") == "HIGH" for item in impacts)
+            else "MEDIUM"
+            if any(item.get("severity") == "MEDIUM" for item in impacts)
+            else "LOW"
+        ),
+        "review_signature": review.get("signature"),
+    }
+
+
+def recommended_tests(review: Mapping[str, Any]) -> dict[str, Any]:
+    selectors = sorted(
+        {
+            str(item.get("recommended_selector"))
+            for item in review.get("evidence", {}).get("test_gaps", ())
+            if item.get("recommended_selector")
+        }
+    )
+    impacted_tests = sorted(
+        {
+            str(test.get("unique_id"))
+            for impact in review.get("evidence", {}).get("impacts", ())
+            for test in impact.get("affected_tests", ())
+            if test.get("unique_id")
+        }
+    )
+    return {
+        "status": "PASS",
+        "selectors": selectors,
+        "affected_tests": impacted_tests,
+        "review_signature": review.get("signature"),
+    }
+
+
+def deployment_risk(review: Mapping[str, Any]) -> dict[str, Any]:
+    blockers = list(review.get("blockers") or ())
+    impacts = list(review.get("evidence", {}).get("impacts", ()))
+    failed_tests = list(review.get("evidence", {}).get("failed_tests", ()))
+    if blockers or failed_tests:
+        risk = "HIGH"
+    elif any(item.get("severity") == "HIGH" for item in impacts):
+        risk = "HIGH"
+    elif review.get("comments"):
+        risk = "MEDIUM"
+    else:
+        risk = "LOW"
+    return {
+        "status": "PASS",
+        "risk": risk,
+        "verdict": review.get("verdict"),
+        "blocker_count": len(blockers),
+        "comment_count": len(review.get("comments") or ()),
+        "changed_model_count": len(
+            review.get("evidence", {}).get("changed_models", ())
+        ),
+        "review_signature": review.get("signature"),
+    }
