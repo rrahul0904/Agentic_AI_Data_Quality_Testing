@@ -59,6 +59,7 @@ from agentic_data_platform.remediation.proposals import (
     propose_sql_repair as propose_sql_repair_impl,
 )
 from agentic_data_platform.quality.store import SQLiteQualityStore
+from agentic_data_platform.quality.warehouse_diff import WarehouseDiffEngine
 from agentic_data_platform.sql.intelligence import (
     column_downstream, column_lineage, column_upstream, review_sql, sql_lineage,
 )
@@ -138,6 +139,24 @@ def _connection_store(args: dict[str, Any]) -> ConnectionStore:
 def _metadata_service(args: dict[str, Any]) -> MetadataService:
     path = args.get("metadata_database") or (_target(args) / ".ade" / "metadata.db")
     return MetadataService(path)
+
+
+def _connector_profile(args: dict[str, Any], side: str):
+    injected = args.get(f"_{side}_connector")
+    if injected is not None:
+        return injected
+    connection_name = args.get(f"{side}_connection")
+    if connection_name:
+        profile = _connection_store(args).resolve_config(connection_name)
+        return connector_from_args({"platform": profile["platform"], "config": profile["config"]})
+    definition = args.get(side) or {}
+    if not isinstance(definition, dict) or not definition.get("platform"):
+        raise ValueError(f"{side} connector requires {side}_connection or a platform/config object")
+    return connector_from_args(definition)
+
+
+def _warehouse_diff_engine(args: dict[str, Any]) -> WarehouseDiffEngine:
+    return WarehouseDiffEngine(_connector_profile(args, "source"), _connector_profile(args, "target"))
 
 
 def _module_available(name: str) -> bool:
@@ -454,10 +473,82 @@ def build_tool_registry() -> ToolRegistry:
     add("data_diff_schema", Capability.VERIFY, lambda a: data_diff_schema_impl(a["source_schema"], a["target_schema"]), "Compare source and target schemas.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
     add("data_diff_row_count", Capability.VERIFY, lambda a: data_diff_row_count_impl(a["source_count"], a["target_count"], tolerance=a.get("tolerance", 0)), "Compare source and target row counts for a data-diff run.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
     add("data_diff_keys", Capability.VERIFY, lambda a: data_diff_keys_impl(a["source_rows"], a["target_rows"], a["key_columns"]), "Compare keyed row membership and duplicate keys.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
-    add("data_diff_hash", Capability.VERIFY, lambda a: data_diff_hash_impl(a["source_rows"], a["target_rows"], a["key_columns"]), "Compare canonical row hashes by business key.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
+    def data_diff_hash_handler(a: dict[str, Any]) -> dict[str, Any]:
+        if "source_rows" in a:
+            return data_diff_hash_impl(a["source_rows"], a["target_rows"], a["key_columns"])
+        try:
+            return _warehouse_diff_engine(a).hash(
+                a["source_table"],
+                a["target_table"],
+                key_columns=a["key_columns"],
+                compare_columns=a.get("compare_columns"),
+                exclude_columns=a.get("exclude_columns", ()),
+                where=a.get("where"),
+                max_partition_rows=int(a.get("max_partition_rows", 50000)),
+                max_depth=int(a.get("max_depth", 24)),
+                detail_limit=int(a.get("detail_limit", 100)),
+            )
+        except ExternalConnectionUnavailable as exc:
+            return {"algorithm": "HASH_DIFF", "status": "SKIP_EXTERNAL", "reason": str(exc)}
+
+    add("data_diff_hash", Capability.VERIFY, data_diff_hash_handler, "Run bounded partition hash diff across configured warehouses or compare local row hashes.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
     add("data_diff_rows", Capability.VERIFY, lambda a: data_diff_rows_impl(a["source_rows"], a["target_rows"], a["key_columns"], compare_columns=a.get("compare_columns")), "Return missing, extra, changed and matching keyed rows.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
     add("data_diff_aggregate", Capability.VERIFY, lambda a: data_diff_aggregate_impl(a["source_rows"], a["target_rows"], a["column"], aggregate=a.get("aggregate", "sum"), tolerance=a.get("tolerance", 0)), "Compare deterministic source/target aggregates.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
     add("data_diff_report", Capability.VERIFY, lambda a: data_diff_report_impl(a["source_rows"], a["target_rows"], a["key_columns"], aggregate_columns=a.get("aggregate_columns", ())), "Build a composite schema/row/key/hash/aggregate data-diff report.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
+    def production_diff(a: dict[str, Any], algorithm: str) -> dict[str, Any]:
+        try:
+            engine = _warehouse_diff_engine(a)
+            common = {
+                "key_columns": a["key_columns"],
+                "compare_columns": a.get("compare_columns"),
+                "exclude_columns": a.get("exclude_columns", ()),
+            }
+            if algorithm == "PLAN":
+                return engine.plan(a["source_table"], a["target_table"], **common)
+            if algorithm == "PROFILE":
+                return engine.profile(
+                    a["source_table"],
+                    a["target_table"],
+                    columns=a.get("columns"),
+                    where=a.get("where"),
+                    numeric_tolerance=float(a.get("numeric_tolerance", 0.0)),
+                )
+            if algorithm == "JOIN_DIFF":
+                return engine.join(
+                    a["source_table"],
+                    a["target_table"],
+                    **common,
+                    where=a.get("where"),
+                    row_sample_limit=int(a.get("row_sample_limit", 10000)),
+                )
+            if algorithm == "CASCADE":
+                return engine.cascade(
+                    a["source_table"],
+                    a["target_table"],
+                    **common,
+                    where=a.get("where"),
+                    numeric_tolerance=float(a.get("numeric_tolerance", 0.0)),
+                    max_partition_rows=int(a.get("max_partition_rows", 50000)),
+                    detail_limit=int(a.get("detail_limit", 100)),
+                )
+            return engine.auto(
+                a["source_table"],
+                a["target_table"],
+                **common,
+                where=a.get("where"),
+                row_sample_limit=int(a.get("row_sample_limit", 10000)),
+                max_partition_rows=int(a.get("max_partition_rows", 50000)),
+                detail_limit=int(a.get("detail_limit", 100)),
+            )
+        except ExternalConnectionUnavailable as exc:
+            return {"algorithm": algorithm, "status": "SKIP_EXTERNAL", "reason": str(exc)}
+
+    add("data_diff", Capability.VERIFY, lambda a: production_diff(a, "AUTO"), "Auto-select production cross-warehouse data diff.", platforms=frozenset({Platform.LOCAL}))
+    add("data_diff_plan", Capability.PLAN, lambda a: production_diff(a, "PLAN"), "Plan a production cross-warehouse data diff.", platforms=frozenset({Platform.LOCAL}))
+    add("data_diff_profile", Capability.VERIFY, lambda a: production_diff(a, "PROFILE"), "Run PII-safe profile diff without retrieving raw rows.", platforms=frozenset({Platform.LOCAL}))
+    add("data_diff_join", Capability.VERIFY, lambda a: production_diff(a, "JOIN_DIFF"), "Run warehouse-pushdown or bounded cross-warehouse join diff.", platforms=frozenset({Platform.LOCAL}))
+    add("data_diff_cascade", Capability.VERIFY, lambda a: production_diff(a, "CASCADE"), "Run profile then bounded hash/detail cascade diff.", platforms=frozenset({Platform.LOCAL}))
+
     add("data_diff_duckdb_demo", Capability.VERIFY, lambda a: duckdb_demo_diff(), "Run a real in-memory DuckDB source-target data-diff fixture.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
 
     # Advanced dbt artifact intelligence.
