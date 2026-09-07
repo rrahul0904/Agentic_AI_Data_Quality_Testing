@@ -1,0 +1,153 @@
+"""External review delivery adapters. Network mutation is separate from review logic."""
+
+from __future__ import annotations
+
+import json
+import os
+from typing import Any, Callable, Mapping
+from urllib.parse import quote
+from urllib.request import Request, urlopen
+
+from agentic_data_platform.review.dbt import format_review_body
+
+
+Sender = Callable[[str, str, dict[str, str], dict[str, Any]], dict[str, Any]]
+
+
+def _default_sender(
+    method: str,
+    url: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    request = Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers={**headers, "Content-Type": "application/json"},
+        method=method,
+    )
+    with urlopen(request, timeout=30) as response:
+        raw = response.read().decode(errors="replace")
+        try:
+            body: Any = json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            body = {"raw": raw}
+        return {
+            "http_status": int(response.status),
+            "body": body,
+        }
+
+
+def deliver_github_review(
+    review: Mapping[str, Any],
+    *,
+    repository: str,
+    pull_number: int,
+    token_env: str = "GITHUB_TOKEN",
+    api_url: str = "https://api.github.com",
+    dry_run: bool = False,
+    sender: Sender | None = None,
+) -> dict[str, Any]:
+    if "/" not in repository:
+        raise ValueError("GitHub repository must be owner/name")
+    event = {
+        "APPROVE": "APPROVE",
+        "COMMENT": "COMMENT",
+        "REQUEST_CHANGES": "REQUEST_CHANGES",
+    }.get(str(review.get("verdict")))
+    if event is None:
+        raise ValueError(f"unsupported review verdict: {review.get('verdict')}")
+    body = format_review_body(review)
+    payload = {"body": body, "event": event}
+    if dry_run:
+        return {
+            "status": "DRY_RUN",
+            "provider": "github",
+            "repository": repository,
+            "pull_number": int(pull_number),
+            "payload": payload,
+        }
+
+    token = os.getenv(token_env)
+    if not token:
+        return {
+            "status": "SKIP_EXTERNAL",
+            "provider": "github",
+            "reason": f"{token_env} is not configured",
+        }
+    transport = sender or _default_sender
+    result = transport(
+        "POST",
+        api_url.rstrip("/")
+        + f"/repos/{repository}/pulls/{int(pull_number)}/reviews",
+        {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "agentic-data-engineering-os",
+        },
+        payload,
+    )
+    return {
+        "status": "PASS"
+        if 200 <= int(result.get("http_status", 0)) < 300
+        else "FAIL",
+        "provider": "github",
+        "repository": repository,
+        "pull_number": int(pull_number),
+        "verdict": review.get("verdict"),
+        "signature": review.get("signature"),
+        **result,
+    }
+
+
+def deliver_gitlab_review(
+    review: Mapping[str, Any],
+    *,
+    project: str,
+    merge_request_iid: int,
+    token_env: str = "GITLAB_TOKEN",
+    api_url: str = "https://gitlab.com/api/v4",
+    dry_run: bool = False,
+    sender: Sender | None = None,
+) -> dict[str, Any]:
+    body = format_review_body(review)
+    payload = {"body": body}
+    if dry_run:
+        return {
+            "status": "DRY_RUN",
+            "provider": "gitlab",
+            "project": project,
+            "merge_request_iid": int(merge_request_iid),
+            "payload": payload,
+        }
+
+    token = os.getenv(token_env)
+    if not token:
+        return {
+            "status": "SKIP_EXTERNAL",
+            "provider": "gitlab",
+            "reason": f"{token_env} is not configured",
+        }
+    transport = sender or _default_sender
+    encoded = quote(project, safe="")
+    result = transport(
+        "POST",
+        api_url.rstrip("/")
+        + f"/projects/{encoded}/merge_requests/{int(merge_request_iid)}/notes",
+        {
+            "PRIVATE-TOKEN": token,
+            "User-Agent": "agentic-data-engineering-os",
+        },
+        payload,
+    )
+    return {
+        "status": "PASS"
+        if 200 <= int(result.get("http_status", 0)) < 300
+        else "FAIL",
+        "provider": "gitlab",
+        "project": project,
+        "merge_request_iid": int(merge_request_iid),
+        "verdict": review.get("verdict"),
+        "signature": review.get("signature"),
+        **result,
+    }
