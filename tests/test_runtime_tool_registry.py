@@ -227,7 +227,8 @@ def test_background_jobs_accept_read_only_tools_and_refuse_mutations(tmp_path):
             break
         time.sleep(0.01)
     assert current["status"] == "SUCCESS"
-    assert current["result"]["read_only"] is True
+    assert current["result"]["query_type"] == "read"
+    assert current["result"]["blocked"] is False
 
     with pytest.raises(PermissionError):
         invoke(
