@@ -1135,6 +1135,8 @@ def build_tool_registry() -> ToolRegistry:
     add("finops_report", Capability.VERIFY, finops_report_handler, "Build complete query, cost, and warehouse FinOps report.", platforms=frozenset({Platform.LOCAL}))
 
     add("warehouse_status", Capability.DISCOVER, _warehouse_status, "Report adapter, driver, credentials and local-simulation availability.", platforms=frozenset({Platform.LOCAL}))
+    add("warehouse_driver_status", Capability.DISCOVER, lambda a: warehouse_driver_status(a["platform"]), "Report warehouse driver package and installation state.", platforms=frozenset({Platform.LOCAL}))
+    add("warehouse_install_driver", Capability.EXECUTE, lambda a: install_warehouse_driver(a["platform"], dry_run=bool(a.get("dry_run", True))), "Install one allowlisted warehouse driver package; dry-run is the default.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
 
     shiftforge_root = _target({"project": Path(__file__).resolve().parents[3] / "shiftforge"})
     if (shiftforge_root / "src" / "shiftforge").is_dir():
