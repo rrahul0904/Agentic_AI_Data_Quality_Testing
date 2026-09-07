@@ -5,7 +5,10 @@ from dataclasses import dataclass
 from typing import Callable
 
 from .anthropic import AnthropicProvider
+from .azure import AzureOpenAIProvider
 from .base import Provider
+from .bedrock import BedrockProvider
+from .gemini import GeminiProvider, VertexAIProvider
 from .openai_compatible import OpenAICompatibleProvider
 
 
@@ -19,6 +22,7 @@ class ProviderSpec:
     supports_streaming: bool = True
     supports_reasoning: bool = False
     notes: str = ""
+    required_envs: tuple[str, ...] = ()
 
 
 _OPENAI_COMPATIBLE: dict[str, ProviderSpec] = {
@@ -33,6 +37,13 @@ _OPENAI_COMPATIBLE: dict[str, ProviderSpec] = {
     "cerebras": ProviderSpec("cerebras", "openai-compatible", "https://api.cerebras.ai/v1", "CEREBRAS_API_KEY"),
     "perplexity": ProviderSpec("perplexity", "openai-compatible", "https://api.perplexity.ai", "PERPLEXITY_API_KEY"),
     "vercel": ProviderSpec("vercel", "openai-compatible", "https://ai-gateway.vercel.sh/v1", "AI_GATEWAY_API_KEY"),
+    "ollama": ProviderSpec(
+        "ollama",
+        "openai-compatible",
+        os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
+        None,
+        notes="Local Ollama OpenAI-compatible endpoint; connectivity is checked separately.",
+    ),
 }
 
 
@@ -52,6 +63,68 @@ class ProviderRegistry:
         anthropic = ProviderSpec("anthropic", "anthropic-messages", "https://api.anthropic.com/v1", "ANTHROPIC_API_KEY", supports_reasoning=True)
         self.register(anthropic, lambda: AnthropicProvider())
 
+        gemini = ProviderSpec(
+            "gemini",
+            "gemini-generate-content",
+            "https://generativelanguage.googleapis.com/v1beta",
+            "GEMINI_API_KEY",
+            supports_reasoning=True,
+        )
+        self.register(
+            gemini,
+            lambda: GeminiProvider(os.getenv("GEMINI_API_KEY")),
+        )
+
+        azure = ProviderSpec(
+            "azure-openai",
+            "azure-openai",
+            os.getenv("AZURE_OPENAI_ENDPOINT", ""),
+            "AZURE_OPENAI_API_KEY",
+            supports_reasoning=True,
+            required_envs=("AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_DEPLOYMENT"),
+        )
+        self.register(
+            azure,
+            lambda: AzureOpenAIProvider(
+                os.getenv("AZURE_OPENAI_ENDPOINT", ""),
+                os.getenv("AZURE_OPENAI_API_KEY"),
+                os.getenv("AZURE_OPENAI_DEPLOYMENT", ""),
+                api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21"),
+            ),
+        )
+
+        vertex = ProviderSpec(
+            "vertex",
+            "vertex-gemini",
+            "https://aiplatform.googleapis.com",
+            "GOOGLE_CLOUD_ACCESS_TOKEN",
+            supports_reasoning=True,
+            required_envs=("GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION"),
+        )
+        self.register(
+            vertex,
+            lambda: VertexAIProvider(
+                os.getenv("GOOGLE_CLOUD_PROJECT", ""),
+                os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"),
+                os.getenv("GOOGLE_CLOUD_ACCESS_TOKEN"),
+            ),
+        )
+
+        bedrock = ProviderSpec(
+            "bedrock",
+            "aws-bedrock-converse",
+            "aws://bedrock-runtime",
+            None,
+            supports_reasoning=True,
+            notes="Uses the AWS credential provider chain; live auth is verified on use.",
+        )
+        self.register(
+            bedrock,
+            lambda: BedrockProvider(
+                region=os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION")
+            ),
+        )
+
     def register(self, spec: ProviderSpec, factory: Callable[[], Provider]) -> None:
         self._specs[spec.name] = spec
         self._factories[spec.name] = factory
@@ -66,7 +139,11 @@ class ProviderRegistry:
                 "protocol": spec.protocol,
                 "base_url": spec.base_url,
                 "api_key_env": spec.api_key_env,
-                "configured": bool(os.getenv(spec.api_key_env)) if spec.api_key_env else True,
+                "configured": (
+                    (bool(os.getenv(spec.api_key_env)) if spec.api_key_env else True)
+                    and all(bool(os.getenv(name)) for name in spec.required_envs)
+                ),
+                "required_envs": list(spec.required_envs),
                 "supports_tools": spec.supports_tools,
                 "supports_streaming": spec.supports_streaming,
                 "supports_reasoning": spec.supports_reasoning,
