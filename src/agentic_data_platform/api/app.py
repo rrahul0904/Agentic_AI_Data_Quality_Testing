@@ -630,6 +630,411 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             raise HTTPException(404, f"unknown {domain} operation: {operation}")
         return invoke_governed(tool_name, payload)
 
+    # --- Phase 2 stable runtime API -------------------------------------------------
+
+    def runtime_args(**extra: Any) -> dict[str, Any]:
+        return {**demo_project_args(), **extra}
+
+    @app.get("/api/v1/sessions")
+    def session_list(limit: int = 100) -> dict[str, Any]:
+        return invoke_read("session_list", runtime_args(limit=limit))
+
+    @app.post("/api/v1/sessions")
+    def session_create(payload: SessionCreateInput) -> dict[str, Any]:
+        return invoke_governed(
+            "session_create",
+            runtime_args(
+                title=payload.title,
+                provider=payload.provider,
+                model=payload.model,
+                metadata=payload.metadata,
+            ),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/sessions/{session_id}")
+    def session_show(session_id: str) -> dict[str, Any]:
+        return invoke_read("session_show", runtime_args(session_id=session_id))
+
+    @app.get("/api/v1/sessions/{session_id}/messages")
+    def session_messages(session_id: str, limit: int | None = None) -> dict[str, Any]:
+        return invoke_read(
+            "session_messages",
+            runtime_args(session_id=session_id, limit=limit),
+        )
+
+    @app.post("/api/v1/sessions/{session_id}/messages")
+    def session_message_add(session_id: str, payload: SessionMessageInput) -> dict[str, Any]:
+        return invoke_governed(
+            "session_message_add",
+            runtime_args(
+                session_id=session_id,
+                role=payload.role,
+                content=payload.content,
+                error=payload.error,
+                metadata=payload.metadata,
+            ),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/sessions/{session_id}/todos")
+    def session_todos(session_id: str) -> dict[str, Any]:
+        return invoke_read("session_todos", runtime_args(session_id=session_id))
+
+    @app.post("/api/v1/sessions/{session_id}/todos")
+    def session_todo_add(session_id: str, payload: SessionTodoInput) -> dict[str, Any]:
+        return invoke_governed(
+            "session_todo_add",
+            runtime_args(
+                session_id=session_id,
+                text=payload.text,
+                priority=payload.priority,
+            ),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.patch("/api/v1/sessions/todos/{todo_id}")
+    def session_todo_update(todo_id: str, payload: SessionTodoUpdateInput) -> dict[str, Any]:
+        return invoke_governed(
+            "session_todo_update",
+            runtime_args(todo_id=todo_id, status=payload.status),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.post("/api/v1/sessions/{session_id}/compact")
+    def session_compact(session_id: str, payload: ArgsInput) -> dict[str, Any]:
+        return invoke_governed(
+            "session_compact",
+            runtime_args(session_id=session_id, **payload.args),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/sessions/{session_id}/termination")
+    def session_termination(session_id: str) -> dict[str, Any]:
+        return invoke_read(
+            "session_termination",
+            runtime_args(session_id=session_id),
+        )
+
+    @app.get("/api/v1/memory")
+    def memory_list(query: str = "", project_id: str | None = None, limit: int = 100) -> dict[str, Any]:
+        tool = "memory_search" if query else "memory_list"
+        return invoke_read(
+            tool,
+            runtime_args(query=query, project_id=project_id, limit=limit),
+        )
+
+    @app.post("/api/v1/memory")
+    def memory_save(payload: MemorySaveInput) -> dict[str, Any]:
+        return invoke_governed(
+            "memory_save",
+            runtime_args(**payload.model_dump()),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.delete("/api/v1/memory/{memory_id}")
+    def memory_remove(memory_id: str) -> dict[str, Any]:
+        return invoke_governed(
+            "memory_remove",
+            runtime_args(memory_id=memory_id),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/training/status")
+    def training_status() -> dict[str, Any]:
+        return invoke_read("training_status", runtime_args())
+
+    @app.get("/api/v1/training/search")
+    def training_search(query: str, limit: int = 10) -> dict[str, Any]:
+        return invoke_read(
+            "training_search",
+            runtime_args(query=query, limit=limit),
+        )
+
+    @app.post("/api/v1/training/ingest-text")
+    def training_ingest_text(payload: TrainingTextInput) -> dict[str, Any]:
+        return invoke_governed(
+            "training_ingest_text",
+            runtime_args(**payload.model_dump()),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.post("/api/v1/training/ingest-project")
+    def training_ingest_project(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_governed(
+            "training_ingest",
+            runtime_args(**payload.args),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.delete("/api/v1/training")
+    def training_clear() -> dict[str, Any]:
+        return invoke_governed(
+            "training_clear",
+            runtime_args(),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/skills/catalog")
+    def skill_catalog() -> dict[str, Any]:
+        return invoke_read("skill_catalog", runtime_args())
+
+    @app.get("/api/v1/skills")
+    def skill_list() -> dict[str, Any]:
+        return invoke_read("skill_list", runtime_args())
+
+    @app.post("/api/v1/skills")
+    def skill_create(payload: SkillCreateInput) -> dict[str, Any]:
+        return invoke_governed(
+            "skill_create",
+            runtime_args(**payload.model_dump()),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.post("/api/v1/skills/install")
+    def skill_install(payload: SkillInstallInput) -> dict[str, Any]:
+        return invoke_governed(
+            "skill_install",
+            runtime_args(**payload.model_dump(exclude_none=True)),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/skills/{name}")
+    def skill_show(name: str) -> dict[str, Any]:
+        return invoke_read("skill_show", runtime_args(name=name))
+
+    @app.get("/api/v1/skills/{name}/test")
+    def skill_test(name: str) -> dict[str, Any]:
+        return invoke_read("skill_test", runtime_args(name=name))
+
+    @app.post("/api/v1/skills/{name}/enable")
+    def skill_enable(name: str) -> dict[str, Any]:
+        return invoke_governed(
+            "skill_enable",
+            runtime_args(name=name),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.post("/api/v1/skills/{name}/disable")
+    def skill_disable(name: str) -> dict[str, Any]:
+        return invoke_governed(
+            "skill_disable",
+            runtime_args(name=name),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.delete("/api/v1/skills/{name}")
+    def skill_remove(name: str) -> dict[str, Any]:
+        return invoke_governed(
+            "skill_remove",
+            runtime_args(name=name),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/traces")
+    def trace_list(limit: int = 100) -> dict[str, Any]:
+        return invoke_read("trace_list", runtime_args(limit=limit))
+
+    @app.get("/api/v1/traces/{trace_id}")
+    def trace_show(trace_id: str) -> dict[str, Any]:
+        return invoke_read("trace_show", runtime_args(trace_id=trace_id))
+
+    @app.get("/api/v1/traces/{trace_id}/export")
+    def trace_export(trace_id: str, format: str = "json") -> dict[str, Any]:
+        return invoke_read(
+            "trace_export",
+            runtime_args(trace_id=trace_id, format=format),
+        )
+
+    @app.get("/api/v1/traces/{trace_id}/replay")
+    def trace_replay(trace_id: str) -> dict[str, Any]:
+        return invoke_read("trace_replay", runtime_args(trace_id=trace_id))
+
+    @app.get("/api/v1/jobs")
+    def job_list(limit: int = 100) -> dict[str, Any]:
+        return invoke_read("job_list", runtime_args(limit=limit))
+
+    @app.post("/api/v1/jobs")
+    def job_submit(payload: JobSubmitInput) -> dict[str, Any]:
+        return invoke_governed(
+            "job_submit",
+            runtime_args(tool=payload.tool, args=payload.args),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/jobs/{job_id}")
+    def job_show(job_id: str) -> dict[str, Any]:
+        return invoke_read("job_show", runtime_args(job_id=job_id))
+
+    @app.delete("/api/v1/jobs/{job_id}")
+    def job_cancel(job_id: str) -> dict[str, Any]:
+        return invoke_governed(
+            "job_cancel",
+            runtime_args(job_id=job_id),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/providers")
+    def provider_list() -> dict[str, Any]:
+        return invoke_read("provider_list", {})
+
+    @app.get("/api/v1/providers/auth")
+    def provider_auth() -> dict[str, Any]:
+        return invoke_read("provider_auth", {})
+
+    @app.get("/api/v1/models")
+    def provider_models(
+        provider: str | None = None,
+        status: str | None = None,
+        catalog_path: str | None = None,
+    ) -> dict[str, Any]:
+        return invoke_read(
+            "provider_models",
+            {
+                "provider": provider,
+                "status": status,
+                "catalog_path": catalog_path,
+            },
+        )
+
+    @app.get("/api/v1/connections")
+    def connection_list() -> dict[str, Any]:
+        return invoke_read("connection_list", runtime_args())
+
+    @app.post("/api/v1/connections")
+    def connection_add(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_governed(
+            "connection_add",
+            runtime_args(**payload.args),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/connections/discover")
+    def connection_discover() -> dict[str, Any]:
+        return invoke_read("connection_discover", runtime_args())
+
+    @app.post("/api/v1/connections/{name}/test")
+    def connection_test(name: str) -> dict[str, Any]:
+        return invoke_read("connection_test", runtime_args(name=name))
+
+    @app.delete("/api/v1/connections/{name}")
+    def connection_remove(name: str) -> dict[str, Any]:
+        return invoke_governed(
+            "connection_remove",
+            runtime_args(name=name),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/metadata/status")
+    def metadata_status(connection: str | None = None) -> dict[str, Any]:
+        return invoke_read(
+            "metadata_status",
+            runtime_args(connection=connection),
+        )
+
+    @app.get("/api/v1/metadata/search")
+    def metadata_search(query: str = "", connection: str | None = None, limit: int = 50) -> dict[str, Any]:
+        return invoke_read(
+            "schema_search",
+            runtime_args(query=query, connection=connection, limit=limit),
+        )
+
+    @app.post("/api/v1/metadata/refresh")
+    def metadata_refresh(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_read(
+            "schema_refresh",
+            runtime_args(**payload.args),
+        )
+
+    @app.post("/api/v1/data-diff")
+    def production_data_diff(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_read(
+            "data_diff",
+            runtime_args(**payload.args),
+        )
+
+    @app.get("/api/v1/finops/report")
+    def finops_report(
+        connection: str | None = None,
+        days: int = 7,
+        limit: int = 1000,
+    ) -> dict[str, Any]:
+        return invoke_read(
+            "finops_report",
+            runtime_args(connection=connection, days=days, limit=limit),
+        )
+
+    @app.post("/api/v1/pii/scan")
+    def pii_scan(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_read("pii_scan", runtime_args(**payload.args))
+
+    @app.post("/api/v1/pii/policy")
+    def pii_policy(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_read(
+            "pii_policy_check",
+            runtime_args(**payload.args),
+        )
+
+    @app.get("/api/v1/rbac/audit")
+    def rbac_audit(connection: str | None = None) -> dict[str, Any]:
+        return invoke_read(
+            "rbac_audit",
+            runtime_args(connection=connection),
+        )
+
+    @app.get("/api/v1/mcp")
+    def mcp_list() -> dict[str, Any]:
+        return invoke_read("mcp_list", runtime_args())
+
+    @app.get("/api/v1/mcp/catalog")
+    def mcp_catalog() -> dict[str, Any]:
+        return invoke_read("mcp_catalog", runtime_args())
+
+    @app.get("/api/v1/mcp/discover")
+    def mcp_discover() -> dict[str, Any]:
+        return invoke_read("mcp_discover", runtime_args())
+
+    @app.post("/api/v1/mcp/install")
+    def mcp_install(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_governed(
+            "mcp_install",
+            runtime_args(**payload.args),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/mcp/{name}/status")
+    def mcp_status(name: str) -> dict[str, Any]:
+        return invoke_read("mcp_status", runtime_args(name=name))
+
+    @app.get("/api/v1/mcp/{name}/tools")
+    def mcp_tools(name: str) -> dict[str, Any]:
+        return invoke_read("mcp_tools", runtime_args(name=name))
+
+    @app.get("/api/v1/mcp/{name}/resources")
+    def mcp_resources(name: str) -> dict[str, Any]:
+        return invoke_read("mcp_resources", runtime_args(name=name))
+
+    @app.post("/api/v1/dbt/execute/{operation}")
+    def dbt_execute(operation: str, payload: ArgsInput) -> dict[str, Any]:
+        allowed = {
+            "parse": ("dbt_parse", ActorMode.ANALYST),
+            "ls": ("dbt_ls", ActorMode.ANALYST),
+            "compile": ("dbt_compile", ActorMode.ANALYST),
+            "test": ("dbt_test", ActorMode.ANALYST),
+            "run": ("dbt_run", ActorMode.BUILDER),
+            "build": ("dbt_build", ActorMode.BUILDER),
+            "seed": ("dbt_seed", ActorMode.BUILDER),
+            "snapshot": ("dbt_snapshot", ActorMode.BUILDER),
+        }
+        if operation not in allowed:
+            raise HTTPException(404, "unsupported dbt operation")
+        tool_name, mode = allowed[operation]
+        return invoke_governed(
+            tool_name,
+            runtime_args(**payload.args),
+            actor_mode=mode,
+        )
+
     @app.post("/projects")
     def create_project(payload: ProjectInput) -> dict[str, Any]:
         record = ProjectRecord(payload.name)
