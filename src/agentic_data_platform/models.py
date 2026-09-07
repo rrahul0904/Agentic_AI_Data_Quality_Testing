@@ -33,6 +33,11 @@ class Platform(str, Enum):
     ORACLE = "oracle"
     DUCKDB = "duckdb"
     REDSHIFT = "redshift"
+    MYSQL = "mysql"
+    SQLITE = "sqlite"
+    CLICKHOUSE = "clickhouse"
+    TRINO = "trino"
+    MONGODB = "mongodb"
 
 
 class Risk(str, Enum):
