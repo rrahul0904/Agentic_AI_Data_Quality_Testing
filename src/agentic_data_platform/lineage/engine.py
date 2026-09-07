@@ -154,6 +154,24 @@ def analyze_column_lineage(
                             or table.split(".")[-1].casefold() in known_simple
                         ):
                             leaves.add(ColumnRef(table, column))
+                    elif len(parts) == 1 and parts[0] != "*" and schema:
+                        column = parts[0]
+                        candidates = [
+                            str(table_name)
+                            for table_name in schema
+                            if column.casefold()
+                            in {
+                                candidate.casefold()
+                                for candidate in _schema_columns(schema, str(table_name))
+                            }
+                        ]
+                        if len(candidates) == 1:
+                            leaves.add(ColumnRef(candidates[0], column))
+                        elif len(candidates) > 1:
+                            unresolved.append(
+                                f"{output_name}: terminal column {column} is ambiguous across "
+                                + ",".join(sorted(candidates))
+                            )
 
             for message in ambiguity:
                 column_name = message.split(":", 1)[0]
