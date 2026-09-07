@@ -10,7 +10,7 @@ requires-python = ">=3.11"
 dependencies = ["faker>=28,<40"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "pyarrow>=17"]
 parquet = ["pyarrow>=17"]
 
 [tool.pytest.ini_options]

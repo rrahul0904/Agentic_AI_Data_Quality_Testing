@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-PYTHON="${PYTHON:-$ROOT/dbt-airflow-testing-platform/.venv/bin/python}"
+PYTHON="${PYTHON:-$ROOT/.venv/bin/python}"
 if [[ ! -x "$PYTHON" ]]; then PYTHON="$(command -v python3)"; fi
 export PYTHONPATH="$ROOT/src"
 

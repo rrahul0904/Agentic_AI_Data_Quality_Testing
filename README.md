@@ -30,16 +30,45 @@ quality evidence, reconciliation, SQL review, and governed tool execution.
   independently usable and is callable through the root structured adapter.
 - `hospitality-snowflake-data-platform` — deterministic enterprise workload
   with 144 Oracle tables, 157 PostgreSQL tables, 18 feeds, 40 ingestion jobs,
-  46 Airflow DAGs, and a 70-model/4-snapshot reservation-oriented dbt project.
+  46 base Airflow DAGs plus reservation aliases, and a 70-model/4-snapshot
+  reservation-oriented dbt project.
 - `integration/e2e-tests` — Snowflake-free vertical-slice tests.
 
-## Quickstart
+## Working local demo
+
+The basic demo does **not** require Docker, Snowflake credentials, or a live
+Oracle database. It runs the platform in local simulation mode and explicitly
+reports unavailable live integrations as `SKIP`.
+
+```bash
+git clone https://github.com/rrahul0904/Agentic_AI_Data_Quality_Testing.git
+cd Agentic_AI_Data_Quality_Testing
+
+./scripts/setup-demo.sh
+source .venv/bin/activate
+make demo
+```
+
+The demo exercises:
+
+1. environment doctor checks,
+2. hospitality source/platform inventory,
+3. static Airflow health,
+4. dbt lineage for `fact_reservation`,
+5. cross-system impact for `stg_oracle_reservation`,
+6. an intentional source/target reconciliation failure,
+7. the Local Data Harness quality gate,
+8. a structured ShiftForge migration inventory,
+9. final platform health.
+
+For verification rather than presentation:
 
 ```bash
 make unit-test
 make integration-test
 make lint
-make demo
+make quality
+make shiftforge-test
 ```
 
 Useful direct commands:
@@ -75,7 +104,8 @@ environment, and explicit approval.
 
 ## Current limits
 
-The first SQLGlot lineage pass is projection-level; deeper multi-model column
-lineage, FinOps, live warehouse history, full MCP/TUI surfaces, and autonomous
-remediation are subsequent roadmap waves. See `specs/ALTIMATE_PARITY_MATRIX.md`
-and `specs/BEYOND_ALTIMATE_ROADMAP.md`.
+The SQLGlot lineage implementation is a first production-oriented pass, but
+full multi-model column lineage, deep Snowflake FinOps/RBAC/history,
+large-scale warehouse-executed data diff, MCP/TUI/provider integrations, and
+autonomous remediation are still roadmap work. See
+`specs/ALTIMATE_PARITY_MATRIX.md` and `specs/BEYOND_ALTIMATE_ROADMAP.md`.
