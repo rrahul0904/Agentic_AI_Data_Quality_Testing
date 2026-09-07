@@ -234,14 +234,15 @@ def correct_sql(sql: str, *, dialect=None, schema_context=None, schema_path=None
         validation = validate_sql(current, dialect=dialect, schema_context=schema or None)
         review = review_sql(current, dialect, schema or None)
         blocking = [item for item in review.get("findings", ()) if str(item.get("severity") or "").upper() in {"ERROR", "CRITICAL"}]
-        if validation["valid"] and not blocking:
-            return {"status": "PASS", "success": True, "corrected_sql": current, "iterations": iteration - 1, "changes": changes, "final_validation": validation}
         fixed = fix_sql(current, dialect, schema or None)
         candidate = fixed.get("fixed_sql") or current
-        if candidate == current:
-            break
-        changes.extend(fixed.get("fixes", ()))
-        current = candidate
+        if candidate != current:
+            changes.extend(fixed.get("fixes", ()))
+            current = candidate
+            continue
+        if validation["valid"] and not blocking:
+            return {"status": "PASS", "success": True, "corrected_sql": current, "iterations": iteration - 1, "changes": changes, "final_validation": validation}
+        break
     final_validation = validate_sql(current, dialect=dialect, schema_context=schema or None)
     return {"status": "PASS", "success": final_validation["valid"], "corrected_sql": current if current != sql else None, "iterations": len(changes), "changes": changes, "final_validation": final_validation}
 
