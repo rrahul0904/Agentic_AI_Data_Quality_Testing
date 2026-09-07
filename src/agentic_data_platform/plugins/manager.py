@@ -19,7 +19,8 @@ class PluginManager:
     """Synchronous, failure-isolated plugin hook dispatcher."""
 
     SUPPORTED_HOOKS = frozenset({
-        "session.start", "session.end", "generation.start", "generation.end",
+        "session.start", "session.end",
+        "generation.start", "generation.end", "generation.before", "generation.after",
         "tool.before", "tool.after", "permission.before",
         "file.before_write", "file.after_write",
     })
