@@ -80,6 +80,16 @@ from agentic_data_platform.sql.parity import (
 from agentic_data_platform.connectors.factory import ExternalConnectionUnavailable, connector_from_args
 from agentic_data_platform.metadata.index import MetadataIndex
 from agentic_data_platform.metadata.service import MetadataService
+from agentic_data_platform.mcp import (
+    McpAuthStore,
+    McpCatalog,
+    McpClient,
+    McpConfigStore,
+    McpDiscovery,
+    McpOAuthManager,
+    configured_servers as mcp_configured_servers,
+    merge_auth as mcp_merge_auth,
+)
 from agentic_data_platform.providers import (
     ModelCatalog,
     ProviderRegistry,
@@ -271,6 +281,76 @@ def build_tool_registry() -> ToolRegistry:
     add("provider_model_snapshot", Capability.DISCOVER, lambda a: provider_catalog_handler(a).snapshot(), "Return normalized provider-model catalog snapshot.", platforms=frozenset({Platform.LOCAL}))
     add("provider_transform", Capability.GENERATE, lambda a: {"messages": provider_normalize_messages(a["messages"], provider=a["provider"], model_id=a.get("model", ""))}, "Apply provider-specific safe message transforms.", platforms=frozenset({Platform.LOCAL}))
     add("provider_output_budget", Capability.VERIFY, lambda a: provider_output_token_budget(provider_catalog_handler(a).get(a["provider"], a["model"]), a["messages"], requested=a.get("requested"), floor=int(a.get("floor", 1024))), "Calculate and enforce output-token budget within model context limits.", platforms=frozenset({Platform.LOCAL}))
+
+
+    def mcp_config_path(a: dict[str, Any]) -> Path:
+        return Path(
+            a.get("mcp_config")
+            or (_target(a) / ".altimate-code" / "altimate-code.json")
+        ).expanduser().resolve()
+
+    def mcp_auth_store(a: dict[str, Any]) -> McpAuthStore:
+        return McpAuthStore(
+            a.get("mcp_auth_database")
+            or (_target(a) / ".ade" / "mcp-auth.db")
+        )
+
+    def mcp_oauth_manager(a: dict[str, Any]) -> McpOAuthManager:
+        return McpOAuthManager(
+            a.get("mcp_oauth_database")
+            or (_target(a) / ".ade" / "mcp-oauth.db")
+        )
+
+    def mcp_client_handler(a: dict[str, Any]) -> McpClient:
+        configs = McpConfigStore.load(mcp_config_path(a))
+        name = a["name"]
+        if name not in configs:
+            raise KeyError(f"MCP server not found: {name}")
+        config = configs[name]
+        headers = mcp_auth_store(a).headers(name)
+        client = McpClient(mcp_merge_auth(config, headers))
+        status = client.connect()
+        if status.status != "connected":
+            client.close()
+            raise RuntimeError(status.error or status.status)
+        return client
+
+    def mcp_external(a: dict[str, Any], operation: str) -> dict[str, Any]:
+        try:
+            client = mcp_client_handler(a)
+        except Exception as exc:
+            return {"status": "SKIP_EXTERNAL", "name": a.get("name"), "reason": str(exc)}
+        try:
+            if operation == "tools":
+                return {"status": "PASS", "name": a["name"], "tools": client.tools()}
+            if operation == "resources":
+                return {"status": "PASS", "name": a["name"], "resources": client.resources()}
+            if operation == "call":
+                return {
+                    "status": "PASS",
+                    "name": a["name"],
+                    "result": client.call_tool(a["tool"], a.get("arguments") or {}),
+                }
+            return {"status": "PASS", "name": a["name"]}
+        finally:
+            client.close()
+
+    add("mcp_list", Capability.DISCOVER, lambda a: mcp_configured_servers(mcp_config_path(a)), "List configured MCP servers and unresolved environment references.", platforms=frozenset({Platform.LOCAL}))
+    add("mcp_add", Capability.GENERATE, lambda a: {"path": str(McpConfigStore.add(mcp_config_path(a), a["name"], a["config"]))}, "Persist an MCP server configuration.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("mcp_remove", Capability.GENERATE, lambda a: {"removed": McpConfigStore.remove(mcp_config_path(a), a["name"])}, "Remove a persisted MCP server.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("mcp_enable", Capability.GENERATE, lambda a: {"path": str(McpConfigStore.set_enabled(mcp_config_path(a), a["name"], True)), "enabled": True}, "Enable an MCP server.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("mcp_disable", Capability.GENERATE, lambda a: {"path": str(McpConfigStore.set_enabled(mcp_config_path(a), a["name"], False)), "enabled": False}, "Disable an MCP server.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("mcp_discover", Capability.DISCOVER, lambda a: McpDiscovery.discover(_target(a)), "Discover MCP configuration from common coding-agent clients.", platforms=frozenset({Platform.LOCAL}))
+    add("mcp_catalog", Capability.DISCOVER, lambda a: {"entries": McpCatalog.builtin().list()}, "List installable MCP catalog entries.", platforms=frozenset({Platform.LOCAL}))
+    add("mcp_install", Capability.GENERATE, lambda a: {"path": str(McpCatalog.builtin().install(a["catalog_name"], mcp_config_path(a), server_name=a.get("name")))}, "Install a catalog MCP server into project config.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("mcp_auth_set_env", Capability.GENERATE, lambda a: mcp_auth_store(a).set_env_token(a["name"], a["env"], method=a.get("method", "bearer"), metadata=a.get("metadata")), "Configure MCP authentication by environment-variable reference only.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("mcp_auth_status", Capability.DISCOVER, lambda a: mcp_auth_store(a).status(a["name"]), "Report MCP auth state without exposing tokens.", platforms=frozenset({Platform.LOCAL}))
+    add("mcp_status", Capability.VERIFY, lambda a: mcp_external(a, "status"), "Connect to an MCP server and report honest status.", platforms=frozenset({Platform.LOCAL}))
+    add("mcp_tools", Capability.DISCOVER, lambda a: mcp_external(a, "tools"), "Discover tools exposed by one MCP server.", platforms=frozenset({Platform.LOCAL}))
+    add("mcp_resources", Capability.DISCOVER, lambda a: mcp_external(a, "resources"), "Discover resources exposed by one MCP server.", platforms=frozenset({Platform.LOCAL}))
+    add("mcp_call", Capability.EXECUTE, lambda a: mcp_external(a, "call"), "Call an MCP tool through the governed runtime.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("mcp_oauth_begin", Capability.GENERATE, lambda a: mcp_oauth_manager(a).begin(a["name"], authorize_url=a["authorize_url"], client_id=a["client_id"], redirect_uri=a["redirect_uri"], token_url=a.get("token_url"), scope=a.get("scope")), "Begin MCP OAuth authorization with PKCE.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("mcp_oauth_callback", Capability.GENERATE, lambda a: mcp_oauth_manager(a).callback(state=a["state"], code=a.get("code"), error=a.get("error")), "Validate and consume an MCP OAuth callback state.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
 
     add("doctor", Capability.DISCOVER, lambda a: run_doctor(_target(a)), "Check local development dependencies and optional integrations.")
 
