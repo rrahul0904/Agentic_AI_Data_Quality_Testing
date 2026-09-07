@@ -62,6 +62,21 @@ from agentic_data_platform.quality.store import SQLiteQualityStore
 from agentic_data_platform.sql.intelligence import (
     column_downstream, column_lineage, column_upstream, review_sql, sql_lineage,
 )
+from agentic_data_platform.sql.parity import (
+    analyze_sql as sql_analyze_impl,
+    autocomplete_sql as sql_autocomplete_impl,
+    classify_sql as sql_classify_impl,
+    diff_sql as sql_diff_impl,
+    execute_sql as sql_execute_impl,
+    explain_sql as sql_explain_impl,
+    fingerprint_sql as sql_fingerprint_impl,
+    fix_sql as sql_fix_impl,
+    format_sql as sql_format_impl,
+    optimize_sql as sql_optimize_impl,
+    rewrite_sql as sql_rewrite_impl,
+    translate_sql as sql_translate_impl,
+)
+from agentic_data_platform.connectors.factory import ExternalConnectionUnavailable, connector_from_args
 from agentic_data_platform.metadata.index import MetadataIndex
 from .registry import ToolDefinition, ToolRegistry
 from agentic_data_platform.dbt.manifest_graph import DbtArtifacts, DbtManifestGraph
@@ -240,6 +255,43 @@ def build_tool_registry() -> ToolRegistry:
     add("platform_graph", Capability.DISCOVER, lambda a: PlatformAssetGraph.build(_target(a)).snapshot(), "Build the cross-system asset graph.")
     add("platform_lineage", Capability.DISCOVER, lambda a: PlatformAssetGraph.build(_target(a)).lineage(a["node"], depth=_depth(a)), "Return cross-system asset lineage.")
     add("platform_impact", Capability.DISCOVER, lambda a: PlatformAssetGraph.build(_target(a)).impact(a["node"], depth=_depth(a)), "Calculate cross-system asset impact.")
+    sql_platforms = frozenset({
+        Platform.LOCAL, Platform.SNOWFLAKE, Platform.BIGQUERY, Platform.REDSHIFT, Platform.SPARK,
+        Platform.DATABRICKS, Platform.POSTGRES, Platform.ORACLE, Platform.DUCKDB, Platform.SQLSERVER,
+    })
+
+    def sql_execute_handler(a: dict[str, Any]) -> dict[str, Any]:
+        try:
+            connector = connector_from_args(a)
+        except ExternalConnectionUnavailable as exc:
+            return {"status": "SKIP_EXTERNAL", "platform": a.get("platform", "duckdb"), "reason": str(exc)}
+        return sql_execute_impl(
+            connector,
+            a["sql"],
+            a.get("dialect") or a.get("platform"),
+            row_limit=int(a.get("row_limit", 1000)),
+        )
+
+    def sql_explain_handler(a: dict[str, Any]) -> dict[str, Any]:
+        try:
+            connector = connector_from_args(a)
+        except ExternalConnectionUnavailable as exc:
+            return {"status": "SKIP_EXTERNAL", "platform": a.get("platform", "duckdb"), "reason": str(exc)}
+        return sql_explain_impl(connector, a["sql"], a.get("dialect") or a.get("platform"))
+
+    add("sql_analyze", Capability.VERIFY, lambda a: sql_analyze_impl(a["sql"], a.get("dialect"), a.get("schema_context")), "Analyze SQL with deterministic AST rules and structural fingerprint.", platforms=sql_platforms)
+    add("sql_autocomplete", Capability.DISCOVER, lambda a: sql_autocomplete_impl(a.get("sql", ""), a.get("prefix", ""), a.get("schema_context"), limit=int(a.get("limit", 50))), "Return schema-aware SQL completion candidates.", platforms=sql_platforms)
+    add("sql_classify", Capability.VERIFY, lambda a: sql_classify_impl(a["sql"], a.get("dialect")), "Classify multi-statement SQL as read/write and hard-deny destructive statements.", platforms=sql_platforms)
+    add("sql_diff", Capability.VERIFY, lambda a: sql_diff_impl(a["original"], a["modified"], a.get("dialect"), int(a.get("context_lines", 3))), "Compare SQL structurally after AST canonicalization and emit unified diff.", platforms=sql_platforms)
+    add("sql_execute", Capability.EXECUTE, sql_execute_handler, "Execute bounded read-only SQL through a configured connector.", platforms=sql_platforms)
+    add("sql_explain", Capability.VERIFY, sql_explain_handler, "Run warehouse-native dry-run or EXPLAIN for read-only SQL.", platforms=sql_platforms)
+    add("sql_fix", Capability.GENERATE, lambda a: sql_fix_impl(a["sql"], a.get("dialect"), a.get("schema_context")), "Apply deterministic safe SQL fixes without modifying files.", platforms=sql_platforms)
+    add("sql_format", Capability.GENERATE, lambda a: sql_format_impl(a["sql"], a.get("dialect"), int(a.get("indent", 2))), "Format SQL deterministically with SQLGlot.", platforms=sql_platforms)
+    add("sql_optimize", Capability.GENERATE, lambda a: sql_optimize_impl(a["sql"], a.get("dialect"), a.get("schema_context")), "Optimize SQL deterministically and return evidence-backed suggestions.", platforms=sql_platforms)
+    add("sql_rewrite", Capability.GENERATE, lambda a: sql_rewrite_impl(a["sql"], a.get("dialect"), a.get("schema_context")), "Rewrite supported SQL anti-patterns with deterministic AST transforms.", platforms=sql_platforms)
+    add("sql_translate", Capability.GENERATE, lambda a: sql_translate_impl(a["sql"], a["source_dialect"], a["target_dialect"]), "Translate SQL across major dialects with semantic-risk warnings.", platforms=sql_platforms)
+    add("sql_fingerprint", Capability.VERIFY, lambda a: sql_fingerprint_impl(a["sql"], a.get("dialect")), "Return PII-safe structural SQL fingerprint.", platforms=sql_platforms)
+
     add("sql_review", Capability.VERIFY, lambda a: review_sql(a["sql"], a.get("dialect")), "Review SQL with deterministic AST safety and performance rules.", platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE, Platform.BIGQUERY, Platform.REDSHIFT, Platform.SPARK}))
     add("sql_lineage", Capability.DISCOVER, lambda a: sql_lineage(a["sql"], a.get("dialect")), "Calculate first-version table and column SQL lineage.", platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE, Platform.BIGQUERY, Platform.REDSHIFT, Platform.SPARK}))
     add("sql_column_lineage", Capability.DISCOVER, lambda a: column_lineage(a["sql"], a.get("dialect")), "Map projected columns to source columns.", platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE, Platform.BIGQUERY, Platform.REDSHIFT, Platform.SPARK}))
