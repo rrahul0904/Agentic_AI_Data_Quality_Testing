@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+from dataclasses import asdict
 import os
 from pathlib import Path
 from typing import Any, Callable
@@ -404,6 +405,89 @@ def build_tool_registry() -> ToolRegistry:
     add("mcp_oauth_begin", Capability.GENERATE, lambda a: mcp_oauth_manager(a).begin(a["name"], authorize_url=a["authorize_url"], client_id=a["client_id"], redirect_uri=a["redirect_uri"], token_url=a.get("token_url"), scope=a.get("scope")), "Begin MCP OAuth authorization with PKCE.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
     add("mcp_oauth_callback", Capability.GENERATE, lambda a: mcp_oauth_manager(a).callback(state=a["state"], code=a.get("code"), error=a.get("error")), "Validate and consume an MCP OAuth callback state.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
 
+
+    def session_model(a: dict[str, Any]) -> ModelRecord:
+        return ModelRecord(
+            provider_id=str(a.get("provider") or "local"),
+            model_id=str(a.get("model") or "unknown"),
+            name=str(a.get("model_name") or a.get("model") or "Unknown"),
+            context_window=int(a["context_window"]) if a.get("context_window") else None,
+            max_output_tokens=int(a["max_output_tokens"]) if a.get("max_output_tokens") else None,
+            supports_tools=bool(a.get("supports_tools", True)),
+            supports_reasoning=bool(a.get("supports_reasoning", False)),
+        )
+
+    add("session_create", Capability.GENERATE, lambda a: _session_runtime(a).create(title=a.get("title"), provider=a.get("provider"), model=a.get("model"), metadata=a.get("metadata")), "Create a persistent governed agent session.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("session_list", Capability.DISCOVER, lambda a: {"sessions": _session_store(a).list(limit=int(a.get("limit", 100)))}, "List persistent agent sessions.", platforms=frozenset({Platform.LOCAL}))
+    add("session_show", Capability.DISCOVER, lambda a: _session_runtime(a).project(a["session_id"]), "Project session status, messages, todos, reminders and state.", platforms=frozenset({Platform.LOCAL}))
+    add("session_message_add", Capability.GENERATE, lambda a: _session_runtime(a).append(a["session_id"], a["role"], a.get("content"), error=a.get("error"), metadata=a.get("metadata")), "Append a typed persistent session message.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("session_messages", Capability.DISCOVER, lambda a: {"messages": _session_store(a).messages(a["session_id"], limit=a.get("limit"))}, "List ordered messages for a session.", platforms=frozenset({Platform.LOCAL}))
+    add("session_status", Capability.DISCOVER, lambda a: _session_store(a).get(a["session_id"]) if not a.get("status") else _session_store(a).set_status(a["session_id"], a["status"]), "Read or update governed session status.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("session_todo_add", Capability.GENERATE, lambda a: _session_store(a).add_todo(a["session_id"], a["text"], priority=int(a.get("priority", 0))), "Add a persistent session todo.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("session_todo_update", Capability.GENERATE, lambda a: _session_store(a).update_todo(a["todo_id"], a["status"]), "Update persistent session todo state.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("session_todos", Capability.DISCOVER, lambda a: {"todos": _session_store(a).todos(a["session_id"])}, "List session todos.", platforms=frozenset({Platform.LOCAL}))
+    add("session_reminder_add", Capability.GENERATE, lambda a: _session_store(a).add_reminder(a["session_id"], a["text"], a.get("trigger") or {}), "Add a persistent session reminder.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("session_reminders", Capability.DISCOVER, lambda a: {"reminders": _session_store(a).reminders(a["session_id"], undelivered_only=bool(a.get("undelivered_only", False)))}, "List session reminders.", platforms=frozenset({Platform.LOCAL}))
+    add("session_reminder_deliver", Capability.GENERATE, lambda a: _session_store(a).mark_reminder_delivered(a["reminder_id"]), "Mark a session reminder delivered.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("session_revert", Capability.GENERATE, lambda a: _session_store(a).revert_last(a["session_id"], roles=tuple(a.get("roles") or ("assistant", "tool"))), "Revert the latest assistant/tool session message.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("session_state", Capability.DISCOVER, lambda a: _session_store(a).state(a["session_id"]) if not a.get("patch") else _session_store(a).patch_state(a["session_id"], a["patch"]), "Read or patch persistent session run state.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("session_prompt", Capability.DISCOVER, lambda a: _session_runtime(a).prompt(a["session_id"], project_root=a.get("project") or a.get("project_root"), query=a.get("query"), system=a.get("system"), include_training=bool(a.get("include_training", True)), training_limit=int(a.get("training_limit", 6)), training_chars=int(a.get("training_chars", 10000))), "Build the bounded instruction/training/reminder session prompt.", platforms=frozenset({Platform.LOCAL}))
+    add("session_compact", Capability.GENERATE, lambda a: _session_runtime(a).compact(a["session_id"], keep_recent=int(a.get("keep_recent", 8)), summary_chars=int(a.get("summary_chars", 8000))), "Compact older session messages into deterministic state summary.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("session_nudge", Capability.GENERATE, lambda a: _session_runtime(a).nudge(a["session_id"], threshold_assistant_messages=int(a.get("threshold_assistant_messages", 3))), "Detect tool-starved assistant loops and persist a deterministic nudge.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("session_termination", Capability.VERIFY, lambda a: _session_runtime(a).termination(a["session_id"], validator_context=a.get("validator_context"), require_todos_complete=bool(a.get("require_todos_complete", True))), "Run session termination gates across todos and validators.", platforms=frozenset({Platform.LOCAL}))
+    add("session_retry_plan", Capability.PLAN, lambda a: session_retry_plan(int(a.get("attempt", 1)), error=a.get("error"), status_code=a.get("status_code"), max_attempts=int(a.get("max_attempts", 5)), base_seconds=float(a.get("base_seconds", 1.0)), max_seconds=float(a.get("max_seconds", 30.0))), "Classify retryability and bounded exponential backoff.", platforms=frozenset({Platform.LOCAL}))
+    add("session_tool_result_cap", Capability.VERIFY, lambda a: session_cap_tool_result(a.get("value"), max_chars=int(a.get("max_chars", 20000))), "Cap oversized tool results while preserving head/tail evidence.", platforms=frozenset({Platform.LOCAL}))
+    add("session_overflow", Capability.VERIFY, lambda a: session_overflow(session_model(a), a.get("messages") or (), requested_output_tokens=a.get("requested_output_tokens")), "Detect context-window overflow against normalized model limits.", platforms=frozenset({Platform.LOCAL}))
+
+    add("memory_save", Capability.GENERATE, lambda a: {"memory_id": _memory_store(a).save_memory(a["content"], scope=a.get("scope", "project"), project_id=a.get("project_id"), tags=list(a.get("tags") or ()), citations=list(a.get("citations") or ()), expires_at=a.get("expires_at"))}, "Persist explicit project/global memory with provenance.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("memory_list", Capability.DISCOVER, lambda a: {"memories": _memory_store(a).list_memories(scope=a.get("scope"), project_id=a.get("project_id"), limit=int(a.get("limit", 200)))}, "List bounded non-expired memories.", platforms=frozenset({Platform.LOCAL}))
+    add("memory_search", Capability.DISCOVER, lambda a: {"memories": _memory_store(a).search(a.get("query", ""), project_id=a.get("project_id"), limit=int(a.get("limit", 50)))}, "Search project/global memory deterministically.", platforms=frozenset({Platform.LOCAL}))
+    add("memory_remove", Capability.GENERATE, lambda a: {"removed": _memory_store(a).remove_memory(a["memory_id"])}, "Remove one persisted memory.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+
+    add("trace_list", Capability.DISCOVER, lambda a: {"traces": _trace_store(a).traces(limit=int(a.get("limit", 100)))}, "List trace summaries with generation/tool/error counts.", platforms=frozenset({Platform.LOCAL}))
+    add("trace_show", Capability.DISCOVER, lambda a: _trace_store(a).tree(a["trace_id"]) if not a.get("event_id") else _trace_store(a).show(a["event_id"]), "Show a trace event tree or one event.", platforms=frozenset({Platform.LOCAL}))
+    add("trace_export", Capability.DISCOVER, lambda a: {"trace_id": a["trace_id"], "format": a.get("format", "json"), "content": _trace_store(a).export_html(a["trace_id"]) if a.get("format") == "html" else _trace_store(a).export_json(a["trace_id"])}, "Export trace evidence as JSON or standalone HTML.", platforms=frozenset({Platform.LOCAL}))
+    add("trace_replay", Capability.DISCOVER, lambda a: _trace_store(a).replay(a["trace_id"]), "Reconstruct recorded trace timeline without re-executing side effects.", platforms=frozenset({Platform.LOCAL}))
+
+    def job_submit_handler(a: dict[str, Any]) -> dict[str, Any]:
+        tool_name = a["tool"]
+        definition = registry.describe(tool_name)
+        if definition.risk != Risk.READ_ONLY:
+            raise PermissionError(
+                f"generic background jobs refuse mutating tool: {tool_name}"
+            )
+        payload = dict(a.get("args") or {})
+        if a.get("project") and not payload.get("project"):
+            payload["project"] = a["project"]
+        engine = _job_engine(a)
+
+        def execute_job() -> dict[str, Any]:
+            request = ToolRequest(
+                tool=tool_name,
+                operation=tool_name,
+                environment=Environment.DEV,
+                risk=definition.risk,
+                args=payload,
+            )
+            return registry.invoke(
+                ToolInvocation(
+                    request,
+                    run_id=f"job-{tool_name}",
+                    actor_mode=ActorMode.ANALYST,
+                )
+            )
+
+        job_id = engine.submit(f"tool:{tool_name}", execute_job)
+        return {
+            "job_id": job_id,
+            "tool": tool_name,
+            "status": "QUEUED",
+        }
+
+    add("job_submit", Capability.GENERATE, job_submit_handler, "Queue a read-only deterministic tool as a persistent background job.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("job_list", Capability.DISCOVER, lambda a: {"jobs": _job_engine(a).list(limit=int(a.get("limit", 100)))}, "List persistent background jobs.", platforms=frozenset({Platform.LOCAL}))
+    add("job_show", Capability.DISCOVER, lambda a: _job_engine(a).get(a["job_id"]), "Show one background job.", platforms=frozenset({Platform.LOCAL}))
+    add("job_cancel", Capability.GENERATE, lambda a: {"job_id": a["job_id"], "cancelled": _job_engine(a).cancel(a["job_id"])}, "Cancel a queued background job when cancellation is still possible.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
 
     def training_store(a: dict[str, Any]) -> TrainingStore:
         return TrainingStore(
