@@ -315,6 +315,62 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     def warehouses() -> dict[str, Any]:
         return invoke_read("warehouse_status", {})
 
+    @app.get("/api/v1/data-diff/demo")
+    def data_diff_demo() -> dict[str, Any]:
+        return invoke_read("data_diff_duckdb_demo", {})
+
+    @app.get("/api/v1/dbt/advanced")
+    def dbt_advanced() -> dict[str, Any]:
+        args = demo_project_args()
+        return {
+            "incremental": invoke_read("dbt_incremental_analysis", args),
+            "snapshots": invoke_read("dbt_snapshot_analysis", args),
+            "macros": invoke_read("dbt_macro_analysis", args),
+            "failed_models": invoke_read("dbt_failed_models", args),
+            "source_freshness": invoke_read("dbt_source_freshness", args),
+            "leaf_candidates": invoke_read("dbt_leaf_candidates", args),
+            "compiled_sql_review": invoke_read("dbt_compiled_sql_review", {**args, "limit": 25}),
+        }
+
+    @app.get("/api/v1/airflow/operations")
+    def airflow_operations() -> dict[str, Any]:
+        args = demo_project_args()
+        return {
+            "retry": invoke_read("airflow_retry_analysis", args),
+            "schedule": invoke_read("airflow_schedule_analysis", args),
+            "backfill": invoke_read("airflow_backfill_analysis", args),
+            "connections": invoke_read("airflow_connection_analysis", args),
+            "health": invoke_read("airflow_pipeline_health", args),
+            "runtime": invoke_read("airflow_runtime_readiness", args),
+        }
+
+    @app.get("/api/v1/airflow/failure-lab")
+    def airflow_failure_lab() -> dict[str, Any]:
+        return invoke_read("airflow_failure_lab", {})
+
+    @app.get("/api/v1/root-cause/{asset}")
+    def root_cause(asset: str) -> dict[str, Any]:
+        return invoke_read("platform_root_cause", {
+            **demo_project_args(),
+            "database": str(_quality_database()),
+            "asset": asset,
+        })
+
+    @app.get("/api/v1/health/pipeline")
+    def pipeline_health_score() -> dict[str, Any]:
+        return invoke_read("pipeline_health_score", {
+            **demo_project_args(),
+            "database": str(_quality_database()),
+        })
+
+    @app.post("/api/v1/remediation/sql")
+    def remediation_sql(payload: SqlWorkspaceInput) -> dict[str, Any]:
+        return invoke_read("propose_sql_repair", {"sql": payload.sql, "dialect": payload.dialect})
+
+    @app.get("/api/v1/remediation/dbt-tests")
+    def remediation_dbt_tests(limit: int = 25) -> dict[str, Any]:
+        return invoke_read("propose_dbt_tests", {**demo_project_args(), "limit": limit})
+
     @app.post("/api/v1/agent/query")
     def agent_query(payload: AgentQueryInput) -> dict[str, Any]:
         question = payload.question.strip()
@@ -354,11 +410,13 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             result = use("platform_lineage", {**demo_project_args(), "node": reference, "depth": 8})
             data_sources = ["cross-system asset graph", "dbt manifest", "Airflow metadata"]
         elif "unhealthy" in lowered or "health" in lowered:
-            health = use("platform_health", demo_project_args())
-            lineage = use("platform_lineage", {**demo_project_args(), "node": "fact_reservation", "depth": 4})
-            failures = use("dbt_failed_tests", demo_project_args())
-            result = {"health": health, "lineage": lineage, "dbt_failed_tests": failures}
-            data_sources = ["platform inventory", "dbt run_results.json", "cross-system asset graph"]
+            asset = "fact_reservation" if "reservation" in lowered else None
+            result = use("platform_root_cause", {
+                **demo_project_args(),
+                "database": str(_quality_database()),
+                "asset": asset,
+            })
+            data_sources = ["platform health", "Airflow static evidence", "dbt run_results.json", "SQLite quality evidence"]
         else:
             result = {
                 "supported_questions": [
