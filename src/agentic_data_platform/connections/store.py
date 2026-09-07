@@ -26,7 +26,7 @@ _SECRET_PARTS = (
     "oauth",
     "credential",
 )
-_ENV_REF = re.compile(r"^$\{ENV:([A-Za-z_][A-Za-z0-9_]*)\}$")
+_ENV_REF = re.compile(r"^\$\{ENV:([A-Za-z_][A-Za-z0-9_]*)\}$")
 _DBT_ENV = re.compile(r"\{\{\s*env_var\(['\"]([^'\"]+)['\"](?:\s*,\s*['\"][^'\"]*['\"])?\)\s*\}\}")
 
 
