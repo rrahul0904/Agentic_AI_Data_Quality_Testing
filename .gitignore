@@ -55,3 +55,7 @@ credentials*.json
 *.pfx
 .claude/settings.local.json
 .user.yml
+
+# Read-only parity reference clones and generated analysis
+.reference/
+.reference-analysis/

@@ -64,3 +64,12 @@ docker-up:
 
 docker-down:
 	cd $(HOSPITALITY) && docker compose down
+
+
+.PHONY: altimate-parity parity-summary
+
+altimate-parity:
+	$(PYTHON) scripts/check_altimate_parity.py
+
+parity-summary:
+	-$(PYTHON) scripts/check_altimate_parity.py
