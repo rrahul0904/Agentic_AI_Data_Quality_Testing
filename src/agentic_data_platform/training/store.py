@@ -97,12 +97,21 @@ class TrainingStore:
               chunk_index INTEGER NOT NULL,
               content TEXT NOT NULL,
               content_hash TEXT NOT NULL,
+              applied_count INTEGER NOT NULL DEFAULT 0,
               FOREIGN KEY(document_id) REFERENCES training_documents(document_id)
             );
             CREATE INDEX IF NOT EXISTS idx_training_source ON training_documents(source);
             CREATE INDEX IF NOT EXISTS idx_training_chunk_doc ON training_chunks(document_id, chunk_index);
             """
         )
+        columns = {
+            str(row["name"])
+            for row in self.connection.execute("PRAGMA table_info(training_chunks)").fetchall()
+        }
+        if "applied_count" not in columns:
+            self.connection.execute(
+                "ALTER TABLE training_chunks ADD COLUMN applied_count INTEGER NOT NULL DEFAULT 0"
+            )
         try:
             self.connection.execute(
                 "CREATE VIRTUAL TABLE IF NOT EXISTS training_fts USING fts5(chunk_id UNINDEXED, content)"
@@ -179,7 +188,8 @@ class TrainingStore:
             chunk_hash = hashlib.sha256(chunk.encode()).hexdigest()
             chunk_id = hashlib.sha256(f"{document_id}:{index}:{chunk_hash}".encode()).hexdigest()
             self.connection.execute(
-                "INSERT INTO training_chunks VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO training_chunks(chunk_id, document_id, chunk_index, content, content_hash, applied_count) "
+                "VALUES (?, ?, ?, ?, ?, 0)",
                 (chunk_id, document_id, index, chunk, chunk_hash),
             )
             if self.fts:
@@ -277,7 +287,7 @@ class TrainingStore:
         if self.fts and query.strip():
             rows = self.connection.execute(
                 """
-                SELECT c.chunk_id, c.chunk_index, c.content, d.source, d.source_type,
+                SELECT c.chunk_id, c.chunk_index, c.content, c.applied_count, d.source, d.source_type,
                        d.metadata_json, bm25(training_fts) AS score
                 FROM training_fts
                 JOIN training_chunks c ON c.chunk_id = training_fts.chunk_id
@@ -291,7 +301,7 @@ class TrainingStore:
         else:
             rows = self.connection.execute(
                 """
-                SELECT c.chunk_id, c.chunk_index, c.content, d.source, d.source_type,
+                SELECT c.chunk_id, c.chunk_index, c.content, c.applied_count, d.source, d.source_type,
                        d.metadata_json, 0.0 AS score
                 FROM training_chunks c
                 JOIN training_documents d ON d.document_id = c.document_id
@@ -327,17 +337,30 @@ class TrainingStore:
             snippet = content[:remaining]
             selected.append(
                 {
+                    "chunk_id": item["chunk_id"],
                     "source": item["source"],
                     "chunk_index": item["chunk_index"],
                     "content": snippet,
+                    "applied_count_before": int(item.get("applied_count") or 0),
                 }
             )
             used += len(snippet)
+        if selected:
+            chunk_ids = [
+                str(item["chunk_id"])
+                for item in results[: len(selected)]
+            ]
+            self.connection.executemany(
+                "UPDATE training_chunks SET applied_count = applied_count + 1 WHERE chunk_id = ?",
+                [(chunk_id,) for chunk_id in chunk_ids],
+            )
+            self.connection.commit()
         return {
             "query": query,
             "chunks": selected,
             "characters": used,
             "truncated": len(selected) < len(results) or used >= max_chars,
+            "applied_chunk_ids": chunk_ids if selected else [],
         }
 
     def status(self) -> dict[str, Any]:
