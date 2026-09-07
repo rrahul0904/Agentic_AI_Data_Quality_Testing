@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-
 import pytest
 
 from agentic_data_platform.mcp import McpClient, McpConfigStore, McpManager, McpServerConfig, McpTransport
