@@ -17,6 +17,47 @@ from agentic_data_platform.quality.reconciliation import (
     reconcile_aggregate, reconcile_duplicates, reconcile_freshness, reconcile_nulls,
     reconcile_primary_keys, reconcile_row_count,
 )
+from agentic_data_platform.quality.data_diff import (
+    aggregate_diff as data_diff_aggregate_impl,
+    data_diff_report as data_diff_report_impl,
+    duckdb_demo_diff,
+    hash_diff as data_diff_hash_impl,
+    key_diff as data_diff_keys_impl,
+    row_count_diff as data_diff_row_count_impl,
+    row_diff as data_diff_rows_impl,
+    schema_diff as data_diff_schema_impl,
+)
+from agentic_data_platform.dbt.advanced import (
+    compiled_sql_review as dbt_compiled_sql_review_impl,
+    failed_models as dbt_failed_models_impl,
+    incremental_analysis as dbt_incremental_analysis_impl,
+    leaf_model_candidates as dbt_leaf_candidates_impl,
+    macro_analysis as dbt_macro_analysis_impl,
+    snapshot_analysis as dbt_snapshot_analysis_impl,
+    source_freshness_configuration as dbt_source_freshness_impl,
+    state_compare as dbt_state_compare_impl,
+)
+from agentic_data_platform.platform.airflow_ops import (
+    backfill_analysis as airflow_backfill_analysis_impl,
+    connection_analysis as airflow_connection_analysis_impl,
+    failure_lab as airflow_failure_lab_impl,
+    pipeline_health as airflow_pipeline_health_impl,
+    retry_analysis as airflow_retry_analysis_impl,
+    root_cause_from_error as airflow_root_cause_impl,
+    runtime_readiness as airflow_runtime_readiness_impl,
+    schedule_analysis as airflow_schedule_analysis_impl,
+)
+from agentic_data_platform.platform.root_cause import (
+    asset_health as asset_health_impl,
+    overall_pipeline_health as overall_pipeline_health_impl,
+    platform_root_cause as platform_root_cause_impl,
+)
+from agentic_data_platform.remediation.proposals import (
+    propose_airflow_retry as propose_airflow_retry_impl,
+    propose_dbt_tests as propose_dbt_tests_impl,
+    propose_quality_rule as propose_quality_rule_impl,
+    propose_sql_repair as propose_sql_repair_impl,
+)
 from agentic_data_platform.quality.store import SQLiteQualityStore
 from agentic_data_platform.sql.intelligence import (
     column_downstream, column_lineage, column_upstream, review_sql, sql_lineage,
@@ -221,5 +262,47 @@ def build_tool_registry() -> ToolRegistry:
         add("migration_show_blockers", Capability.MIGRATE, lambda a: adapter.blockers(a["project"]), "Show ShiftForge blockers requiring human review.", platforms=frozenset({Platform.LOCAL}))
         add("migration_compile", Capability.VERIFY, lambda a: adapter.validate(a["project"], a["converted"]), "Compile and validate an isolated migration result.", platforms=frozenset({Platform.LOCAL}))
         add("migration_test", Capability.VERIFY, lambda a: adapter.validate(a["project"], a["converted"]), "Run deterministic migration validation.", platforms=frozenset({Platform.LOCAL}))
+
+
+    # Cross-warehouse/local data diff primitives.
+    add("data_diff_schema", Capability.VERIFY, lambda a: data_diff_schema_impl(a["source_schema"], a["target_schema"]), "Compare source and target schemas.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
+    add("data_diff_row_count", Capability.VERIFY, lambda a: data_diff_row_count_impl(a["source_count"], a["target_count"], tolerance=a.get("tolerance", 0)), "Compare source and target row counts for a data-diff run.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
+    add("data_diff_keys", Capability.VERIFY, lambda a: data_diff_keys_impl(a["source_rows"], a["target_rows"], a["key_columns"]), "Compare keyed row membership and duplicate keys.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
+    add("data_diff_hash", Capability.VERIFY, lambda a: data_diff_hash_impl(a["source_rows"], a["target_rows"], a["key_columns"]), "Compare canonical row hashes by business key.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
+    add("data_diff_rows", Capability.VERIFY, lambda a: data_diff_rows_impl(a["source_rows"], a["target_rows"], a["key_columns"], compare_columns=a.get("compare_columns")), "Return missing, extra, changed and matching keyed rows.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
+    add("data_diff_aggregate", Capability.VERIFY, lambda a: data_diff_aggregate_impl(a["source_rows"], a["target_rows"], a["column"], aggregate=a.get("aggregate", "sum"), tolerance=a.get("tolerance", 0)), "Compare deterministic source/target aggregates.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
+    add("data_diff_report", Capability.VERIFY, lambda a: data_diff_report_impl(a["source_rows"], a["target_rows"], a["key_columns"], aggregate_columns=a.get("aggregate_columns", ())), "Build a composite schema/row/key/hash/aggregate data-diff report.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
+    add("data_diff_duckdb_demo", Capability.VERIFY, lambda a: duckdb_demo_diff(), "Run a real in-memory DuckDB source-target data-diff fixture.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
+
+    # Advanced dbt artifact intelligence.
+    add("dbt_incremental_analysis", Capability.DBT, lambda a: dbt_incremental_analysis_impl(_dbt(a)), "Analyze incremental model keys, strategies and schema-change risk.")
+    add("dbt_snapshot_analysis", Capability.DBT, lambda a: dbt_snapshot_analysis_impl(_dbt(a)), "Analyze dbt snapshot SCD configuration.")
+    add("dbt_macro_analysis", Capability.DBT, lambda a: dbt_macro_analysis_impl(_dbt(a)), "Inventory dbt macros and package ownership.")
+    add("dbt_failed_models", Capability.DBT, lambda a: dbt_failed_models_impl(_dbt(a)), "Return failed dbt model executions from run_results.")
+    add("dbt_source_freshness", Capability.DBT, lambda a: dbt_source_freshness_impl(_dbt(a)), "Inspect dbt source freshness configuration.")
+    add("dbt_leaf_candidates", Capability.DBT, lambda a: dbt_leaf_candidates_impl(_dbt(a)), "Find non-mart leaf models that may be unused and require review.")
+    add("dbt_compiled_sql_review", Capability.DBT, lambda a: dbt_compiled_sql_review_impl(_dbt(a), limit=int(a.get("limit", 100))), "Run deterministic SQL review across compiled dbt models.")
+    add("dbt_state_compare", Capability.DBT, lambda a: dbt_state_compare_impl(_dbt(a), a["previous_manifest"]), "Compare current dbt state to a previous manifest and calculate impact.")
+
+    # Airflow operational/static reliability intelligence.
+    add("airflow_retry_analysis", Capability.VERIFY, lambda a: airflow_retry_analysis_impl(_target(a)), "Analyze Airflow retry-policy coverage.")
+    add("airflow_schedule_analysis", Capability.VERIFY, lambda a: airflow_schedule_analysis_impl(_target(a)), "Analyze schedules and catchup policy.")
+    add("airflow_backfill_analysis", Capability.PLAN, lambda a: airflow_backfill_analysis_impl(_target(a)), "Identify static backfill risk before execution.")
+    add("airflow_connection_analysis", Capability.DISCOVER, lambda a: airflow_connection_analysis_impl(_target(a)), "Map Airflow connection IDs to dependent DAGs.")
+    add("airflow_pipeline_health", Capability.VERIFY, lambda a: airflow_pipeline_health_impl(_target(a)), "Calculate deterministic static Airflow pipeline-health evidence.")
+    add("airflow_runtime_readiness", Capability.VERIFY, lambda a: airflow_runtime_readiness_impl(_target(a)), "Report static readiness and honest runtime/log SKIPs.")
+    add("airflow_root_cause", Capability.VERIFY, lambda a: airflow_root_cause_impl(a["error"], dag_id=a.get("dag_id"), task_id=a.get("task_id")), "Classify Airflow/task failure text into evidence-backed probable causes.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_failure_lab", Capability.VERIFY, lambda a: airflow_failure_lab_impl(), "Run the deterministic local Airflow permission-failure diagnosis fixture.", platforms=frozenset({Platform.LOCAL}))
+
+    # Cross-system health and root-cause correlation.
+    add("platform_root_cause", Capability.VERIFY, lambda a: platform_root_cause_impl(_target(a), a["database"], asset=a.get("asset")), "Correlate platform, Airflow, dbt and DQ evidence into probable root cause.", platforms=frozenset({Platform.LOCAL}))
+    add("asset_health_score", Capability.VERIFY, lambda a: asset_health_impl(_target(a), a["database"], a["asset"]), "Score one asset using graph connectivity and persisted DQ evidence.", platforms=frozenset({Platform.LOCAL}))
+    add("pipeline_health_score", Capability.VERIFY, lambda a: overall_pipeline_health_impl(_target(a), a["database"]), "Score pipeline health from Airflow and persisted quality evidence.", platforms=frozenset({Platform.LOCAL}))
+
+    # Proposal-only remediation. These tools never write files.
+    add("propose_dbt_tests", Capability.PLAN, lambda a: propose_dbt_tests_impl(_dbt(a), limit=int(a.get("limit", 25))), "Propose dbt tests for currently unprotected models without applying changes.")
+    add("propose_sql_repair", Capability.PLAN, lambda a: propose_sql_repair_impl(a["sql"], a.get("dialect")), "Propose SQL remediations from deterministic findings without editing SQL.", platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE, Platform.BIGQUERY, Platform.REDSHIFT, Platform.SPARK}))
+    add("propose_airflow_retry", Capability.PLAN, lambda a: propose_airflow_retry_impl(_target(a), a["dag_id"]), "Propose safer Airflow retry configuration without modifying DAG code.")
+    add("propose_quality_rule", Capability.PLAN, lambda a: propose_quality_rule_impl(a["asset"], a["check_type"], severity=a.get("severity", "ERROR")), "Propose a deterministic DQ rule without persisting it.", platforms=frozenset({Platform.LOCAL}))
 
     return registry
