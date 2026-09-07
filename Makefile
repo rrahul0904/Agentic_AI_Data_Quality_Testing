@@ -1,7 +1,8 @@
-.PHONY: doctor test unit-test integration-test e2e lint quality dbt-parse dbt-test airflow-check shiftforge-test benchmark demo demo-setup docker-up docker-down
+.PHONY: doctor test unit-test integration-test e2e lint quality dbt-parse dbt-test airflow-check shiftforge-test benchmark demo demo-setup demo-data demo-ui frontend-typecheck frontend-build docker-up docker-down
 
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 HOSPITALITY := hospitality-snowflake-data-platform
+WEB := apps/web
 
 doctor:
 	PYTHONPATH=src $(PYTHON) -m agentic_data_platform.cli doctor .
@@ -40,11 +41,23 @@ shiftforge-test:
 benchmark:
 	PYTHONPATH=src $(PYTHON) -m agentic_data_platform.cli platform graph --project $(HOSPITALITY) >/dev/null
 
+frontend-typecheck:
+	cd $(WEB) && npm run typecheck
+
+frontend-build:
+	cd $(WEB) && npm run build
+
 demo-setup:
 	./scripts/setup-demo.sh
 
+demo-data:
+	./scripts/init-demo-data.sh
+
 demo:
 	./scripts/demo-platform.sh
+
+demo-ui:
+	./scripts/demo-ui.sh
 
 docker-up:
 	cd $(HOSPITALITY) && docker compose up -d
