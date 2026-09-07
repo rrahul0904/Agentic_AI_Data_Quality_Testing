@@ -388,7 +388,7 @@ export default function OperatorConsole() {
             {active === "Warehouses" && <WarehousesView warehouses={warehouses} inventory={inventory} />}
             {active === "FinOps" && <RoadmapView title="Snowflake FinOps" description="Static warehouse metadata exists today. Query history, credit attribution, spill analysis, idle warehouse detection, and right-sizing remain next-wave work." />}
             {active === "Governance" && <RoadmapView title="Governance & RBAC" description="PII detection and policy boundaries exist in the platform foundations. Deep Snowflake grant graph, sensitive-data access analysis, and policy enforcement are still partial." />}
-            {active === "Runs / Evidence" && <EvidenceView overview={overview} quality={quality} />}
+            {active === "Runs / Evidence" && overview && <EvidenceView overview={overview} quality={quality} />}
             {active === "Agent" && <AgentView question={agentQuestion} setQuestion={setAgentQuestion} ask={askAgent} busy={agentBusy} answer={agentAnswer} />}
           </>
         )}
