@@ -11,6 +11,60 @@ from typing import Any, Mapping
 _ENV = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\{env:([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
+def _strip_jsonc(text: str) -> str:
+    """Remove JSONC comments while preserving comment markers inside strings."""
+    output: list[str] = []
+    index = 0
+    in_string = False
+    escaped = False
+    while index < len(text):
+        char = text[index]
+        next_char = text[index + 1] if index + 1 < len(text) else ""
+        if in_string:
+            output.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            index += 1
+            continue
+        if char == '"':
+            in_string = True
+            output.append(char)
+            index += 1
+            continue
+        if char == "/" and next_char == "/":
+            index += 2
+            while index < len(text) and text[index] not in "\r\n":
+                index += 1
+            continue
+        if char == "/" and next_char == "*":
+            index += 2
+            while index + 1 < len(text) and not (text[index] == "*" and text[index + 1] == "/"):
+                index += 1
+            index += 2
+            continue
+        output.append(char)
+        index += 1
+    return "".join(output)
+
+
+def _read_json_config(path: Path) -> dict[str, Any]:
+    text = path.read_text()
+    if path.suffix == ".jsonc":
+        text = _strip_jsonc(text)
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"refusing to read malformed MCP config: {path}") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"MCP config root must be an object: {path}")
+    return value
+
+
+
 def resolve_env(value: str) -> tuple[str, list[str]]:
     missing: list[str] = []
 
@@ -98,11 +152,7 @@ class McpConfigStore:
         source = Path(path)
         if not source.exists():
             return {}
-        text = source.read_text()
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"refusing to read malformed MCP config: {source}") from exc
+        data = _read_json_config(source)
         raw = data.get("mcp") or data.get("mcpServers") or {}
         return {name: McpServerConfig.from_dict(name, item) for name, item in raw.items() if isinstance(item, dict)}
 
@@ -111,10 +161,7 @@ class McpConfigStore:
         target = Path(path)
         data: dict[str, Any] = {}
         if target.exists():
-            try:
-                data = json.loads(target.read_text())
-            except json.JSONDecodeError as exc:
-                raise ValueError(f"refusing to overwrite malformed MCP config: {target}") from exc
+            data = _read_json_config(target)
         data.setdefault("mcp", {})[name] = dict(config)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(data, indent=2) + "\n")
@@ -125,13 +172,27 @@ class McpConfigStore:
         target = Path(path)
         if not target.exists():
             return False
-        try:
-            data = json.loads(target.read_text())
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"refusing to overwrite malformed MCP config: {target}") from exc
+        data = _read_json_config(target)
         servers = data.get("mcp") or {}
         if name not in servers:
             return False
         del servers[name]
         target.write_text(json.dumps(data, indent=2) + "\n")
         return True
+
+
+    @staticmethod
+    def set_enabled(path: str | Path, name: str, enabled: bool) -> Path:
+        target = Path(path)
+        if not target.exists():
+            raise FileNotFoundError(f"MCP config not found: {target}")
+        data = _read_json_config(target)
+        servers = data.get("mcp") or data.get("mcpServers")
+        if not isinstance(servers, dict) or name not in servers:
+            raise KeyError(f"MCP server not found: {name}")
+        server = servers[name]
+        if not isinstance(server, dict):
+            raise ValueError(f"MCP server config must be an object: {name}")
+        server["enabled"] = bool(enabled)
+        target.write_text(json.dumps(data, indent=2) + "\n")
+        return target
