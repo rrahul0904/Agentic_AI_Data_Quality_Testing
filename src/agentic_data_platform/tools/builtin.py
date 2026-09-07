@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
-from agentic_data_platform.models import Capability, Platform, Risk
+from agentic_data_platform.models import ActorMode, Capability, Environment, Platform, Risk, ToolRequest
 from agentic_data_platform.migration.shiftforge_adapter import ShiftForgeAdapter
 from agentic_data_platform.platform.airflow import AirflowProject
 from agentic_data_platform.platform.discovery import PlatformDiscovery
@@ -130,7 +130,7 @@ from agentic_data_platform.lineage.engine import (
     column_downstream as production_column_downstream,
     column_upstream as production_column_upstream,
 )
-from .registry import ToolDefinition, ToolRegistry
+from .registry import ToolDefinition, ToolInvocation, ToolRegistry
 from agentic_data_platform.dbt.manifest_graph import DbtArtifacts, DbtManifestGraph
 from agentic_data_platform.dbt.runtime import DbtRuntime
 from agentic_data_platform.dbt.validators import run_validators as dbt_run_validators
