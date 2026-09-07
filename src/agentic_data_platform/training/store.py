@@ -285,6 +285,13 @@ class TrainingStore:
     def search(self, query: str, *, limit: int = 10) -> list[dict[str, Any]]:
         bounded = max(1, min(int(limit), 100))
         if self.fts and query.strip():
+            terms = re.findall(r"[A-Za-z0-9_]{2,}", query)
+            fts_query = " OR ".join(
+                '"' + term.replace('"', '""') + '"'
+                for term in terms[:32]
+            )
+            if not fts_query:
+                return []
             rows = self.connection.execute(
                 """
                 SELECT c.chunk_id, c.chunk_index, c.content, c.applied_count, d.source, d.source_type,
@@ -296,7 +303,7 @@ class TrainingStore:
                 ORDER BY score
                 LIMIT ?
                 """,
-                (query, bounded),
+                (fts_query, bounded),
             ).fetchall()
         else:
             rows = self.connection.execute(
