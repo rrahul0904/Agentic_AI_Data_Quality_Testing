@@ -64,6 +64,16 @@ _DESCRIPTION_RULES: dict[str, tuple[str, ...]] = {
     "national_identifier": ("national identifier", "tax identifier", "aadhaar"),
 }
 
+_CATEGORY_PRIORITY = {
+    "credit_card": 0,
+    "ssn": 1,
+    "passport": 2,
+    "email": 3,
+    "phone": 4,
+    "bank_account": 10,
+}
+
+
 _VALUE_RULES: dict[str, tuple[re.Pattern[str], ...]] = {
     "email": (re.compile(r"^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$", re.I),),
     "phone": (re.compile(r"^\+?[0-9][0-9(). -]{7,18}[0-9]$"),),
@@ -166,7 +176,17 @@ def classify_column(
         )
         for category, score in scores.items()
     ]
-    return [asdict(item) for item in sorted(findings, key=lambda item: (-item.confidence, item.category))]
+    return [
+        asdict(item)
+        for item in sorted(
+            findings,
+            key=lambda item: (
+                -item.confidence,
+                _CATEGORY_PRIORITY.get(item.category, 5),
+                item.category,
+            ),
+        )
+    ]
 
 
 def scan_metadata(
