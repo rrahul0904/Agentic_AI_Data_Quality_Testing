@@ -158,7 +158,7 @@ def _logic_categories(sql: str, dialect: str) -> list[str]:
         tree = sqlglot.parse_one(sql, read=dialect)
     except sqlglot.errors.SqlglotError:
         return ["baseline"]
-    categories = ["baseline"]
+    categories = []
     checks = [
         (exp.Case, "case_when"),
         (exp.Join, "join"),
@@ -172,7 +172,7 @@ def _logic_categories(sql: str, dialect: str) -> list[str]:
             categories.append(category)
     if any(isinstance(column.parent, exp.Is) for column in tree.find_all(exp.Column)):
         categories.append("null_logic")
-    return list(dict.fromkeys(categories))
+    return list(dict.fromkeys(categories)) or ["baseline"]
 
 
 def generate_unit_tests(
