@@ -81,7 +81,13 @@ from agentic_data_platform.sql.parity import (
 from agentic_data_platform.connectors.factory import ExternalConnectionUnavailable, connector_from_args
 from agentic_data_platform.metadata.index import MetadataIndex
 from agentic_data_platform.metadata.service import MetadataService
-from agentic_data_platform.training import TrainingStore
+from agentic_data_platform.training import (
+    TrainingStore,
+    import_markdown as training_import_markdown,
+    list_entries as training_list_entries,
+    remove_entry as training_remove_entry,
+    save_entry as training_save_entry,
+)
 from agentic_data_platform.skills import SkillService
 from agentic_data_platform.session import (
     SessionRuntime,
@@ -540,6 +546,11 @@ def build_tool_registry() -> ToolRegistry:
             args=a.get("args"),
             tool_args=a.get("tool_args"),
         )
+
+    add("training_save", Capability.GENERATE, lambda a: training_save_entry(_memory_store(a), kind=a["kind"], name=a["name"], content=a["content"], scope=a.get("scope", "project"), project_id=a.get("project_id"), source=a.get("source"), citations=list(a.get("citations") or ())), "Save or update a named learned training entry with preserved application count.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("training_list", Capability.DISCOVER, lambda a: training_list_entries(_memory_store(a), kind=a.get("kind"), scope=a.get("scope", "all"), project_id=a.get("project_id")), "List learned training entries, counts, application usage and context budget.", platforms=frozenset({Platform.LOCAL}))
+    add("training_remove", Capability.GENERATE, lambda a: training_remove_entry(_memory_store(a), kind=a["kind"], name=a["name"], scope=a.get("scope", "project"), project_id=a.get("project_id")), "Remove one named learned training entry.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("training_import", Capability.GENERATE, lambda a: training_import_markdown(_memory_store(a), a["file_path"], kind=a["kind"], scope=a.get("scope", "project"), project_id=a.get("project_id"), dry_run=bool(a.get("dry_run", True)), max_entries=int(a.get("max_entries", 20))), "Import named learned training entries from Markdown H2 sections with dry-run preview.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
 
     add("training_ingest", Capability.GENERATE, lambda a: training_store(a).ingest_project(_target(a), patterns=tuple(a.get("patterns") or ("AGENTS.md", "CLAUDE.md", "README.md", "docs/**/*.md", "specs/**/*.md", "models/**/*.sql", "models/**/*.yml", "models/**/*.yaml", "dbt_project.yml")), max_files=int(a.get("max_files", 2000)), max_bytes_per_file=int(a.get("max_bytes_per_file", 2000000))), "Index bounded project knowledge into the local training corpus.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
     add("training_ingest_text", Capability.GENERATE, lambda a: training_store(a).ingest_text(a["source"], a["text"], source_type=a.get("source_type", "text"), metadata=a.get("metadata")), "Index explicit approved text into the local training corpus.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
