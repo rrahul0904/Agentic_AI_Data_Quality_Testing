@@ -1020,6 +1020,50 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     def mcp_resources(name: str) -> dict[str, Any]:
         return invoke_read("mcp_resources", runtime_args(name=name))
 
+    @app.post("/api/v1/review/dbt")
+    def dbt_pr_review(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_read(
+            "dbt_pr_review",
+            runtime_args(**payload.args),
+        )
+
+    @app.post("/api/v1/review/impact")
+    def review_impact(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_read(
+            "change_impact",
+            runtime_args(**payload.args),
+        )
+
+    @app.post("/api/v1/review/recommended-tests")
+    def review_recommended_tests(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_read(
+            "recommended_tests",
+            runtime_args(**payload.args),
+        )
+
+    @app.post("/api/v1/review/deployment-risk")
+    def review_deployment_risk(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_read(
+            "deployment_risk",
+            runtime_args(**payload.args),
+        )
+
+    @app.post("/api/v1/review/github")
+    def review_github(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_governed(
+            "github_pr_review",
+            runtime_args(**payload.args),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.post("/api/v1/review/gitlab")
+    def review_gitlab(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_governed(
+            "gitlab_mr_review",
+            runtime_args(**payload.args),
+            actor_mode=ActorMode.BUILDER,
+        )
+
     @app.post("/api/v1/dbt/execute/{operation}")
     def dbt_execute(operation: str, payload: ArgsInput) -> dict[str, Any]:
         allowed = {
