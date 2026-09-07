@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import math
 import re
-from collections import Counter, defaultdict
+from collections import defaultdict
 from statistics import median
 from typing import Any, Iterable
 
