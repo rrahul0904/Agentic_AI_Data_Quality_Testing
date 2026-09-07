@@ -90,7 +90,7 @@ class BigQueryConnector(DataPlatformConnector):
             "statement_type AS query_type, state AS execution_status, error_result, "
             "total_bytes_processed AS bytes_scanned, total_slot_ms, creation_time AS start_time, "
             "end_time "
-            f"FROM \`{project}.{region}.INFORMATION_SCHEMA.JOBS_BY_PROJECT\` "
+            f"FROM `{project}.{region}.INFORMATION_SCHEMA.JOBS_BY_PROJECT` "
             f"WHERE creation_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {days} DAY) "
             "AND job_type = 'QUERY' ORDER BY creation_time DESC "
             f"LIMIT {limit}"
