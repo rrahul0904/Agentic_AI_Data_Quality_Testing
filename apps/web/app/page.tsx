@@ -174,6 +174,37 @@ type AgentAnswer = {
   result: unknown;
   evidence: { tools_used: string[]; data_sources: string[]; timestamp: string; mode: string };
 };
+type DataDiffDemo = {
+  mode: string;
+  status: Status;
+  source: string;
+  target: string;
+  schema: { status: Status; missing_columns: string[]; extra_columns: string[]; type_mismatches: RecordValue[] };
+  row_count: { status: Status; source_count: number; target_count: number; difference: number };
+  rows: { status: Status; counts: { matches: number; missing: number; extra: number; changed: number }; changed_rows: RecordValue[] };
+  hash: { status: Status; changed_keys: unknown[]; missing_keys: unknown[]; extra_keys: unknown[] };
+  aggregates: { column: string; aggregate: string; source_value: number; target_value: number; difference: number; status: Status }[];
+};
+type AirflowOperations = {
+  retry: { status: Status; configured_count: number; missing_or_zero_count: number; missing_or_zero: string[] };
+  schedule: { status: Status; unscheduled: string[]; catchup_enabled: string[]; schedule_counts: Record<string, number> };
+  backfill: { status: Status; risk_count: number; risks: RecordValue[]; recommendation: string };
+  connections: { connection_count: number; connections: { connection_id: string; dag_count: number; dags: string[] }[] };
+  health: { score: number; status: Status; components: Record<string, RecordValue>; live_runtime: string };
+  runtime: { status: Status; static_inventory_ready: boolean; parse_error_count: number; live_api: string; logs: string };
+};
+type AirflowFailureLab = {
+  mode: string;
+  event: { dag_id: string; task_id: string; state: string; error: string };
+  diagnosis: { cause: string; confidence: number; evidence: string[]; recommended_action: string; status: string };
+};
+type SqlProposal = {
+  status: string;
+  finding_count: number;
+  proposals: { rule_id: string; problem: string; proposal: string; automatic_edit: boolean }[];
+  applied: boolean;
+  requires_builder_approval: boolean;
+};
 
 const NAV = [
   "Overview", "Assets", "Lineage", "SQL Intelligence", "dbt", "Airflow", "Data Quality",
@@ -244,6 +275,9 @@ export default function OperatorConsole() {
   const [migrationFindings, setMigrationFindings] = useState<MigrationFindings | null>(null);
   const [migrationBlockers, setMigrationBlockers] = useState<MigrationBlockers | null>(null);
   const [warehouses, setWarehouses] = useState<WarehouseStatus | null>(null);
+  const [dataDiff, setDataDiff] = useState<DataDiffDemo | null>(null);
+  const [airflowOperations, setAirflowOperations] = useState<AirflowOperations | null>(null);
+  const [airflowFailureLab, setAirflowFailureLab] = useState<AirflowFailureLab | null>(null);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -257,6 +291,7 @@ export default function OperatorConsole() {
   const [dialect, setDialect] = useState("snowflake");
   const [sqlReview, setSqlReview] = useState<SqlReview | null>(null);
   const [sqlLineage, setSqlLineage] = useState<SqlLineage | null>(null);
+  const [sqlProposal, setSqlProposal] = useState<SqlProposal | null>(null);
   const [sqlBusy, setSqlBusy] = useState(false);
 
   const [sourceCount, setSourceCount] = useState(10000);
@@ -294,10 +329,24 @@ export default function OperatorConsole() {
   useEffect(() => { void loadBase(); }, []);
 
   useEffect(() => {
-    if (active === "Airflow" && !airflow) {
-      void getJson<AirflowInventory>("/api/v1/airflow/inventory").then(setAirflow).catch((cause) => setError(String(cause)));
+    if (active === "Airflow" && (!airflow || !airflowOperations || !airflowFailureLab)) {
+      void Promise.all([
+        getJson<AirflowInventory>("/api/v1/airflow/inventory"),
+        getJson<AirflowOperations>("/api/v1/airflow/operations"),
+        getJson<AirflowFailureLab>("/api/v1/airflow/failure-lab"),
+      ]).then(([inventoryResult, operationsResult, failureResult]) => {
+        setAirflow(inventoryResult);
+        setAirflowOperations(operationsResult);
+        setAirflowFailureLab(failureResult);
+      }).catch((cause) => setError(String(cause)));
     }
-  }, [active, airflow]);
+  }, [active, airflow, airflowOperations, airflowFailureLab]);
+
+  useEffect(() => {
+    if (active === "Reconciliation" && !dataDiff) {
+      void getJson<DataDiffDemo>("/api/v1/data-diff/demo").then(setDataDiff).catch((cause) => setError(String(cause)));
+    }
+  }, [active, dataDiff]);
 
   async function searchAssets() {
     const query = assetQuery.trim() ? `&query=${encodeURIComponent(assetQuery.trim())}` : "";
@@ -320,11 +369,12 @@ export default function OperatorConsole() {
   async function runSql() {
     setSqlBusy(true);
     try {
-      const [review, lineageResult] = await Promise.all([
+      const [review, lineageResult, proposal] = await Promise.all([
         postJson<SqlReview>("/api/v1/sql/review", { sql, dialect }),
         postJson<SqlLineage>("/api/v1/sql/lineage", { sql, dialect }),
+        postJson<SqlProposal>("/api/v1/remediation/sql", { sql, dialect }),
       ]);
-      setSqlReview(review); setSqlLineage(lineageResult);
+      setSqlReview(review); setSqlLineage(lineageResult); setSqlProposal(proposal);
     } finally { setSqlBusy(false); }
   }
 
@@ -379,11 +429,11 @@ export default function OperatorConsole() {
             {active === "Overview" && overview && inventory && <OverviewView overview={overview} inventory={inventory} />}
             {active === "Assets" && <AssetsView assets={assets} query={assetQuery} setQuery={setAssetQuery} search={() => void searchAssets()} />}
             {active === "Lineage" && <LineageView node={lineageNode} setNode={setLineageNode} run={() => void runLineage()} busy={lineageBusy} lineage={lineage} impact={impact} />}
-            {active === "SQL Intelligence" && <SqlView sql={sql} setSql={setSql} dialect={dialect} setDialect={setDialect} run={() => void runSql()} busy={sqlBusy} review={sqlReview} lineage={sqlLineage} />}
+            {active === "SQL Intelligence" && <SqlView sql={sql} setSql={setSql} dialect={dialect} setDialect={setDialect} run={() => void runSql()} busy={sqlBusy} review={sqlReview} lineage={sqlLineage} proposal={sqlProposal} />}
             {active === "dbt" && <DbtView summary={dbtSummary} coverage={dbtCoverage} docs={dbtDocs} />}
-            {active === "Airflow" && <AirflowView airflow={airflow} />}
+            {active === "Airflow" && <AirflowView airflow={airflow} operations={airflowOperations} failureLab={airflowFailureLab} />}
             {active === "Data Quality" && <QualityView quality={quality} />}
-            {active === "Reconciliation" && <ReconciliationView source={sourceCount} target={targetCount} setSource={setSourceCount} setTarget={setTargetCount} run={() => void runReconciliation()} result={reconcile} history={quality?.recent_reconciliations ?? []} />}
+            {active === "Reconciliation" && <ReconciliationView source={sourceCount} target={targetCount} setSource={setSourceCount} setTarget={setTargetCount} run={() => void runReconciliation()} result={reconcile} history={quality?.recent_reconciliations ?? []} dataDiff={dataDiff} />}
             {active === "Migration" && <MigrationView inventory={migration} findings={migrationFindings} blockers={migrationBlockers} />}
             {active === "Warehouses" && <WarehousesView warehouses={warehouses} inventory={inventory} />}
             {active === "FinOps" && <RoadmapView title="Snowflake FinOps" description="Static warehouse metadata exists today. Query history, credit attribution, spill analysis, idle warehouse detection, and right-sizing remain next-wave work." />}
@@ -506,7 +556,7 @@ function LineageNode({ node, focus = false }: { node: TraversalNode | AssetNode;
   return <div className={focus ? "lineage-node focus" : "lineage-node"}><span>{node.kind}</span><strong>{node.name}</strong>{"depth" in node && node.depth ? <small>depth {node.depth}</small> : null}</div>;
 }
 
-function SqlView({ sql, setSql, dialect, setDialect, run, busy, review, lineage }: { sql: string; setSql: (value: string) => void; dialect: string; setDialect: (value: string) => void; run: () => void; busy: boolean; review: SqlReview | null; lineage: SqlLineage | null }) {
+function SqlView({ sql, setSql, dialect, setDialect, run, busy, review, lineage, proposal }: { sql: string; setSql: (value: string) => void; dialect: string; setDialect: (value: string) => void; run: () => void; busy: boolean; review: SqlReview | null; lineage: SqlLineage | null; proposal: SqlProposal | null }) {
   return (
     <>
       <Panel title="SQL intelligence workspace" eyebrow="SQLGLOT AST ENGINE" actions={<div className="sql-actions"><select value={dialect} onChange={(e) => setDialect(e.target.value)}>{["snowflake","bigquery","redshift","postgres","oracle","spark","duckdb"].map((item) => <option key={item}>{item}</option>)}</select><button className="primary" onClick={run} disabled={busy}>{busy ? "Analyzing…" : "Analyze SQL"}</button></div>}>
@@ -525,6 +575,12 @@ function SqlView({ sql, setSql, dialect, setDialect, run, busy, review, lineage 
           </div> : <div className="error-box">{lineage.error}</div>}
         </Panel>
       </div>
+      <Panel title="Repair proposal" eyebrow="PROPOSE ONLY · BUILDER APPROVAL REQUIRED">
+        {!proposal ? <Empty>Analyze SQL to generate bounded remediation proposals.</Empty> : <div className="proposal-list">
+          <div className="inline-summary"><StatusBadge status={proposal.status} /><span>{proposal.proposals.length} proposals</span><span>Applied: {String(proposal.applied)}</span></div>
+          {proposal.proposals.slice(0, 8).map((item, index) => <div className="proposal" key={`${item.rule_id}-${index}`}><strong>{item.rule_id} · {item.problem}</strong><p>{item.proposal}</p><small>{item.automatic_edit ? "automatic edit candidate" : "human-reviewed proposal only"}</small></div>)}
+        </div>}
+      </Panel>
     </>
   );
 }
@@ -543,11 +599,20 @@ function DbtView({ summary, coverage, docs }: { summary: DbtSummary | null; cove
   );
 }
 
-function AirflowView({ airflow }: { airflow: AirflowInventory | null }) {
-  if (!airflow) return <Loading text="Parsing Airflow DAGs without importing user code…" />;
+function AirflowView({ airflow, operations, failureLab }: { airflow: AirflowInventory | null; operations: AirflowOperations | null; failureLab: AirflowFailureLab | null }) {
+  if (!airflow || !operations || !failureLab) return <Loading text="Parsing Airflow DAGs and reliability evidence…" />;
   return (
     <>
-      <section className="metrics four"><Metric label="DAGs" value={airflow.dag_count} /><Metric label="Parse errors" value={airflow.parse_errors.length} /><Metric label="Connections" value={airflow.connections_used.length} /><Metric label="Mode" value="STATIC" sub="No DAG execution" /></section>
+      <section className="metrics four"><Metric label="DAGs" value={airflow.dag_count} /><Metric label="Pipeline health" value={operations.health.score} sub={String(operations.health.status)} /><Metric label="Retry gaps" value={operations.retry.missing_or_zero_count} /><Metric label="Backfill risks" value={operations.backfill.risk_count} /></section>
+      <div className="two-col equal">
+        <Panel title="Operational readiness" eyebrow="STATIC RELIABILITY ANALYSIS">
+          <div className="impact-grid"><div><span>Retry coverage</span><strong>{operations.retry.configured_count}/{airflow.dag_count}</strong></div><div><span>Connections</span><strong>{operations.connections.connection_count}</strong></div><div><span>Catchup enabled</span><strong>{operations.schedule.catchup_enabled.length}</strong></div><div><span>Runtime API</span><StatusBadge status="SKIP" /></div></div>
+          <p className="note">{operations.health.live_runtime}</p>
+        </Panel>
+        <Panel title="Failure lab" eyebrow={failureLab.mode}>
+          <div className="failure-lab"><div><span>DAG / task</span><strong>{failureLab.event.dag_id} · {failureLab.event.task_id}</strong></div><div><span>State</span><StatusBadge status={failureLab.event.state} /></div><div><span>Probable cause</span><strong>{failureLab.diagnosis.cause}</strong></div><div><span>Confidence</span><strong>{Math.round(failureLab.diagnosis.confidence * 100)}%</strong></div><p>{failureLab.diagnosis.recommended_action}</p></div>
+        </Panel>
+      </div>
       <Panel title="Airflow DAG inventory" eyebrow="STATIC AST INTELLIGENCE">
         <div className="table-wrap"><table><thead><tr><th>DAG</th><th>Schedule</th><th>Tasks</th><th>Retries</th><th>Catchup</th><th>Connections</th><th>Source</th></tr></thead><tbody>
           {airflow.details.map((dag) => <tr key={dag.dag_id}><td><strong>{dag.dag_id}</strong><small>{dag.file.split("/").slice(-2).join("/")}</small></td><td>{dag.schedule ?? "—"}</td><td>{dag.tasks.length}</td><td>{dag.retries ?? "—"}</td><td><StatusBadge status={dag.catchup === false ? "PASS" : dag.catchup === true ? "WARN" : "SKIP"} /></td><td>{dag.connections.join(", ") || "—"}</td><td>{dag.source ?? "orchestration"}</td></tr>)}
@@ -571,12 +636,19 @@ function QualityView({ quality }: { quality: QualitySummary | null }) {
   );
 }
 
-function ReconciliationView({ source, target, setSource, setTarget, run, result, history }: { source: number; target: number; setSource: (value: number) => void; setTarget: (value: number) => void; run: () => void; result: ReconcileResult | null; history: ReconciliationHistory[] }) {
+function ReconciliationView({ source, target, setSource, setTarget, run, result, history, dataDiff }: { source: number; target: number; setSource: (value: number) => void; setTarget: (value: number) => void; run: () => void; result: ReconcileResult | null; history: ReconciliationHistory[]; dataDiff: DataDiffDemo | null }) {
   return (
     <>
       <Panel title="Source-target reconciliation" eyebrow="FAIL-CLOSED DATA PARITY">
         <div className="reconcile-form"><label>Source rows<input type="number" value={source} onChange={(e) => setSource(Number(e.target.value))} /></label><span>vs</span><label>Target rows<input type="number" value={target} onChange={(e) => setTarget(Number(e.target.value))} /></label><button className="primary" onClick={run}>Compare</button><button className="ghost" onClick={() => { setSource(10000); setTarget(10000); }}>Clean fixture</button></div>
         {result && <div className={result.status === "PASS" ? "reconcile-result pass" : "reconcile-result fail"}><div><span>Result</span><StatusBadge status={result.status} /></div><div><span>Difference</span><strong>{result.difference}</strong></div><div><span>Difference %</span><strong>{result.difference_pct.toFixed(4)}%</strong></div><div><span>Tolerance</span><strong>{result.tolerance.absolute} rows</strong></div></div>}
+      </Panel>
+      <Panel title="DuckDB keyed data diff" eyebrow="LOCAL SIMULATION · REAL QUERY ENGINE">
+        {!dataDiff ? <Loading text="Running local source-target diff…" /> : <div className="data-diff">
+          <div className="inline-summary"><StatusBadge status={dataDiff.status} /><span>{dataDiff.source}</span><span>{dataDiff.target}</span></div>
+          <div className="impact-grid"><div><span>Matches</span><strong>{dataDiff.rows.counts.matches}</strong></div><div><span>Changed</span><strong>{dataDiff.rows.counts.changed}</strong></div><div><span>Missing</span><strong>{dataDiff.rows.counts.missing}</strong></div><div><span>Extra</span><strong>{dataDiff.rows.counts.extra}</strong></div></div>
+          <div className="chip-list">{dataDiff.aggregates.map((item) => <span key={item.column}>{item.aggregate}({item.column}): {item.source_value} → {item.target_value} · {item.status}</span>)}</div>
+        </div>}
       </Panel>
       <Panel title="Persisted reconciliation history" eyebrow="QUALITY EVIDENCE">
         {!history.length ? <Empty>No persisted reconciliation evidence yet.</Empty> : <div className="table-wrap compact-table"><table><thead><tr><th>Metric</th><th>Source</th><th>Target</th><th>Difference</th><th>Status</th><th>Timestamp</th></tr></thead><tbody>{history.map((item) => <tr key={item.result_id}><td>{item.metric}</td><td>{compact(item.result.source_value)}</td><td>{compact(item.result.target_value)}</td><td>{compact(item.result.difference)}</td><td><StatusBadge status={item.status} /></td><td>{new Date(item.timestamp).toLocaleString()}</td></tr>)}</tbody></table></div>}
