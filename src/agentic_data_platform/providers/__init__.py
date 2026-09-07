@@ -1,4 +1,7 @@
 from .anthropic import AnthropicProvider
+from .azure import AzureOpenAIProvider
+from .bedrock import BedrockProvider
+from .gemini import GeminiProvider, VertexAIProvider
 from .base import Provider, ProviderRequest, ProviderResponse, ToolCall, Usage
 from .control import (
     MODEL_STATUSES,
@@ -22,6 +25,10 @@ from .registry import ProviderRegistry, ProviderSpec
 
 __all__ = [
     "AnthropicProvider",
+    "AzureOpenAIProvider",
+    "BedrockProvider",
+    "GeminiProvider",
+    "VertexAIProvider",
     "MODEL_STATUSES",
     "ModelCatalog",
     "ModelRecord",
