@@ -87,6 +87,7 @@ class AgentRuntime:
         selected_meta = selected_context.metadata() if selected_context else {
             "memory_ids": [],
             "training_ids": [],
+            "training_chunk_ids": [],
             "skill_names": [],
         }
 
