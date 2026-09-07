@@ -217,8 +217,21 @@ class OAuthPending:
 
 
 class McpOAuthManager:
-    def __init__(self) -> None:
-        self._pending: dict[str, OAuthPending] = {}
+    def __init__(self, path: str | Path = ":memory:") -> None:
+        self.path = str(path)
+        if self.path != ":memory:":
+            Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        self.connection = sqlite3.connect(self.path)
+        self.connection.row_factory = sqlite3.Row
+        self.connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mcp_oauth_pending (
+              state TEXT PRIMARY KEY,
+              payload_json TEXT NOT NULL
+            )
+            """
+        )
+        self.connection.commit()
 
     @staticmethod
     def _pkce() -> tuple[str, str]:
@@ -250,7 +263,11 @@ class McpOAuthManager:
             client_id,
             scope,
         )
-        self._pending[state] = pending
+        self.connection.execute(
+            "INSERT INTO mcp_oauth_pending VALUES (?, ?)",
+            (state, json.dumps(asdict(pending), sort_keys=True)),
+        )
+        self.connection.commit()
         params = {
             "response_type": "code",
             "client_id": client_id,
@@ -271,9 +288,15 @@ class McpOAuthManager:
         }
 
     def callback(self, *, state: str, code: str | None, error: str | None = None) -> dict[str, Any]:
-        pending = self._pending.pop(state, None)
-        if pending is None:
+        row = self.connection.execute(
+            "SELECT payload_json FROM mcp_oauth_pending WHERE state = ?",
+            (state,),
+        ).fetchone()
+        if row is None:
             raise KeyError("unknown or expired MCP OAuth state")
+        self.connection.execute("DELETE FROM mcp_oauth_pending WHERE state = ?", (state,))
+        self.connection.commit()
+        pending = OAuthPending(**json.loads(row["payload_json"]))
         if error:
             return {
                 "status": "FAIL",
