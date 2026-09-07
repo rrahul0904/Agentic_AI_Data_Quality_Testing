@@ -1,0 +1,156 @@
+/* ---------------------------------------------------------------------------
+   Design system: dense, restrained, "internal data tool" -- not a marketing
+   dashboard. One accent color, semantic color reserved strictly for
+   pass/fail/warn status, no pill-shaped badges, no oversized cards.
+--------------------------------------------------------------------------- */
+
+:root {
+  --bg: #0a0a0c;
+  --border: #232328;
+  --border-hover: #38383f;
+  --text: #d8d8dc;
+  --text-dim: #85858f;
+  --text-faint: #55555e;
+  --accent: #6b8afd;
+  --accent-dim: #3d4d8a;
+  --ok: #3fae74;
+  --fail: #e5626b;
+  --warn: #d9a441;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+body {
+  font-feature-settings: "tnum" 1;
+  letter-spacing: -0.005em;
+}
+
+h1, h2, h3 {
+  letter-spacing: -0.01em;
+}
+
+code {
+  font-family: var(--mono);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+/* -- status: small text label + colored dot, never a filled pill -- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
+.badge-passed, .badge-pass, .badge-success, .badge-certified, .badge-applied,
+.badge-approved { color: var(--ok); }
+.badge-failed, .badge-fail, .badge-failure, .badge-error, .badge-rejected { color: var(--fail); }
+.badge-at_risk, .badge-conflicted, .badge-unverified, .badge-open { color: var(--warn); }
+.badge-running, .badge-queued, .badge-provisioning, .badge-proposed { color: var(--accent); }
+.badge-pending, .badge-unreachable, .badge-skipped, .badge-stopped, .badge-unknown,
+.badge-ready { color: var(--text-dim); }
+.badge-ready::before { background: var(--ok); }
+
+/* -- structural rows/panels: thin borders, minimal radius, no drop shadow -- */
+.run-row, .project-card, .job-row {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 12px;
+  transition: border-color 0.12s;
+}
+.run-row, .project-card { cursor: pointer; }
+.run-row:hover, .project-card:hover, .job-row:hover { border-color: var(--border-hover); }
+.run-row.selected { border-color: var(--accent); }
+.project-card { background: transparent; }
+.job-row { display: flex; align-items: center; gap: 10px; }
+
+/* -- tables: dense, single-line cells, horizontal scroll instead of wrap -- */
+.results-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; }
+table.results { width: 100%; border-collapse: collapse; min-width: 520px; font-size: 0.78rem; }
+table.results th, table.results td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+table.results tbody tr:last-child td { border-bottom: none; }
+table.results th {
+  color: var(--text-faint);
+  font-weight: 600;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.015);
+}
+table.results td.wrap { white-space: normal; }
+table.results tbody tr:hover { background: rgba(255, 255, 255, 0.015); }
+
+/* -- buttons: small, low-key, primary distinguished by accent border only -- */
+.btn {
+  border-radius: 5px;
+  padding: 5px 11px;
+  font-weight: 500;
+  font-size: 0.78rem;
+  transition: background-color 0.12s, border-color 0.12s;
+  border: 1px solid transparent;
+}
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--accent-dim); color: #cfd9ff; border-color: var(--accent); }
+.btn-primary:hover:not(:disabled) { background: var(--accent); color: #0a0a0c; }
+.btn-secondary { background: transparent; color: var(--text-dim); border-color: var(--border); }
+.btn-secondary:hover:not(:disabled) { border-color: var(--border-hover); color: var(--text); }
+.btn-danger { background: transparent; color: var(--fail); border-color: #5c2429; }
+
+.field-label { display: block; font-size: 0.7rem; color: var(--text-dim); margin-bottom: 4px; }
+.field-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 9px;
+  font-size: 0.8rem;
+  color: var(--text);
+}
+.field-input:focus { outline: none; border-color: var(--accent); }
+
+.tab-btn {
+  padding: 6px 2px;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+.tab-btn.active { color: var(--text); border-bottom-color: var(--accent); }
+
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7);
+  display: flex; align-items: center; justify-content: center; z-index: 50;
+}
+.modal-card {
+  background: #101013; border: 1px solid var(--border); border-radius: 8px;
+  padding: 20px; width: 480px; max-width: 92vw; max-height: 88vh; overflow-y: auto;
+}
+
+.lineage-svg { width: 100%; height: auto; }
+.lineage-node-rect { fill: #17171a; stroke: var(--border-hover); stroke-width: 1; }
+.lineage-node-rect.kind-model { stroke: var(--accent); }
+.lineage-node-rect.kind-test { stroke: var(--warn); }
+.lineage-node-rect.kind-source { stroke: #4bb3c9; }
+.lineage-node-rect.kind-seed { stroke: #9d7fd9; }
+.lineage-node-rect.kind-task { stroke: var(--ok); }
+.lineage-node-text { fill: var(--text); font-size: 11px; font-family: var(--mono); }
+.lineage-edge { stroke: var(--border-hover); stroke-width: 1.2; fill: none; marker-end: url(#arrowhead); }

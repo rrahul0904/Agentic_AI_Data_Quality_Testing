@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ADE Test Control Tower</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/styles.css?v=5" />
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen text-[13px]">
+  <header class="border-b border-slate-800 px-5 py-2.5 flex items-center justify-between">
+    <div class="flex items-center gap-5">
+      <a href="#/" class="text-[13px] font-semibold tracking-tight text-slate-300 hover:text-white transition">ADE Test Control Tower</a>
+      <nav class="flex items-center gap-4 text-[13px] text-slate-500">
+        <a href="#/" data-nav="dashboard" class="hover:text-slate-200">Projects</a>
+        <a href="#/runs" data-nav="runs" class="hover:text-slate-200">Runs</a>
+        <a href="#/incidents" data-nav="incidents" class="hover:text-slate-200">Incidents</a>
+      </nav>
+    </div>
+    <div id="health-pill" class="text-[11px] font-mono text-slate-600">checking…</div>
+  </header>
+
+  <main id="app" class="max-w-6xl mx-auto px-5 py-6"></main>
+
+  <div id="modal-root"></div>
+
+  <script src="/app.js?v=5"></script>
+</body>
+</html>

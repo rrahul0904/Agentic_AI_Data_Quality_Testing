@@ -1,0 +1,12 @@
+node_modules/
+**/.ldh/sessions.db
+**/.ldh/demo.db
+*.db-shm
+*.db-wal
+.env
+.DS_Store
+**/.ldh/*.db
+**/__pycache__/
+*.pyc
+.venv-data/
+.venv-airflow/

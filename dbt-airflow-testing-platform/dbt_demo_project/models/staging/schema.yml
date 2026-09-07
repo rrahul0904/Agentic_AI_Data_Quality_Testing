@@ -1,0 +1,27 @@
+version: 2
+
+seeds:
+  - name: raw_orders
+    columns:
+      - name: order_id
+        tests:
+          - unique
+          - not_null
+
+models:
+  - name: stg_orders
+    columns:
+      - name: order_id
+        tests:
+          - unique
+          - not_null
+      - name: customer_id
+        tests:
+          - not_null
+      - name: status
+        tests:
+          - accepted_values:
+              values: ['placed', 'shipped', 'completed', 'cancelled']
+      - name: amount
+        tests:
+          - not_null

@@ -1,0 +1,1 @@
+{"metadata":{"dbt_version":"1.10-demo"},"nodes":{"model.demo.orders":{"name":"orders","resource_type":"model"}},"sources":{}}

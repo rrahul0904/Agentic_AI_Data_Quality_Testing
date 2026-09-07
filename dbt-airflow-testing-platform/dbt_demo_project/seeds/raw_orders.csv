@@ -1,0 +1,11 @@
+order_id,customer_id,status,amount,order_date
+1,101,placed,120.50,2026-08-01
+2,102,shipped,45.00,2026-08-01
+3,103,completed,300.00,2026-08-02
+4,104,completed,75.25,2026-08-02
+5,,placed,60.00,2026-08-03
+6,106,cancelled,-15.00,2026-08-03
+7,107,completed,210.00,2026-08-04
+8,108,shipped,99.99,2026-08-04
+9,109,bogus_status,40.00,2026-08-05
+10,110,completed,150.00,2026-08-05

@@ -1,0 +1,16 @@
+{
+  "nodes": {
+    "model.demo.stg_orders": {"resource_type": "model", "name": "stg_orders"},
+    "model.demo.fct_orders": {"resource_type": "model", "name": "fct_orders"},
+    "model.demo.order_metrics": {"resource_type": "model", "name": "order_metrics"},
+    "test.demo.not_null_orders": {"resource_type": "test", "name": "not_null_orders"}
+  },
+  "sources": {"source.demo.raw.orders": {"resource_type": "source", "name": "orders"}},
+  "child_map": {
+    "source.demo.raw.orders": ["model.demo.stg_orders"],
+    "model.demo.stg_orders": ["model.demo.fct_orders", "test.demo.not_null_orders"],
+    "model.demo.fct_orders": ["model.demo.order_metrics"],
+    "model.demo.order_metrics": [],
+    "test.demo.not_null_orders": []
+  }
+}

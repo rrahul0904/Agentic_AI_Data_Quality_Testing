@@ -1,0 +1,7 @@
+ade_dq_demo:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: warehouse/demo.duckdb
+      threads: 4

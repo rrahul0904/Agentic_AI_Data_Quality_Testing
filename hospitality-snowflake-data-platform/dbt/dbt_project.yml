@@ -1,0 +1,30 @@
+name: hospitality_analytics
+version: 1.0.0
+config-version: 2
+profile: hospitality_snowflake
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  hospitality_analytics:
+    staging:
+      +schema: STAGING
+      +materialized: view
+    intermediate:
+      +schema: STAGING
+      +materialized: ephemeral
+    core:
+      +schema: CORE
+      +materialized: table
+    marts:
+      +schema: MART
+      +materialized: table
+
+vars:
+  raw_lookback_hours: 72
+

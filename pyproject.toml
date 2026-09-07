@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentic-data-engineering-platform"
+version = "0.3.0"
+description = "Policy-governed agentic control plane for data engineering, migration, testing, and verification."
+requires-python = ">=3.11"
+dependencies = ["fastapi>=0.115"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6", "httpx>=0.27", "uvicorn>=0.30"]
+
+[project.scripts]
+ade = "agentic_data_platform.cli:main"
+agentic-data-platform = "agentic_data_platform.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E9", "F"]

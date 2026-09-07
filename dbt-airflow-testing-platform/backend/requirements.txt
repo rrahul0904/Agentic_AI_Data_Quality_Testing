@@ -1,0 +1,14 @@
+fastapi>=0.111
+uvicorn[standard]>=0.30
+sqlalchemy>=2.0
+pydantic>=2.7
+pydantic-settings>=2.2
+requests>=2.31
+python-multipart>=0.0.9
+jinja2>=3.1
+dbt-core>=1.10
+dbt-duckdb>=1.10
+sqlglot>=30.0
+duckdb>=1.5
+openai>=1.40
+pytest>=8.0

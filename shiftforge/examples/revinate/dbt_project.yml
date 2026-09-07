@@ -1,0 +1,8 @@
+name: revinate_demo
+version: 1.0.0
+config-version: 2
+profile: revinate_demo
+model-paths: ["models"]
+models:
+  revinate_demo:
+    +materialized: table

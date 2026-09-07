@@ -1,0 +1,5 @@
+name: local_data_harness_demo
+version: 1.0.0
+config-version: 2
+profile: local_data_harness_demo
+model-paths: ["models"]

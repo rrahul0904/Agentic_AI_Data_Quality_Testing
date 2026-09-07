@@ -1,0 +1,79 @@
+[
+  {
+    "name": "order_id not null",
+    "dimension": "completeness",
+    "rule_type": "not_null",
+    "target_table": "stg_orders",
+    "target_column": "order_id",
+    "severity": "P1",
+    "use_contract": true
+  },
+  {
+    "name": "order_id unique",
+    "dimension": "uniqueness",
+    "rule_type": "unique",
+    "target_table": "stg_orders",
+    "target_column": "order_id",
+    "severity": "P2"
+  },
+  {
+    "name": "cancelled orders contribute zero",
+    "dimension": "business_rule",
+    "rule_type": "custom_sql",
+    "target_table": "int_revenue",
+    "expression": {"sql": "SELECT count(*) AS failing_count FROM int_revenue WHERE status = 'CANCELLED'"},
+    "tolerance_value": 0,
+    "severity": "P1",
+    "use_contract": true
+  },
+  {
+    "name": "net_revenue formula correctness",
+    "dimension": "transformation",
+    "rule_type": "custom_sql",
+    "target_table": "int_revenue",
+    "expression": {"sql": "SELECT count(*) AS failing_count FROM int_revenue WHERE abs(net_revenue - (gross_amount - discount - refund)) > 0.001"},
+    "tolerance_value": 0,
+    "severity": "P2"
+  },
+  {
+    "name": "source-target row coverage",
+    "dimension": "accuracy",
+    "rule_type": "custom_sql",
+    "target_table": "int_revenue",
+    "expression": {"sql": "SELECT count(*) AS failing_count FROM stg_orders WHERE status IN ('COMPLETE','SHIPPED') AND order_id NOT IN (SELECT order_id FROM int_revenue)"},
+    "tolerance_value": 0,
+    "severity": "P1",
+    "use_contract": true
+  },
+  {
+    "name": "net revenue reconciliation",
+    "dimension": "accuracy",
+    "rule_type": "custom_sql",
+    "target_table": "fact_revenue",
+    "expression": {"sql": "SELECT abs((SELECT sum(net_revenue) FROM fact_revenue) - (SELECT sum(gross_amount - discount - refund) FROM stg_orders WHERE status IN ('COMPLETE','SHIPPED'))) AS failing_count"},
+    "tolerance_type": "absolute",
+    "tolerance_value": 0.01,
+    "severity": "P1",
+    "use_contract": true
+  },
+  {
+    "name": "gross revenue reconciliation",
+    "dimension": "accuracy",
+    "rule_type": "custom_sql",
+    "target_table": "fact_revenue",
+    "expression": {"sql": "SELECT abs((SELECT sum(gross_revenue) FROM fact_revenue) - (SELECT sum(gross_amount) FROM stg_orders WHERE status IN ('COMPLETE','SHIPPED'))) AS failing_count"},
+    "tolerance_type": "absolute",
+    "tolerance_value": 0.01,
+    "severity": "P2",
+    "use_contract": true
+  },
+  {
+    "name": "stg_orders volume sanity",
+    "dimension": "volume",
+    "rule_type": "custom_sql",
+    "target_table": "stg_orders",
+    "expression": {"sql": "SELECT CASE WHEN count(*) = 0 THEN 1 ELSE 0 END AS failing_count FROM stg_orders"},
+    "tolerance_value": 0,
+    "severity": "P3"
+  }
+]

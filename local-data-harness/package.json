@@ -1,0 +1,22 @@
+{
+  "name": "local-data-harness",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "bin": {
+    "ldh": "./src/cli/index.mjs"
+  },
+  "scripts": {
+    "start": "node src/cli/index.mjs",
+    "ask": "node src/cli/index.mjs ask",
+    "discover": "node src/cli/index.mjs discover",
+    "serve": "node src/cli/index.mjs serve",
+    "demo": "node scripts/setup-demo.mjs && node src/cli/index.mjs ask --cwd examples/demo \"analyze models/orders.sql\"",
+    "test": "node --test test/*.test.mjs",
+    "quality": "node src/cli/index.mjs quality --cwd examples/demo --level static",
+    "quality:integration": "node src/cli/index.mjs quality --cwd examples/demo --level integration"
+  }
+}

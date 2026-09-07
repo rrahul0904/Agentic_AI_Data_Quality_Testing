@@ -1,0 +1,33 @@
+version: 2
+
+sources:
+  - name: raw_oracle
+    description: Oracle PMS extracts landed as immutable VARIANT records.
+    database: HOSPITALITY_DW
+    schema: RAW
+    config:
+      freshness: {warn_after: {count: 26, period: hour}, error_after: {count: 50, period: hour}}
+      loaded_at_field: ingested_at
+    tables:
+      - name: raw_ingestion_events
+        identifier: RAW_INGESTION_EVENTS
+  - name: raw_postgres
+    description: PostgreSQL digital-platform extracts landed as immutable VARIANT records.
+    database: HOSPITALITY_DW
+    schema: RAW
+    config:
+      freshness: {warn_after: {count: 4, period: hour}, error_after: {count: 8, period: hour}}
+      loaded_at_field: ingested_at
+    tables:
+      - name: raw_ingestion_events
+        identifier: RAW_INGESTION_EVENTS
+  - name: raw_files
+    description: Local structured and semi-structured feeds.
+    database: HOSPITALITY_DW
+    schema: RAW
+    config:
+      freshness: {warn_after: {count: 26, period: hour}, error_after: {count: 50, period: hour}}
+      loaded_at_field: ingested_at
+    tables:
+      - name: raw_ingestion_events
+        identifier: RAW_INGESTION_EVENTS

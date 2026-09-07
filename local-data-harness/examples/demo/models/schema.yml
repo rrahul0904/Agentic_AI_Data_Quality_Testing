@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: orders
+    description: Example order model used by Local Data Harness quality checks.
+    columns:
+      - name: order_id
+        data_tests:
+          - not_null
+          - unique
+      - name: customer_email
+        data_tests:
+          - not_null
+      - name: amount
+        data_tests:
+          - not_null

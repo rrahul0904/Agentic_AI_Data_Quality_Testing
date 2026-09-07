@@ -1,0 +1,8 @@
+{
+  "models/account_hierarchy.sql": {
+    "account_country": "sfdc_account.BillingCountry"
+  },
+  "models/account_primary.sql": {
+    "account_country": "sfdc_account.BillingCountry"
+  }
+}

@@ -1,0 +1,70 @@
+"""Authoritative logical inventories for the simulated relational sources."""
+
+ORACLE_TABLES = """
+HOTEL_PROPERTY HOTEL_BRAND HOTEL_REGION PROPERTY_ADDRESS PROPERTY_CONTACT PROPERTY_AMENITY
+PROPERTY_AMENITY_ASSIGNMENT PROPERTY_POLICY PROPERTY_CALENDAR BLACKOUT_DATE BUILDING FLOOR
+ROOM ROOM_TYPE ROOM_STATUS ROOM_STATUS_HISTORY ROOM_INVENTORY ROOM_AMENITY ROOM_AMENITY_ASSIGNMENT
+ROOM_FEATURE ROOM_FEATURE_ASSIGNMENT ROOM_BLOCK ROOM_BLOCK_DETAIL ROOM_OUT_OF_ORDER ROOM_INSPECTION
+ROOM_RATE_PLAN ROOM_RATE_RULE ROOM_RATE_CALENDAR RATE_SEASON RATE_PACKAGE RATE_PACKAGE_ITEM
+RATE_RESTRICTION RATE_OVERRIDE RATE_TAX_MAPPING RATE_MARKET_SEGMENT RATE_PROMOTION RATE_YIELD_RULE
+GUEST GUEST_PROFILE GUEST_ADDRESS GUEST_PREFERENCE GUEST_DOCUMENT GUEST_CONTACT GUEST_CONSENT
+GUEST_NOTE GUEST_ALERT GUEST_COMPANION GUEST_STAY_HISTORY GUEST_MERGE_HISTORY VIP_LEVEL
+RESERVATION RESERVATION_ROOM RESERVATION_STATUS_HISTORY RESERVATION_GUEST RESERVATION_MODIFICATION
+RESERVATION_CANCELLATION RESERVATION_GUARANTEE RESERVATION_DEPOSIT RESERVATION_NOTE RESERVATION_ALERT
+RESERVATION_PACKAGE RESERVATION_PACKAGE_ITEM RESERVATION_WAITLIST RESERVATION_SOURCE RESERVATION_TRACE
+CHECKIN CHECKOUT KEY_CARD_ASSIGNMENT FOLIO FOLIO_LINE_ITEM FOLIO_ADJUSTMENT FOLIO_TRANSFER
+PAYMENT_AUTHORIZATION PAYMENT_CAPTURE PAYMENT_REVERSAL PAYMENT_METHOD_TOKEN CASHIER_SHIFT CASHIER_TRANSACTION
+LOYALTY_ACCOUNT LOYALTY_TRANSACTION LOYALTY_TIER LOYALTY_REDEMPTION LOYALTY_PARTNER LOYALTY_BENEFIT
+LOYALTY_TIER_HISTORY LOYALTY_POINT_EXPIRY LOYALTY_PROMOTION LOYALTY_MEMBER_PREFERENCE
+HOUSEKEEPING_TASK HOUSEKEEPING_ASSIGNMENT HOUSEKEEPING_EMPLOYEE HOUSEKEEPING_SCHEDULE HOUSEKEEPING_STATUS_HISTORY
+HOUSEKEEPING_INSPECTION HOUSEKEEPING_SUPPLY HOUSEKEEPING_SUPPLY_USAGE LINEN_INVENTORY MINIBAR_CHARGE
+MAINTENANCE_TICKET MAINTENANCE_WORK_ORDER MAINTENANCE_TECHNICIAN MAINTENANCE_ASSET MAINTENANCE_PART
+MAINTENANCE_PART_USAGE PREVENTIVE_MAINTENANCE_PLAN MAINTENANCE_STATUS_HISTORY VENDOR SERVICE_CONTRACT
+RESTAURANT RESTAURANT_TABLE RESTAURANT_RESERVATION RESTAURANT_GUEST RESTAURANT_CHECK RESTAURANT_CHECK_ITEM
+SPA_FACILITY SPA_SERVICE SPA_THERAPIST SPA_BOOKING SPA_BOOKING_SERVICE SPA_ROOM
+EVENT_VENUE EVENT_BOOKING EVENT_ATTENDEE EVENT_SERVICE EVENT_BILLING GROUP_BOOKING GROUP_ROOM_BLOCK
+CORPORATE_ACCOUNT CORPORATE_RATE_AGREEMENT TRAVEL_AGENT CHANNEL_PARTNER PARTNER_COMMISSION
+TAX_RULE SERVICE_CHARGE DEPARTMENT EMPLOYEE EMPLOYEE_PROPERTY_ASSIGNMENT SHIFT SCHEDULED_ACTIVITY
+GENERAL_LEDGER_CODE DAILY_REVENUE_SUMMARY NIGHT_AUDIT_RUN CURRENCY EXCHANGE_RATE
+""".split()
+
+POSTGRES_TABLES = """
+app_user user_identity user_credential user_session user_device user_address user_preference user_consent
+user_role role role_permission permission user_role_assignment login_attempt password_reset_token oauth_connection
+search_request search_filter search_result search_result_rate search_suggestion recent_search saved_search
+property_view room_view rate_view availability_request availability_response map_interaction comparison_list
+booking_cart booking_cart_item booking_attempt booking_confirmation booking_guest booking_contact booking_change
+booking_cancellation booking_status_event booking_price_breakdown booking_tax booking_fee booking_addon booking_note
+payment_method payment_method_token payment_transaction payment_authorization payment_capture payment_failure
+payment_settlement payment_settlement_item payment_dispute payment_chargeback payment_gateway_event refund_transaction
+refund_status_event wallet wallet_transaction gift_card gift_card_transaction
+promo_code promo_campaign promo_campaign_rule promo_redemption promo_audience promo_budget promo_channel
+coupon_batch coupon_code referral_program referral_event referral_reward price_experiment
+guest_review review_response review_photo review_helpful_vote review_flag review_moderation review_invitation
+support_ticket support_message support_attachment support_category support_assignment support_sla support_status_event
+chat_conversation chat_message call_request service_recovery_credit
+notification notification_template notification_preference email_event email_delivery sms_event push_event
+in_app_message webhook_delivery notification_suppression
+marketing_campaign marketing_touchpoint attribution_event ad_spend marketing_audience audience_membership
+affiliate_partner affiliate_click affiliate_conversion partner_booking_event partner_api_credential partner_webhook_event
+fraud_signal risk_score risk_rule risk_rule_result device_fingerprint identity_verification velocity_check
+blocked_entity manual_risk_review fraud_case fraud_case_event
+api_request_log api_client api_key api_rate_limit feature_flag feature_flag_rule experiment
+experiment_variant experiment_assignment experiment_event mobile_app_event mobile_app_crash mobile_release
+wishlist wishlist_item saved_payment_preference recently_viewed price_alert price_alert_event
+content_page content_translation property_content property_media seo_landing_page localization_string
+job_queue job_run outbox_event dead_letter_event audit_log data_export_request privacy_request
+""".split()
+
+
+def assert_catalogs_valid() -> None:
+    for name, tables in (("oracle", ORACLE_TABLES), ("postgres", POSTGRES_TABLES)):
+        if len(tables) < 100:
+            raise AssertionError(f"{name} catalog contains only {len(tables)} tables")
+        duplicates = {table for table in tables if tables.count(table) > 1}
+        if duplicates:
+            raise AssertionError(f"{name} catalog contains duplicates: {sorted(duplicates)}")
+
+
+assert_catalogs_valid()
+

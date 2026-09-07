@@ -1,0 +1,13 @@
+{
+  "require": {
+    "airflow": true,
+    "dbt": true,
+    "snowflake": false
+  },
+  "requireLive": {
+    "airflow": false,
+    "dbt": false,
+    "snowflake": false
+  },
+  "maxSqlIssues": 5
+}

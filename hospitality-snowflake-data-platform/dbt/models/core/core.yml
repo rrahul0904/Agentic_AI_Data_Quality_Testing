@@ -1,0 +1,145 @@
+version: 2
+
+models:
+  - name: dim_property
+    description: One current row per hotel property.
+    columns:
+      - name: property_key
+        tests: [not_null, unique]
+      - name: property_id
+        tests: [not_null, unique]
+  - name: dim_room
+    description: Current room attributes and property ownership.
+    columns:
+      - name: room_key
+        tests: [not_null, unique]
+      - name: property_key
+        tests:
+          - relationships:
+              arguments: {to: ref('dim_property'), field: property_key}
+  - name: dim_guest
+    description: Resolved cross-source guest identity without direct PII.
+    columns:
+      - name: guest_key
+        tests: [not_null, unique]
+  - name: fact_reservation
+    description: Reservation-grain booking lifecycle measures.
+    tests:
+      - date_order:
+          arguments: {start_column: check_in_date, end_column: check_out_date}
+    columns:
+      - name: reservation_key
+        tests: [not_null, unique]
+      - name: reservation_status
+        tests:
+          - accepted_values:
+              arguments: {values: ['PENDING', 'CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT', 'CANCELLED', 'NO_SHOW']}
+      - name: stay_nights
+        tests: [not_null]
+      - name: guest_key
+        tests:
+          - relationships:
+              arguments: {to: ref('dim_guest'), field: guest_key}
+      - name: property_key
+        tests:
+          - relationships:
+              arguments: {to: ref('dim_property'), field: property_key}
+  - name: fact_payment
+    description: Payment facts enriched with gateway settlement reconciliation.
+    columns:
+      - name: payment_key
+        tests: [not_null, unique]
+      - name: payment_amount
+        tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 1000000}
+      - name: reservation_key
+        tests:
+          - relationships:
+              arguments: {to: ref('fact_reservation'), field: reservation_key}
+      - name: payment_lifecycle_status
+        tests:
+          - accepted_values:
+              arguments: {values: ['FAILED', 'FULLY_REFUNDED', 'PARTIALLY_REFUNDED', 'SETTLED', 'CAPTURED', 'PENDING']}
+  - name: fact_booking_funnel
+    description: One row per digital session with search, checkout, booking-attempt, and confirmation milestones.
+    columns:
+      - name: booking_funnel_key
+        tests: [not_null, unique]
+      - name: property_key
+        tests:
+          - relationships:
+              arguments: {to: ref('dim_property'), field: property_key}
+  - name: fact_refund
+    description: Refund-grain lifecycle facts tied to the originating payment and reservation.
+    columns:
+      - name: refund_key
+        tests: [not_null, unique]
+      - name: refund_amount
+        tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 1000000}
+      - name: payment_key
+        tests:
+          - relationships:
+              arguments: {to: ref('fact_payment'), field: payment_key}
+      - name: reservation_key
+        tests:
+          - relationships:
+              arguments: {to: ref('fact_reservation'), field: reservation_key}
+  - name: fact_guest_stay
+    description: Actual stay lifecycle at reservation grain, including check-in, checkout, room, guest, and folio value.
+    columns:
+      - name: guest_stay_key
+        tests: [not_null, unique]
+      - name: reservation_key
+        tests:
+          - relationships:
+              arguments: {to: ref('fact_reservation'), field: reservation_key}
+      - name: guest_key
+        tests:
+          - relationships:
+              arguments: {to: ref('dim_guest'), field: guest_key}
+      - name: property_key
+        tests:
+          - relationships:
+              arguments: {to: ref('dim_property'), field: property_key}
+  - name: fact_clickstream_event
+    description: Deduplicated web behavioral events.
+    columns:
+      - name: event_key
+        tests: [not_null, unique]
+
+  - name: mart_executive_daily_kpis
+    description: Daily property-level executive revenue and occupancy metrics.
+    columns:
+      - name: occupancy_rate
+        tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 1}
+      - name: cancellation_rate
+        tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 1}
+  - name: mart_booking_conversion
+    description: Search and checkout funnel by day.
+    columns:
+      - name: checkout_conversion_rate
+        tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 1}
+      - name: booking_attempt_conversion_rate
+        tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 1}
+      - name: confirmed_booking_conversion_rate
+        tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 1}
+  - name: mart_cancellation_analysis
+    description: Cancellation volume and lost value by date, property, channel, and lead-time band.
+    columns:
+      - name: cancelled_reservations
+        tests:
+          - value_between:
+              arguments: {min_value: 1, max_value: 1000000000}

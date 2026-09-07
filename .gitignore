@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Node / LDH runtime
+node_modules/
+.next/
+local-data-harness/.ldh/
+local-data-harness/.recovery/
+
+# dbt, Airflow and generated data
+target/
+dbt_packages/
+logs/
+airflow_home/
+hospitality-snowflake-data-platform/dbt/target/
+hospitality-snowflake-data-platform/airflow/data/landing/
+hospitality-snowflake-data-platform/airflow/data/source_exports/
+hospitality-snowflake-data-platform/sources/files/generated/
+*.duckdb
+*.sqlite
+*.db
+
+# Nested audited reference repository and archives
+dbt-airflow-testing-platform/
+*.zip
+*.patch
+_extracted/
+.recovery/
+
+# secrets and local configuration
+.env
+.env.*
+!.env.example
+**/.env
+**/profiles.yml
+*.pem
+*.key
+credentials*.json
+.DS_Store
+*.sqlite3
+*.db-wal
+*.db-shm
+*.p8
+*.p12
+*.pfx
+.claude/settings.local.json
+.user.yml

@@ -1,0 +1,21 @@
+name: 'ade_dq_demo'
+version: '1.0.0'
+config-version: 2
+
+profile: 'ade_dq_demo'
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+
+models:
+  ade_dq_demo:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table

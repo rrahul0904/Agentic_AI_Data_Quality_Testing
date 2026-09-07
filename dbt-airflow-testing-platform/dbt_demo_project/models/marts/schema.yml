@@ -1,0 +1,15 @@
+version: 2
+
+models:
+  - name: fct_orders
+    columns:
+      - name: customer_id
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              to: ref('stg_orders')
+              field: customer_id
+      - name: total_amount
+        tests:
+          - not_null

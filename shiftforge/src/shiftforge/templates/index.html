@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ShiftForge — BigQuery → Redshift migration agent</title>
+<style>
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#e8edf3;background:#0b0f14}
+*{box-sizing:border-box} body{margin:0;background:#0b0f14}.shell{max-width:1400px;margin:auto;padding:28px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:22px}.brand{font-weight:750;font-size:20px}.pill{border:1px solid #27303b;background:#121820;padding:7px 10px;border-radius:999px;color:#aeb9c5;font-size:12px}.hero{display:flex;justify-content:space-between;gap:20px;align-items:end;margin:20px 0 24px}.hero h1{margin:0;font-size:34px;line-height:1.05;max-width:760px}.hero p{color:#94a0ad;max-width:620px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.panel{border:1px solid #242d37;border-radius:14px;background:#0f141b;overflow:hidden}.panel h2{font-size:13px;margin:0;padding:12px 14px;border-bottom:1px solid #242d37;color:#aeb9c5;text-transform:uppercase;letter-spacing:.08em}.panel textarea,.code{width:100%;height:470px;resize:vertical;border:0;outline:0;background:#0f141b;color:#d8e1ea;padding:16px;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}.actions{display:flex;gap:10px;margin:14px 0}.btn{border:1px solid #314052;background:#18212b;color:#fff;padding:10px 14px;border-radius:9px;font-weight:650;cursor:pointer}.btn.primary{background:#e7eef7;color:#0b0f14}.findings{margin-top:14px;border:1px solid #242d37;border-radius:14px;background:#0f141b;padding:14px}.finding{display:grid;grid-template-columns:110px 80px 1fr;gap:10px;padding:9px 0;border-top:1px solid #1c252f;font-size:13px}.finding:first-child{border-top:0}.sev-warning{color:#f5c46b}.sev-error{color:#ff8585}.sev-info{color:#81d4a8}.muted{color:#8793a0}.statrow{display:flex;gap:10px;flex-wrap:wrap}.stat{font-size:12px;border:1px solid #27303b;border-radius:8px;padding:7px 9px;color:#adb8c4}@media(max-width:900px){.grid{grid-template-columns:1fr}.hero{display:block}}
+</style>
+</head>
+<body><div class="shell">
+<div class="top"><div class="brand">ShiftForge</div><div class="pill">Local-first migration engine</div></div>
+<div class="hero"><div><h1>Convert dbt models from BigQuery to Redshift with compile-aware guardrails.</h1><p>Deterministic rules first. Explicit review for semantic risks. Original models stay untouched.</p></div><div class="statrow"><span class="stat">BigQuery → Redshift</span><span class="stat">dbt-aware</span><span class="stat">dry-run by default</span></div></div>
+<div class="actions"><button class="btn primary" onclick="convertSql()">Convert model</button><button class="btn" onclick="loadExample()">Load demo</button></div>
+<div class="grid"><div class="panel"><h2>Source dbt SQL</h2><textarea id="src" spellcheck="false" placeholder="Paste a BigQuery dbt model here..."></textarea></div><div class="panel"><h2>Converted Redshift SQL</h2><pre id="out" class="code">Conversion output will appear here.</pre></div></div>
+<div class="findings"><strong>Compatibility findings</strong><div id="findings" class="muted" style="margin-top:10px">No conversion run yet.</div></div>
+</div>
+<script>
+function loadExample(){document.getElementById('src').value=`{{ config(materialized='table', sort=['account_country']) }}\n\nSELECT\n  id,\n  IFNULL(name, 'unknown') AS account_name,\n  COUNTIF(is_active) AS active_count\nFROM \`my_project.salesforce.Account\`\nGROUP BY 1,2`;}
+async function convertSql(){
+ const sql=document.getElementById('src').value;
+ const res=await fetch('/api/convert',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sql,model_name:'browser_model.sql',hints:{}})});
+ const data=await res.json(); document.getElementById('out').textContent=data.converted_sql;
+ const root=document.getElementById('findings'); root.innerHTML='';
+ if(!data.hits.length){root.textContent='No compatibility rules triggered.';return}
+ data.hits.forEach(h=>{const d=document.createElement('div');d.className='finding';d.innerHTML=`<code>${h.rule_id}</code><span class="sev-${h.severity}">${h.severity}</span><span>${h.message}</span>`;root.appendChild(d)});
+}
+</script></body></html>

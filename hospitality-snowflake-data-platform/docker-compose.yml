@@ -1,0 +1,102 @@
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.10.5-python3.11
+  env_file: [.env]
+  environment: &airflow-environment
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres@postgres/airflow
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-local-development-only}
+    AIRFLOW_CONN_POSTGRES_HOSPITALITY: postgresql://postgres:postgres@postgres:5432/hospitality_app
+    _PIP_ADDITIONAL_REQUIREMENTS: >-
+      apache-airflow-providers-postgres>=5.13
+      apache-airflow-providers-snowflake>=6.0
+      dbt-snowflake>=1.8,<2
+    PYTHONPATH: /opt/airflow
+    GENERATED_FILE_DIR: /opt/airflow/sources/files/generated
+    SOURCE_EXPORT_DIR: /opt/airflow/data/source_exports
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on:
+    postgres:
+      condition: service_healthy
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./airflow/include:/opt/airflow/include
+    - ./airflow/logs:/opt/airflow/logs
+    - ./airflow/plugins:/opt/airflow/plugins
+    - ./airflow/data:/opt/airflow/data
+    - ./sources:/opt/airflow/sources:ro
+    - ./dbt:/opt/airflow/dbt
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-hospitality_app}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports: ["${POSTGRES_PORT:-5432}:5432"]
+    volumes:
+      - hospitality_postgres:/var/lib/postgresql/data
+      - ./sources/postgres/ddl:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-hospitality_app}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username admin --password admin \
+          --firstname Local --lastname Admin \
+          --role Admin --email admin@example.invalid || true
+    restart: "no"
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports: ["8080:8080"]
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    healthcheck:
+      test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob --hostname $${HOSTNAME}"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+
+  data-generator:
+    build:
+      context: .
+      dockerfile: data_generator/Dockerfile
+    environment:
+      DATA_SCALE: ${DATA_SCALE:-small}
+      DATA_SEED: ${DATA_SEED:-20260906}
+    volumes:
+      - ./sources/files/generated:/app/sources/files/generated
+    profiles: ["tools"]
+
+  dbt:
+    image: ghcr.io/dbt-labs/dbt-snowflake:1.8.4
+    env_file: [.env]
+    working_dir: /usr/app/dbt
+    volumes:
+      - ./dbt:/usr/app/dbt
+    entrypoint: ["dbt"]
+    profiles: ["tools"]
+
+volumes:
+  hospitality_postgres:
+

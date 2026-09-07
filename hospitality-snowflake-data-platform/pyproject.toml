@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hospitality-snowflake-data-platform"
+version = "0.1.0"
+description = "Synthetic end-to-end hospitality data engineering platform"
+requires-python = ">=3.11"
+dependencies = ["faker>=28,<40"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+parquet = ["pyarrow>=17"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["data_generator*"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+ignore = ["SIM905"]

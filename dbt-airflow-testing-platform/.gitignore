@@ -1,0 +1,16 @@
+.venv/
+.airflow_venv/
+airflow_home/
+__pycache__/
+*.pyc
+backend/data/
+backend/.env
+dbt_demo_project/target/
+dbt_demo_project/logs/
+dbt_demo_project/dbt_packages/
+dbt_demo_project/profiles/.user.yml
+dbt_demo_project/warehouse/*.duckdb
+dbt_demo_project/warehouse/*.duckdb.wal
+.DS_Store
+.pytest_cache/
+backend/.pytest_cache/
