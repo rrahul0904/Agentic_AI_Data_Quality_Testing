@@ -131,7 +131,7 @@ def analyze_column_lineage(
                         unresolved.append(f"{output_name}: wildcard requires schema metadata")
                     else:
                         leaves.add(ColumnRef(table, column))
-                elif isinstance(expression, exp.Placeholder):
+                elif isinstance(expression, exp.Placeholder) and not item.downstream:
                     placeholder_column = str(item.name or "").strip(chr(34) + chr(96))
                     candidates = [
                         str(table_name)
@@ -146,13 +146,13 @@ def analyze_column_lineage(
                         leaves.add(ColumnRef(candidates[0], placeholder_column))
                     elif len(candidates) > 1:
                         unresolved.append(
-                            f"{output_name}: unresolved placeholder {placeholder_column} "
+                            f"{output_name}: terminal placeholder {placeholder_column} "
                             + "is ambiguous across "
                             + ",".join(sorted(candidates))
                         )
                     else:
                         unresolved.append(
-                            f"{output_name}: unresolved placeholder {placeholder_column}"
+                            f"{output_name}: unresolved terminal placeholder {placeholder_column}"
                         )
 
                 if not item.downstream:
