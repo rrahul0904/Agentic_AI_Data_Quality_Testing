@@ -185,8 +185,9 @@ def configured_auth(registry: ProviderRegistry | None = None) -> dict[str, Any]:
             {
                 "provider": spec["name"],
                 "method": "api" if env_name else "none",
-                "configured": bool(os.getenv(str(env_name))) if env_name else True,
+                "configured": bool(spec.get("configured")),
                 "credential_env": env_name,
+                "required_envs": list(spec.get("required_envs") or ()),
             }
         )
     return {"providers": providers}
