@@ -60,3 +60,110 @@ class TraceStore:
                 f"<td><pre>{html.escape(json.dumps(event['payload'], indent=2, default=str))}</pre></td>"
             ]) + "</tr>")
         return "<!doctype html><html><body><h1>Trace " + html.escape(trace_id) + "</h1><table>" + "".join(rows) + "</table></body></html>"
+
+
+    def show(self, event_id: str) -> dict[str, Any]:
+        row = self._conn.execute(
+            "SELECT * FROM trace_events WHERE event_id = ?",
+            (event_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"trace event not found: {event_id}")
+        return {
+            **dict(row),
+            "payload": json.loads(row["payload_json"] or "{}"),
+        }
+
+    def traces(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            """
+            SELECT trace_id,
+                   MIN(started_at) AS started_at,
+                   MAX(COALESCE(ended_at, started_at)) AS ended_at,
+                   COUNT(*) AS event_count,
+                   SUM(CASE WHEN status='ERROR' THEN 1 ELSE 0 END) AS error_count,
+                   SUM(CASE WHEN kind='tool' THEN 1 ELSE 0 END) AS tool_count,
+                   SUM(CASE WHEN kind='generation' THEN 1 ELSE 0 END) AS generation_count,
+                   MAX(session_id) AS session_id
+            FROM trace_events
+            GROUP BY trace_id
+            ORDER BY started_at DESC
+            LIMIT ?
+            """,
+            (max(1, min(int(limit), 1000)),),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def tree(self, trace_id: str) -> dict[str, Any]:
+        events = self.list(trace_id=trace_id, limit=5000)
+        if not events:
+            raise KeyError(f"trace not found: {trace_id}")
+        by_id = {str(item["event_id"]): {**item, "children": []} for item in events}
+        roots: list[dict[str, Any]] = []
+        for item in by_id.values():
+            parent_id = item.get("parent_id")
+            if parent_id and str(parent_id) in by_id:
+                by_id[str(parent_id)]["children"].append(item)
+            else:
+                roots.append(item)
+
+        def sort_children(node: dict[str, Any]) -> None:
+            node["children"].sort(key=lambda child: str(child.get("started_at") or ""))
+            for child in node["children"]:
+                sort_children(child)
+
+        for root in roots:
+            sort_children(root)
+        roots.sort(key=lambda item: str(item.get("started_at") or ""))
+        return {
+            "trace_id": trace_id,
+            "event_count": len(events),
+            "roots": roots,
+        }
+
+    def export_json(self, trace_id: str) -> str:
+        payload = {
+            "trace_id": trace_id,
+            "events": self.list(trace_id=trace_id, limit=5000),
+        }
+        if not payload["events"]:
+            raise KeyError(f"trace not found: {trace_id}")
+        return json.dumps(payload, indent=2, default=str)
+
+    def replay(self, trace_id: str) -> dict[str, Any]:
+        """Reconstruct the recorded execution timeline without re-running side effects."""
+
+        events = self.list(trace_id=trace_id, limit=5000)
+        if not events:
+            raise KeyError(f"trace not found: {trace_id}")
+        timeline = []
+        for event in events:
+            payload = event["payload"]
+            step = {
+                "event_id": event["event_id"],
+                "parent_id": event["parent_id"],
+                "kind": event["kind"],
+                "name": event["name"],
+                "status": event["status"],
+                "started_at": event["started_at"],
+                "ended_at": event["ended_at"],
+                "duration_ms": event["duration_ms"],
+            }
+            if event["kind"] == "generation":
+                step["provider_model"] = event["name"]
+                step["usage"] = payload.get("usage")
+                step["finish_reason"] = payload.get("finish_reason")
+            elif event["kind"] == "tool":
+                step["args"] = payload.get("args")
+                step["risk"] = payload.get("risk")
+                step["result"] = payload.get("result")
+            elif event["kind"] == "session":
+                step["context_sources"] = payload.get("context_sources")
+            timeline.append(step)
+        return {
+            "trace_id": trace_id,
+            "mode": "RECORDED_REPLAY",
+            "reexecuted": False,
+            "timeline": timeline,
+            "event_count": len(timeline),
+        }
