@@ -80,6 +80,16 @@ from agentic_data_platform.sql.parity import (
 from agentic_data_platform.connectors.factory import ExternalConnectionUnavailable, connector_from_args
 from agentic_data_platform.metadata.index import MetadataIndex
 from agentic_data_platform.metadata.service import MetadataService
+from agentic_data_platform.providers import (
+    ModelCatalog,
+    ProviderRegistry,
+    configured_auth as provider_configured_auth,
+    family_vendor as provider_family_vendor,
+    load_catalog_snapshot,
+    normalize_messages as provider_normalize_messages,
+    output_token_budget as provider_output_token_budget,
+    provider_auth_status as provider_auth_status_impl,
+)
 from agentic_data_platform.governance import (
     classify_metadata_columns,
     excessive_privileges as governance_excessive_privileges,
@@ -243,6 +253,25 @@ def build_tool_registry() -> ToolRegistry:
     add("platform_discover", Capability.DISCOVER, lambda a: PlatformDiscovery(_target(a)).discover(), "Discover data-platform components and deterministic counts.")
     add("platform_inventory", Capability.DISCOVER, lambda a: PlatformDiscovery(_target(a)).inventory(), "Inventory dbt, Airflow, sources, Snowflake static objects and integrations.")
     add("platform_health", Capability.VERIFY, lambda a: PlatformDiscovery(_target(a)).health(), "Report static platform health and honest external skips.")
+    def provider_catalog_handler(a: dict[str, Any]) -> ModelCatalog:
+        if a.get("catalog_path"):
+            return load_catalog_snapshot(a["catalog_path"])
+        payload = a.get("catalog")
+        if isinstance(payload, dict):
+            return ModelCatalog.from_models_dev(payload)
+        return ModelCatalog()
+
+    add("provider_list", Capability.DISCOVER, lambda a: {"providers": ProviderRegistry().specs()}, "List provider protocols, configuration state and capabilities.", platforms=frozenset({Platform.LOCAL}))
+    add("provider_auth", Capability.DISCOVER, lambda a: provider_configured_auth(ProviderRegistry()), "Report provider authentication configuration without revealing credentials.", platforms=frozenset({Platform.LOCAL}))
+    add("provider_auth_status", Capability.DISCOVER, lambda a: provider_auth_status_impl(a["provider"], ProviderRegistry()), "Report one provider authentication state.", platforms=frozenset({Platform.LOCAL}))
+    add("provider_family", Capability.DISCOVER, lambda a: {"family": a.get("family"), "vendor": provider_family_vendor(a.get("family"))}, "Map a concrete model family to its vendor bucket.", platforms=frozenset({Platform.LOCAL}))
+    add("provider_models", Capability.DISCOVER, lambda a: {"models": [asdict(item) for item in provider_catalog_handler(a).list(provider_id=a.get("provider"), status=a.get("status"), supports_tools=a.get("supports_tools"))]}, "List structurally validated provider models.", platforms=frozenset({Platform.LOCAL}))
+    add("provider_model_search", Capability.DISCOVER, lambda a: {"models": [asdict(item) for item in provider_catalog_handler(a).find(a.get("query", ""), provider_id=a.get("provider"), include_deprecated=bool(a.get("include_deprecated", False)))]}, "Search validated provider models.", platforms=frozenset({Platform.LOCAL}))
+    add("provider_model_status", Capability.DISCOVER, lambda a: {"status": provider_catalog_handler(a).status(a["provider"], a["model"])}, "Return model lifecycle status.", platforms=frozenset({Platform.LOCAL}))
+    add("provider_model_snapshot", Capability.DISCOVER, lambda a: provider_catalog_handler(a).snapshot(), "Return normalized provider-model catalog snapshot.", platforms=frozenset({Platform.LOCAL}))
+    add("provider_transform", Capability.GENERATE, lambda a: {"messages": provider_normalize_messages(a["messages"], provider=a["provider"], model_id=a.get("model", ""))}, "Apply provider-specific safe message transforms.", platforms=frozenset({Platform.LOCAL}))
+    add("provider_output_budget", Capability.VERIFY, lambda a: provider_output_token_budget(provider_catalog_handler(a).get(a["provider"], a["model"]), a["messages"], requested=a.get("requested"), floor=int(a.get("floor", 1024))), "Calculate and enforce output-token budget within model context limits.", platforms=frozenset({Platform.LOCAL}))
+
     add("doctor", Capability.DISCOVER, lambda a: run_doctor(_target(a)), "Check local development dependencies and optional integrations.")
 
     for name, method, description in (
