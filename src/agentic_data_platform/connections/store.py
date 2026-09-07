@@ -11,6 +11,7 @@ from typing import Any
 
 import yaml
 
+from agentic_data_platform.connections.docker_discovery import discover_docker_connections
 from agentic_data_platform.models import utc_now
 
 
@@ -277,4 +278,5 @@ class ConnectionStore:
         return {
             "environment": self.discover_environment(),
             "dbt_profiles": self.discover_dbt_profiles(profile_path),
+            "docker": discover_docker_connections(),
         }
