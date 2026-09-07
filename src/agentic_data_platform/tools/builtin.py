@@ -80,6 +80,17 @@ from agentic_data_platform.sql.parity import (
 from agentic_data_platform.connectors.factory import ExternalConnectionUnavailable, connector_from_args
 from agentic_data_platform.metadata.index import MetadataIndex
 from agentic_data_platform.metadata.service import MetadataService
+from agentic_data_platform.finops import (
+    cost_summary as finops_cost_summary,
+    expensive_queries as finops_expensive_queries,
+    full_finops_report,
+    idle_resources as finops_idle_resources,
+    query_errors as finops_query_errors,
+    query_history as finops_query_history,
+    query_patterns as finops_query_patterns,
+    warehouse_advisor as finops_warehouse_advisor,
+    warehouse_usage as finops_warehouse_usage,
+)
 from agentic_data_platform.connections.store import ConnectionStore
 from agentic_data_platform.lineage.dbt import DbtColumnGraph
 from agentic_data_platform.lineage.engine import (
@@ -523,6 +534,47 @@ def build_tool_registry() -> ToolRegistry:
 
     add("metadata_search", Capability.DISCOVER, lambda a: {"assets": MetadataIndex(a.get("database", ":memory:")).search_assets(a.get("query", ""), kind=a.get("kind"))}, "Search the local schema-aware metadata index.", platforms=frozenset({Platform.LOCAL}))
     add("metadata_column_search", Capability.DISCOVER, lambda a: {"columns": MetadataIndex(a.get("database", ":memory:")).search_columns(a.get("query", ""), pii_only=a.get("pii_only", False))}, "Search indexed columns and PII flags.", platforms=frozenset({Platform.LOCAL}))
+    def finops_connector(a: dict[str, Any]):
+        connection = a.get("connection")
+        if connection:
+            profile = _connection_store(a).resolve_config(connection)
+            return connector_from_args({"platform": profile["platform"], "config": profile["config"]})
+        definition = a.get("warehouse") if isinstance(a.get("warehouse"), dict) else a
+        return connector_from_args(definition)
+
+    def finops_history_handler(a: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return finops_query_history(
+                finops_connector(a),
+                days=int(a.get("days", 7)),
+                limit=int(a.get("limit", 1000)),
+                region=a.get("region", "region-us"),
+            )
+        except ExternalConnectionUnavailable as exc:
+            return {"status": "SKIP_EXTERNAL", "reason": str(exc), "queries": []}
+
+    def finops_report_handler(a: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return full_finops_report(
+                finops_connector(a),
+                days=int(a.get("days", 7)),
+                limit=int(a.get("limit", 1000)),
+                credit_price_usd=a.get("credit_price_usd"),
+                region=a.get("region", "region-us"),
+            )
+        except ExternalConnectionUnavailable as exc:
+            return {"status": "SKIP_EXTERNAL", "reason": str(exc)}
+
+    add("finops_query_history", Capability.DISCOVER, finops_history_handler, "Read normalized warehouse query history from configured connector.", platforms=frozenset({Platform.LOCAL}))
+    add("finops_expensive_queries", Capability.VERIFY, lambda a: {"queries": finops_expensive_queries(finops_history_handler(a).get("queries", []), limit=int(a.get("top", 25)), min_elapsed_ms=a.get("min_elapsed_ms"))}, "Rank expensive queries from normalized execution evidence.", platforms=frozenset({Platform.LOCAL}))
+    add("finops_query_errors", Capability.VERIFY, lambda a: {"queries": finops_query_errors(finops_history_handler(a).get("queries", []))}, "Extract failed/error warehouse queries.", platforms=frozenset({Platform.LOCAL}))
+    add("finops_query_patterns", Capability.VERIFY, lambda a: {"patterns": finops_query_patterns(finops_history_handler(a).get("queries", []), limit=int(a.get("top", 20)))}, "Aggregate parameter-insensitive query patterns.", platforms=frozenset({Platform.LOCAL}))
+    add("finops_cost_summary", Capability.VERIFY, lambda a: finops_cost_summary(finops_connector(a), days=int(a.get("days", 7)), credit_price_usd=a.get("credit_price_usd"), region=a.get("region", "region-us")), "Calculate connector-supported cost or credit evidence.", platforms=frozenset({Platform.LOCAL}))
+    add("finops_warehouse_usage", Capability.VERIFY, lambda a: finops_warehouse_usage(finops_connector(a), days=int(a.get("days", 7))), "Read warehouse load and metering evidence.", platforms=frozenset({Platform.LOCAL}))
+    add("finops_warehouse_advisor", Capability.PLAN, lambda a: finops_warehouse_advisor(finops_connector(a), days=int(a.get("days", 7))), "Generate evidence-backed warehouse right-sizing recommendations.", platforms=frozenset({Platform.LOCAL}))
+    add("finops_idle_resources", Capability.VERIFY, lambda a: finops_idle_resources(finops_connector(a), days=int(a.get("days", 7))), "Detect idle warehouse resources from measured usage.", platforms=frozenset({Platform.LOCAL}))
+    add("finops_report", Capability.VERIFY, finops_report_handler, "Build complete query, cost, and warehouse FinOps report.", platforms=frozenset({Platform.LOCAL}))
+
     add("warehouse_status", Capability.DISCOVER, _warehouse_status, "Report adapter, driver, credentials and local-simulation availability.", platforms=frozenset({Platform.LOCAL}))
 
     shiftforge_root = _target({"project": Path(__file__).resolve().parents[3] / "shiftforge"})
