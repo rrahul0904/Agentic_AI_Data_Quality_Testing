@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from agentic_data_platform.sql.engine import identify_dialect
 
-SUPPORTED_DIALECTS = frozenset({"ansi", "sqlserver", "snowflake", "databricks", "bigquery"})
+SUPPORTED_DIALECTS = frozenset({"ansi", "sqlserver", "snowflake", "databricks", "bigquery", "redshift", "postgres", "postgresql", "oracle", "duckdb", "spark"})
 
 
 def resolve_dialect(sql: str, requested: str | None = None) -> str:

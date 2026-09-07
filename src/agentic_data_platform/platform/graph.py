@@ -31,6 +31,10 @@ class PlatformAssetGraph:
         instance._add_sources()
         airflow = instance._add_airflow()
         instance._add_dbt(airflow)
+        manifest_path = root / "dbt" / "target" / "manifest.json"
+        if manifest_path.is_file():
+            import json
+            instance.add_column_lineage(json.loads(manifest_path.read_text()))
         return instance
 
     def _node(self, kind: str, name: str, **properties: Any) -> GraphNode:
@@ -147,6 +151,19 @@ class PlatformAssetGraph:
             logical_raw = self._logical_raw_for_stage(str(item.get("name", "")))
             if logical_raw:
                 self._connect(logical_raw, target_node, "transforms", derived_from="source_entity")
+
+    def add_column_lineage(self, manifest: dict[str, Any]) -> dict[str, Any]:
+        from agentic_data_platform.metadata.graph import MetadataGraph
+        index = MetadataGraph()
+        try:
+            report = index.import_manifest(manifest)
+            for edge in index.connection.execute("SELECT * FROM lineage_edges WHERE kind='column'"):
+                source = self._node("column", edge["source"])
+                target = self._node("column", edge["target"])
+                self._connect(source, target, "column_transforms", evidence=edge["evidence"])
+            return report
+        finally:
+            index.connection.close()
 
     def _resolve(self, reference: str) -> GraphNode:
         matches = self.graph.find_nodes(reference)

@@ -1,6 +1,6 @@
 .PHONY: doctor test unit-test integration-test e2e lint quality dbt-parse dbt-test airflow-check shiftforge-test benchmark demo docker-up docker-down
 
-PYTHON ?= $(if $(wildcard dbt-airflow-testing-platform/.venv/bin/python),dbt-airflow-testing-platform/.venv/bin/python,python3)
+PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 HOSPITALITY := hospitality-snowflake-data-platform
 
 doctor:
@@ -22,11 +22,11 @@ lint:
 
 quality:
 	$(MAKE) unit-test
-	cd $(HOSPITALITY) && $(PYTHON) -m pytest -q -p no:cacheprovider
+	cd $(HOSPITALITY) && $(abspath $(PYTHON)) -m pytest -q -p no:cacheprovider
 	cd local-data-harness && npm run quality
 
 dbt-parse:
-	@if command -v dbt >/dev/null 2>&1; then dbt parse --project-dir $(HOSPITALITY)/dbt --profiles-dir $(HOSPITALITY)/dbt; else echo 'SKIP - dbt executable unavailable'; fi
+	$(PYTHON) scripts/parse_dbt.py
 
 dbt-test:
 	@if command -v dbt >/dev/null 2>&1; then dbt test --project-dir $(HOSPITALITY)/dbt --profiles-dir $(HOSPITALITY)/dbt; else echo 'SKIP - dbt executable unavailable'; fi
