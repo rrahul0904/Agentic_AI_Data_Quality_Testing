@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import shutil
 import sqlite3
+import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
+from urllib.parse import urlparse
 
 import yaml
 
-from agentic_data_platform.skills.registry import SkillRegistry
+from agentic_data_platform.skills.registry import SkillRegistry, parse_skill
 
 
 @dataclass(frozen=True)
@@ -112,10 +116,25 @@ class SkillService:
         *,
         state_path: str | Path = ":memory:",
         global_root: str | Path | None = None,
+        runner: Callable[[list[str], Path | None], subprocess.CompletedProcess[str]] | None = None,
     ) -> None:
         self.project_root = Path(project_root).expanduser().resolve()
         self.global_root = Path(global_root).expanduser().resolve() if global_root else None
         self.state = SkillStateStore(state_path)
+        self.runner = runner or self._default_runner
+
+    @staticmethod
+    def _default_runner(
+        argv: list[str],
+        cwd: Path | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            argv,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
     @property
     def install_root(self) -> Path:
@@ -158,6 +177,175 @@ class SkillService:
         )
         self.state.set_enabled(name, True)
         return self.inspect(name)
+
+    def create(
+        self,
+        name: str,
+        description: str,
+        body: str,
+        *,
+        scope: str = "project",
+        always_apply: bool = False,
+        apply_paths: Iterable[str] = (),
+    ) -> dict[str, Any]:
+        if scope not in {"project", "global"}:
+            raise ValueError("skill scope must be project or global")
+        root = self.install_root if scope == "project" else (
+            self.global_root or Path.home() / ".altimate-code" / "skills"
+        )
+        registry = self.registry()
+        path = registry.create(
+            root,
+            name,
+            description,
+            body,
+            always_apply=always_apply,
+            apply_paths=apply_paths,
+        )
+        self.state.set_enabled(name, True)
+        return {
+            "status": "CREATED",
+            "scope": scope,
+            "name": name,
+            "path": str(path),
+        }
+
+    def test(self, name: str) -> dict[str, Any]:
+        skill = self.registry().get(name)
+        findings = []
+        if not skill.description.strip():
+            findings.append("description is empty")
+        if not skill.body.strip():
+            findings.append("body is empty")
+        if skill.path.name != "SKILL.md":
+            findings.append("skill file must be named SKILL.md")
+        for pattern in skill.apply_paths:
+            if pattern.startswith("/"):
+                findings.append(f"applyPaths must be project-relative: {pattern}")
+        metadata = dict(skill.metadata or {})
+        tools = metadata.get("tools") or []
+        if not isinstance(tools, list):
+            findings.append("tools metadata must be a list")
+        return {
+            "name": name,
+            "status": "PASS" if not findings else "FAIL",
+            "findings": findings,
+            "enabled": self.state.enabled(name),
+            "path": str(skill.path),
+        }
+
+    def install_source(
+        self,
+        source: str,
+        *,
+        scope: str = "project",
+        name: str | None = None,
+        overwrite: bool = False,
+    ) -> dict[str, Any]:
+        if scope not in {"project", "global"}:
+            raise ValueError("skill scope must be project or global")
+        destination_root = self.install_root if scope == "project" else (
+            self.global_root or Path.home() / ".altimate-code" / "skills"
+        )
+        destination_root.mkdir(parents=True, exist_ok=True)
+
+        source_path = Path(source).expanduser()
+        temporary: tempfile.TemporaryDirectory[str] | None = None
+        install_root: Path
+        if source_path.exists():
+            install_root = source_path.resolve()
+        else:
+            repo_url, separator, fragment = source.partition("#")
+            parsed = urlparse(repo_url)
+            if parsed.scheme != "https" or parsed.netloc.casefold() != "github.com":
+                raise ValueError(
+                    "remote skill installs are restricted to https://github.com URLs"
+                )
+            temporary = tempfile.TemporaryDirectory(prefix="ade-skill-")
+            clone_root = Path(temporary.name) / "repo"
+            completed = self.runner(
+                ["git", "clone", "--depth", "1", repo_url, str(clone_root)],
+                None,
+            )
+            if completed.returncode != 0:
+                temporary.cleanup()
+                raise RuntimeError(
+                    "skill repository clone failed: "
+                    + (completed.stderr or completed.stdout or "unknown git error")[-2000:]
+                )
+            install_root = (
+                (clone_root / fragment).resolve()
+                if separator and fragment
+                else clone_root.resolve()
+            )
+            clone_resolved = clone_root.resolve()
+            if (
+                install_root != clone_resolved
+                and clone_resolved not in install_root.parents
+            ):
+                temporary.cleanup()
+                raise ValueError("skill subpath escapes repository root")
+
+        try:
+            candidates: list[Path] = []
+            if install_root.is_file() and install_root.name == "SKILL.md":
+                candidates = [install_root]
+            elif install_root.is_dir():
+                if (install_root / "SKILL.md").is_file():
+                    candidates.append(install_root / "SKILL.md")
+                for path in install_root.rglob("SKILL.md"):
+                    if path in candidates or ".git" in path.parts:
+                        continue
+                    try:
+                        relative = path.relative_to(install_root)
+                    except ValueError:
+                        continue
+                    if len(relative.parts) <= 6:
+                        candidates.append(path)
+
+            if name:
+                candidates = [
+                    path for path in candidates if parse_skill(path).name == name
+                ]
+            if not candidates:
+                raise FileNotFoundError("no matching SKILL.md found in install source")
+
+            installed = []
+            for path in candidates:
+                skill = parse_skill(path)
+                safe_name = skill.name.strip().replace(" ", "-")
+                if not safe_name or any(
+                    token in safe_name for token in ("/", "\\", "..")
+                ):
+                    raise ValueError(
+                        f"invalid skill name in source: {skill.name!r}"
+                    )
+                destination = destination_root / safe_name
+                if destination.exists():
+                    if not overwrite:
+                        raise FileExistsError(
+                            f"skill already installed: {skill.name}"
+                        )
+                    shutil.rmtree(destination)
+                destination.mkdir(parents=True)
+                shutil.copy2(path, destination / "SKILL.md")
+                self.state.set_enabled(skill.name, True)
+                installed.append(
+                    {
+                        "name": skill.name,
+                        "path": str(destination / "SKILL.md"),
+                    }
+                )
+            return {
+                "status": "INSTALLED",
+                "scope": scope,
+                "source": source,
+                "installed": installed,
+                "count": len(installed),
+            }
+        finally:
+            if temporary is not None:
+                temporary.cleanup()
 
     def install_all(self, *, overwrite: bool = False) -> dict[str, Any]:
         installed = []
