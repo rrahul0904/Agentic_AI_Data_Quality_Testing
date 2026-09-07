@@ -72,6 +72,70 @@ class AgentQueryInput(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
 
 
+class ArgsInput(BaseModel):
+    args: dict[str, Any] = Field(default_factory=dict)
+
+
+class SessionCreateInput(BaseModel):
+    title: str | None = None
+    provider: str | None = None
+    model: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SessionMessageInput(BaseModel):
+    role: str
+    content: Any
+    error: dict[str, Any] | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SessionTodoInput(BaseModel):
+    text: str = Field(min_length=1)
+    priority: int = 0
+
+
+class SessionTodoUpdateInput(BaseModel):
+    status: str
+
+
+class MemorySaveInput(BaseModel):
+    content: str = Field(min_length=1)
+    scope: str = "project"
+    project_id: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    citations: list[str] = Field(default_factory=list)
+    expires_at: str | None = None
+
+
+class TrainingTextInput(BaseModel):
+    source: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+    source_type: str = "text"
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SkillCreateInput(BaseModel):
+    name: str = Field(min_length=1)
+    description: str = ""
+    body: str = Field(min_length=1)
+    scope: str = "project"
+    always_apply: bool = False
+    apply_paths: list[str] = Field(default_factory=list)
+
+
+class SkillInstallInput(BaseModel):
+    name: str | None = None
+    source: str | None = None
+    scope: str = "project"
+    overwrite: bool = False
+
+
+class JobSubmitInput(BaseModel):
+    tool: str = Field(min_length=1)
+    args: dict[str, Any] = Field(default_factory=dict)
+
+
 def _record_payload(record: Any) -> dict[str, Any]:
     value = asdict(record)
     for key, item in list(value.items()):
@@ -111,12 +175,20 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
         allow_headers=["content-type"],
     )
 
-    def invoke_read(tool_name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+    def invoke_governed(
+        tool_name: str,
+        args: dict[str, Any] | None = None,
+        *,
+        actor_mode: ActorMode = ActorMode.ANALYST,
+        environment: Environment = Environment.DEV,
+        dry_run: bool = False,
+        approved: bool = False,
+    ) -> dict[str, Any]:
         definition = registry.describe(tool_name)
         request = ToolRequest(
             tool=tool_name,
             operation=tool_name,
-            environment=Environment.DEV,
+            environment=environment,
             risk=definition.risk,
             args=args or {},
         )
@@ -124,10 +196,14 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             ToolInvocation(
                 request,
                 run_id=f"api-v1-{tool_name}",
-                dry_run=False,
-                actor_mode=ActorMode.ANALYST,
+                approved=approved,
+                dry_run=dry_run,
+                actor_mode=actor_mode,
             )
         )
+
+    def invoke_read(tool_name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+        return invoke_governed(tool_name, args, actor_mode=ActorMode.ANALYST)
 
     def demo_project_args() -> dict[str, Any]:
         return {"project": str(_project_root())}
