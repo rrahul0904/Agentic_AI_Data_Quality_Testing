@@ -78,6 +78,8 @@ from agentic_data_platform.sql.parity import (
 )
 from agentic_data_platform.connectors.factory import ExternalConnectionUnavailable, connector_from_args
 from agentic_data_platform.metadata.index import MetadataIndex
+from agentic_data_platform.metadata.service import MetadataService
+from agentic_data_platform.connections.store import ConnectionStore
 from agentic_data_platform.lineage.dbt import DbtColumnGraph
 from agentic_data_platform.lineage.engine import (
     analyze_column_lineage as production_column_lineage,
@@ -128,6 +130,16 @@ def _quality(args: dict[str, Any]) -> SQLiteQualityStore:
     return store
 
 
+def _connection_store(args: dict[str, Any]) -> ConnectionStore:
+    path = args.get("connection_database") or (_target(args) / ".ade" / "connections.db")
+    return ConnectionStore(path)
+
+
+def _metadata_service(args: dict[str, Any]) -> MetadataService:
+    path = args.get("metadata_database") or (_target(args) / ".ade" / "metadata.db")
+    return MetadataService(path)
+
+
 def _module_available(name: str) -> bool:
     try:
         return importlib.util.find_spec(name) is not None
@@ -137,28 +149,33 @@ def _module_available(name: str) -> bool:
 
 def _warehouse_status(_: dict[str, Any]) -> dict[str, Any]:
     definitions = [
-        ("Snowflake", True, _module_available("snowflake"), all(os.getenv(k) for k in ("SNOWFLAKE_ACCOUNT", "SNOWFLAKE_USER", "SNOWFLAKE_PASSWORD")), False),
-        ("PostgreSQL", False, _module_available("psycopg"), bool(os.getenv("POSTGRES_HOST")), True),
-        ("Oracle", False, _module_available("oracledb"), bool(os.getenv("ORACLE_HOST")), True),
-        ("DuckDB", False, _module_available("duckdb"), True, True),
-        ("BigQuery", True, _module_available("google.cloud"), bool(os.getenv("GOOGLE_CLOUD_PROJECT")), False),
-        ("Redshift", False, _module_available("psycopg"), bool(os.getenv("REDSHIFT_HOST")), False),
-        ("Databricks", True, _module_available("databricks"), bool(os.getenv("DATABRICKS_HOST")), False),
+        ("Snowflake", "snowflake", True, _module_available("snowflake"), all(os.getenv(k) for k in ("ADE_SNOWFLAKE_ACCOUNT", "ADE_SNOWFLAKE_USER", "ADE_SNOWFLAKE_PASSWORD")), False),
+        ("BigQuery", "bigquery", True, _module_available("google.cloud"), bool(os.getenv("ADE_BIGQUERY_PROJECT")), False),
+        ("Databricks", "databricks", True, _module_available("databricks"), all(os.getenv(k) for k in ("ADE_DATABRICKS_HOST", "ADE_DATABRICKS_TOKEN", "ADE_DATABRICKS_HTTP_PATH")), False),
+        ("PostgreSQL", "postgres", True, _module_available("psycopg"), bool(os.getenv("ADE_POSTGRES_DSN")), False),
+        ("Redshift", "redshift", True, _module_available("psycopg"), bool(os.getenv("ADE_REDSHIFT_DSN")), False),
+        ("Oracle", "oracle", True, _module_available("oracledb"), all(os.getenv(k) for k in ("ADE_ORACLE_USER", "ADE_ORACLE_PASSWORD", "ADE_ORACLE_DSN")), False),
+        ("MySQL", "mysql", True, _module_available("pymysql"), all(os.getenv(k) for k in ("ADE_MYSQL_HOST", "ADE_MYSQL_USER", "ADE_MYSQL_PASSWORD", "ADE_MYSQL_DATABASE")), False),
+        ("SQL Server / Fabric", "sqlserver", True, _module_available("pyodbc"), bool(os.getenv("ADE_SQLSERVER_CONNECTION_STRING")), False),
+        ("DuckDB", "duckdb", True, _module_available("duckdb"), True, True),
+        ("SQLite", "sqlite", True, True, True, True),
+        ("ClickHouse", "clickhouse", True, _module_available("clickhouse_connect"), bool(os.getenv("ADE_CLICKHOUSE_HOST")), False),
+        ("Trino", "trino", True, _module_available("trino"), all(os.getenv(k) for k in ("ADE_TRINO_HOST", "ADE_TRINO_USER", "ADE_TRINO_CATALOG")), False),
     ]
     adapters = []
-    for name, adapter, driver, configured, simulation in definitions:
+    for name, platform, adapter, driver, configured, simulation in definitions:
         live = bool(adapter and driver and configured)
         adapters.append({
             "name": name,
+            "platform": platform,
             "adapter_available": adapter,
             "driver_installed": driver,
             "credentials_configured": configured,
-            "live_connectivity": "AVAILABLE_TO_CHECK" if live else "SKIP",
+            "live_connectivity": "AVAILABLE_TO_CHECK" if live else "SKIP_EXTERNAL",
             "simulation_available": simulation,
-            "status": "PASS" if live else "WARN" if adapter or simulation else "PARTIAL",
+            "status": "PASS" if live or simulation else "UNCONFIGURED" if adapter else "UNSUPPORTED",
         })
     return {"adapters": adapters, "mode": "LOCAL_SIMULATION"}
-
 
 def build_tool_registry() -> ToolRegistry:
     registry = ToolRegistry()
@@ -273,6 +290,7 @@ def build_tool_registry() -> ToolRegistry:
     sql_platforms = frozenset({
         Platform.LOCAL, Platform.SNOWFLAKE, Platform.BIGQUERY, Platform.REDSHIFT, Platform.SPARK,
         Platform.DATABRICKS, Platform.POSTGRES, Platform.ORACLE, Platform.DUCKDB, Platform.SQLSERVER,
+        Platform.MYSQL, Platform.SQLITE, Platform.CLICKHOUSE, Platform.TRINO,
     })
 
     def sql_execute_handler(a: dict[str, Any]) -> dict[str, Any]:
@@ -361,6 +379,58 @@ def build_tool_registry() -> ToolRegistry:
     add("column_lineage_diff", Capability.VERIFY, column_diff_handler, "Compare project column-lineage edges across dbt artifact states.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
     add("project_column_graph", Capability.DISCOVER, lambda a: _column_graph(a).graph(), "Build the dbt project-wide column graph from compiled SQL and catalog metadata.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
     add("column_path", Capability.DISCOVER, lambda a: _column_graph(a).path(a["source_asset"], a["source_column"], a["target_asset"], a["target_column"]), "Find a concrete multi-hop project column path.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
+    def connection_test_handler(a: dict[str, Any]) -> dict[str, Any]:
+        store = _connection_store(a)
+        profile = store.resolve_config(a["name"])
+        try:
+            connector = connector_from_args({"platform": profile["platform"], "config": profile["config"]})
+        except ExternalConnectionUnavailable as exc:
+            return {"name": a["name"], "platform": profile["platform"], "status": "SKIP_EXTERNAL", "reason": str(exc)}
+        return {"name": a["name"], **connector.health()}
+
+    def schema_refresh_handler(a: dict[str, Any]) -> dict[str, Any]:
+        store = _connection_store(a)
+        profile = store.resolve_config(a["connection"])
+        try:
+            connector = connector_from_args({"platform": profile["platform"], "config": profile["config"]})
+        except ExternalConnectionUnavailable as exc:
+            return {"connection": a["connection"], "platform": profile["platform"], "status": "SKIP_EXTERNAL", "reason": str(exc)}
+        return _metadata_service(a).refresh(
+            a["connection"],
+            connector,
+            schemas=a.get("schemas"),
+            max_objects=int(a.get("max_objects", 5000)),
+        )
+
+    def metadata_autocomplete_handler(a: dict[str, Any]) -> dict[str, Any]:
+        context = _metadata_service(a).schema_context(
+            connection_name=a.get("connection"),
+            query=a.get("asset_query", ""),
+            limit=int(a.get("asset_limit", 500)),
+        )
+        return sql_autocomplete_impl(
+            a.get("sql", ""),
+            a.get("prefix", ""),
+            context,
+            limit=int(a.get("limit", 50)),
+        )
+
+    add("connection_add", Capability.GENERATE, lambda a: _connection_store(a).add(a["name"], a["platform"], a.get("config"), source=a.get("source", "manual"), replace=bool(a.get("replace", False))), "Add a secret-safe local connection profile.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("connection_remove", Capability.GENERATE, lambda a: {"removed": _connection_store(a).remove(a["name"])}, "Remove a local connection profile.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("connection_list", Capability.DISCOVER, lambda a: {"connections": _connection_store(a).list(), "default": _connection_store(a).default()}, "List redacted connection profiles.", platforms=frozenset({Platform.LOCAL}))
+    add("connection_show", Capability.DISCOVER, lambda a: _connection_store(a).show(a["name"]), "Show one redacted connection profile.", platforms=frozenset({Platform.LOCAL}))
+    add("connection_test", Capability.VERIFY, connection_test_handler, "Test one configured connection without revealing secrets.", platforms=frozenset({Platform.LOCAL}))
+    add("connection_default", Capability.GENERATE, lambda a: {"default": _connection_store(a).set_default(a.get("name"))}, "Set or clear the default connection.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("connection_discover", Capability.DISCOVER, lambda a: _connection_store(a).discover(dbt_profiles=a.get("dbt_profiles")), "Discover environment and dbt profile connections without persisting secrets.", platforms=frozenset({Platform.LOCAL}))
+
+    add("schema_refresh", Capability.DISCOVER, schema_refresh_handler, "Refresh persistent warehouse metadata using a configured read-only connector.", platforms=frozenset({Platform.LOCAL}))
+    add("schema_index", Capability.DISCOVER, schema_refresh_handler, "Index live warehouse metadata into the local metadata service.", platforms=frozenset({Platform.LOCAL}))
+    add("schema_search", Capability.DISCOVER, lambda a: {"assets": _metadata_service(a).search_assets(a.get("query", ""), connection_name=a.get("connection"), limit=int(a.get("limit", 50)))}, "Search persistent warehouse objects.", platforms=frozenset({Platform.LOCAL}))
+    add("schema_inspect", Capability.DISCOVER, lambda a: _metadata_service(a).inspect(a["connection"], a["schema"], a["object"]), "Inspect indexed object and column metadata.", platforms=frozenset({Platform.LOCAL}))
+    add("schema_tags", Capability.DISCOVER, lambda a: {"tags": _metadata_service(a).tags(a["connection"], a["schema"], a["object"])}, "Return indexed object tags.", platforms=frozenset({Platform.LOCAL}))
+    add("metadata_status", Capability.DISCOVER, lambda a: _metadata_service(a).status(a.get("connection")), "Report metadata index counts and latest refresh evidence.", platforms=frozenset({Platform.LOCAL}))
+    add("autocomplete", Capability.DISCOVER, metadata_autocomplete_handler, "Return SQL autocomplete candidates from persistent live metadata.", platforms=frozenset({Platform.LOCAL}))
+
     add("metadata_search", Capability.DISCOVER, lambda a: {"assets": MetadataIndex(a.get("database", ":memory:")).search_assets(a.get("query", ""), kind=a.get("kind"))}, "Search the local schema-aware metadata index.", platforms=frozenset({Platform.LOCAL}))
     add("metadata_column_search", Capability.DISCOVER, lambda a: {"columns": MetadataIndex(a.get("database", ":memory:")).search_columns(a.get("query", ""), pii_only=a.get("pii_only", False))}, "Search indexed columns and PII flags.", platforms=frozenset({Platform.LOCAL}))
     add("warehouse_status", Capability.DISCOVER, _warehouse_status, "Report adapter, driver, credentials and local-simulation availability.", platforms=frozenset({Platform.LOCAL}))
