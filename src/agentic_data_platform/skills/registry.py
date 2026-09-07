@@ -61,6 +61,8 @@ class SkillRegistry:
             root / ".opencode" / "skills",
             root / ".altimate-code" / "skill",
             root / ".altimate-code" / "skills",
+            root / ".claude" / "skills",
+            root / ".agents" / "skills",
             Path(global_root).expanduser().resolve() if global_root else Path.home() / ".altimate-code" / "skills",
         ]
         paths.extend(Path(item).expanduser().resolve() for item in custom_paths)
