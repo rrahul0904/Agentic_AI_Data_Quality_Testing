@@ -29,6 +29,7 @@ class InformationSchemaConnector(DataPlatformConnector):
             ConnectorCapability.DESCRIBE_TABLE,
             ConnectorCapability.QUERY_READ,
             ConnectorCapability.QUERY_DRY_RUN,
+            ConnectorCapability.GET_DDL,
         }
 
     def _read(self, sql: str) -> QueryResult:
@@ -80,6 +81,17 @@ class InformationSchemaConnector(DataPlatformConnector):
         catalog = str(rows[0]["catalog"]) if rows and rows[0].get("catalog") else None
         return TableMetadata(table, schema, catalog, columns=columns)
 
+    def get_ddl(self, schema: str, table: str) -> str:
+        metadata = self.describe_table(schema, table)
+        if not metadata.columns:
+            raise KeyError(f"{self.platform} object not found: {schema}.{table}")
+        definitions = []
+        for column in metadata.columns:
+            nullable = "" if column.nullable else " NOT NULL"
+            default = f" DEFAULT {column.default}" if column.default else ""
+            definitions.append(f"{column.name} {column.data_type}{default}{nullable}")
+        return f"CREATE TABLE {schema}.{table} (" + ", ".join(definitions) + ")"
+
     def dry_run_sql(self, sql: str) -> DryRunResult:
         self.require_read_only(sql)
         try:
@@ -97,10 +109,32 @@ class PostgreSQLConnector(InformationSchemaConnector):
     platform = "postgres"
     catalog_sql = "SELECT datname AS catalog FROM pg_database WHERE datallowconn ORDER BY datname"
 
+    def capabilities(self) -> set[ConnectorCapability]:
+        return super().capabilities() | {ConnectorCapability.GET_QUERY_HISTORY}
+
+    def query_history(self, *, limit: int = 100, **_: Any) -> list[dict[str, Any]]:
+        result = self._read(
+            "SELECT queryid, calls, total_exec_time, mean_exec_time, rows, query "
+            "FROM pg_stat_statements ORDER BY total_exec_time DESC "
+            f"LIMIT {max(1, min(int(limit), 10000))}"
+        )
+        return list(result.rows)
+
 
 class RedshiftConnector(InformationSchemaConnector):
     platform = "redshift"
     catalog_sql = "SELECT datname AS catalog FROM pg_database WHERE datallowconn ORDER BY datname"
+
+    def capabilities(self) -> set[ConnectorCapability]:
+        return super().capabilities() | {ConnectorCapability.GET_QUERY_HISTORY}
+
+    def query_history(self, *, limit: int = 100, **_: Any) -> list[dict[str, Any]]:
+        result = self._read(
+            "SELECT query, userid, starttime, endtime, aborted, querytxt "
+            "FROM stl_query ORDER BY starttime DESC "
+            f"LIMIT {max(1, min(int(limit), 10000))}"
+        )
+        return list(result.rows)
 
 
 class MySQLConnector(InformationSchemaConnector):
