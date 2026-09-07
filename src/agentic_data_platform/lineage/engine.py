@@ -122,6 +122,7 @@ def analyze_column_lineage(
         for output_name, node in nodes.items():
             leaves: set[ColumnRef] = set()
             unresolved: list[str] = []
+            ambiguous_terminals: list[str] = []
             for item in node.walk():
                 expression = item.expression
                 if isinstance(expression, exp.Table):
@@ -166,10 +167,13 @@ def analyze_column_lineage(
                         if len(candidates) == 1:
                             leaves.add(ColumnRef(candidates[0], column))
                         elif len(candidates) > 1:
-                            unresolved.append(
+                            ambiguous_terminals.append(
                                 f"{output_name}: terminal column {column} is ambiguous across "
                                 + ",".join(sorted(candidates))
                             )
+
+            if not leaves:
+                unresolved.extend(ambiguous_terminals)
 
             for message in ambiguity:
                 column_name = message.split(":", 1)[0]
