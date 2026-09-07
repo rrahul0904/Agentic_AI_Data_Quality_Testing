@@ -29,7 +29,7 @@ def test_operator_overview_is_derived_from_real_project(tmp_path, monkeypatch):
     assert body["counts"]["sources"] == 319
     assert body["counts"]["airflow_dags"] == 55
     assert body["counts"]["dbt_models"] == 70
-    assert body["counts"]["tools"] >= 50
+    assert body["counts"]["tools"] >= 80
     assert 0 <= body["health_score"] <= 100
 
 
@@ -113,3 +113,36 @@ def test_deterministic_agent_reports_tool_evidence(tmp_path, monkeypatch):
     body = response.json()
     assert body["evidence"]["tools_used"] == ["platform_impact"]
     assert body["result"]["changed_asset"]["name"] == "stg_oracle_reservation"
+
+
+def test_v04_advanced_product_endpoints(tmp_path, monkeypatch):
+    api = client(tmp_path, monkeypatch)
+
+    data_diff = api.get("/api/v1/data-diff/demo")
+    assert data_diff.status_code == 200
+    assert data_diff.json()["mode"] == "LOCAL_SIMULATION"
+    assert data_diff.json()["rows"]["counts"]["changed"] == 1
+
+    dbt = api.get("/api/v1/dbt/advanced")
+    assert dbt.status_code == 200
+    assert dbt.json()["snapshots"]["count"] == 4
+    assert dbt.json()["incremental"]["count"] >= 1
+
+    airflow = api.get("/api/v1/airflow/operations")
+    assert airflow.status_code == 200
+    assert 0 <= airflow.json()["health"]["score"] <= 100
+
+    failure_lab = api.get("/api/v1/airflow/failure-lab")
+    assert failure_lab.status_code == 200
+    assert failure_lab.json()["diagnosis"]["cause"] == "WAREHOUSE_PERMISSION"
+
+    repair = api.post(
+        "/api/v1/remediation/sql",
+        json={"sql": "SELECT * FROM orders", "dialect": "snowflake"},
+    )
+    assert repair.status_code == 200
+    assert repair.json()["status"] == "PROPOSED"
+    assert repair.json()["applied"] is False
+
+    tools = api.get("/api/v1/tools").json()
+    assert len(tools) >= 80
