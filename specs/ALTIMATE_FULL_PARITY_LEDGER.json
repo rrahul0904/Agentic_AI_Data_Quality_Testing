@@ -6,7 +6,7 @@
   },
   "target": {
     "repository": "rrahul0904/Agentic_AI_Data_Quality_Testing",
-    "baseline_commit": "960ec69f86b7737f0c9b30e75105dc7e0e5b424c",
+    "baseline_commit": "ba7324b876ac5eb0c7b67226d0458217e37326b4",
     "branch": "altimate-full-parity"
   },
   "excluded_from_parity": [
@@ -22,9 +22,9 @@
     "skills": 21
   },
   "status_counts": {
-    "MISSING": 113,
-    "PARTIAL": 76,
-    "DONE": 2
+    "DONE": 81,
+    "PARTIAL": 71,
+    "MISSING": 39
   },
   "allowed_statuses": [
     "DONE",
@@ -42,12 +42,16 @@
       "reference_category": "skills",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/skills/service.py",
+      "our_symbol": "SkillService / BUILTIN_SKILLS",
+      "status": "DONE",
+      "tests": [
+        "tests/test_skill_service.py",
+        "tests/test_skill_lifecycle.py",
+        "tests/test_runtime_context_and_tracing.py"
+      ],
+      "integration_test": "tests/test_runtime_context_and_tracing.py",
+      "notes": "Behavior-equivalent skill catalog/lifecycle is implemented: exact 21 builtin skills, install/create/test/list/show/enable/disable/remove/auto-load/plan/execute, project/global discovery, runtime injection and governed ToolRegistry exposure."
     },
     {
       "reference_path": ".opencode/skills/cost-report/SKILL.md",
@@ -55,12 +59,16 @@
       "reference_category": "skills",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/skills/service.py",
+      "our_symbol": "SkillService / BUILTIN_SKILLS",
+      "status": "DONE",
+      "tests": [
+        "tests/test_skill_service.py",
+        "tests/test_skill_lifecycle.py",
+        "tests/test_runtime_context_and_tracing.py"
+      ],
+      "integration_test": "tests/test_runtime_context_and_tracing.py",
+      "notes": "Behavior-equivalent skill catalog/lifecycle is implemented: exact 21 builtin skills, install/create/test/list/show/enable/disable/remove/auto-load/plan/execute, project/global discovery, runtime injection and governed ToolRegistry exposure."
     },
     {
       "reference_path": ".opencode/skills/data-parity/SKILL.md",
@@ -68,12 +76,16 @@
       "reference_category": "skills",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/skills/service.py",
+      "our_symbol": "SkillService / BUILTIN_SKILLS",
+      "status": "DONE",
+      "tests": [
+        "tests/test_skill_service.py",
+        "tests/test_skill_lifecycle.py",
+        "tests/test_runtime_context_and_tracing.py"
+      ],
+      "integration_test": "tests/test_runtime_context_and_tracing.py",
+      "notes": "Behavior-equivalent skill catalog/lifecycle is implemented: exact 21 builtin skills, install/create/test/list/show/enable/disable/remove/auto-load/plan/execute, project/global discovery, runtime injection and governed ToolRegistry exposure."
     },
     {
       "reference_path": ".opencode/skills/data-viz/SKILL.md",
@@ -81,12 +93,16 @@
       "reference_category": "skills",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/skills/service.py",
+      "our_symbol": "SkillService / BUILTIN_SKILLS",
+      "status": "DONE",
+      "tests": [
+        "tests/test_skill_service.py",
+        "tests/test_skill_lifecycle.py",
+        "tests/test_runtime_context_and_tracing.py"
+      ],
+      "integration_test": "tests/test_runtime_context_and_tracing.py",
+      "notes": "Behavior-equivalent skill catalog/lifecycle is implemented: exact 21 builtin skills, install/create/test/list/show/enable/disable/remove/auto-load/plan/execute, project/global discovery, runtime injection and governed ToolRegistry exposure."
     },
     {
       "reference_path": ".opencode/skills/dbt-analyze/SKILL.md",
@@ -94,12 +110,16 @@
       "reference_category": "skills",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/skills/service.py",
+      "our_symbol": "SkillService / BUILTIN_SKILLS",
+      "status": "DONE",
+      "tests": [
+        "tests/test_skill_service.py",
+        "tests/test_skill_lifecycle.py",
+        "tests/test_runtime_context_and_tracing.py"
+      ],
+      "integration_test": "tests/test_runtime_context_and_tracing.py",
+      "notes": "Behavior-equivalent skill catalog/lifecycle is implemented: exact 21 builtin skills, install/create/test/list/show/enable/disable/remove/auto-load/plan/execute, project/global discovery, runtime injection and governed ToolRegistry exposure."
     },
     {
       "reference_path": ".opencode/skills/dbt-develop/SKILL.md",
@@ -107,12 +127,16 @@
       "reference_category": "skills",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/skills/service.py",
+      "our_symbol": "SkillService / BUILTIN_SKILLS",
+      "status": "DONE",
+      "tests": [
+        "tests/test_skill_service.py",
+        "tests/test_skill_lifecycle.py",
+        "tests/test_runtime_context_and_tracing.py"
+      ],
+      "integration_test": "tests/test_runtime_context_and_tracing.py",
+      "notes": "Behavior-equivalent skill catalog/lifecycle is implemented: exact 21 builtin skills, install/create/test/list/show/enable/disable/remove/auto-load/plan/execute, project/global discovery, runtime injection and governed ToolRegistry exposure."
     },
     {
       "reference_path": ".opencode/skills/dbt-docs/SKILL.md",
@@ -120,12 +144,16 @@
       "reference_category": "skills",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/skills/service.py",
+      "our_symbol": "SkillService / BUILTIN_SKILLS",
+      "status": "DONE",
+      "tests": [
+        "tests/test_skill_service.py",
+        "tests/test_skill_lifecycle.py",
+        "tests/test_runtime_context_and_tracing.py"
+      ],
+      "integration_test": "tests/test_runtime_context_and_tracing.py",
+      "notes": "Behavior-equivalent skill catalog/lifecycle is implemented: exact 21 builtin skills, install/create/test/list/show/enable/disable/remove/auto-load/plan/execute, project/global discovery, runtime injection and governed ToolRegistry exposure."
     },
     {
       "reference_path": ".opencode/skills/dbt-pr-review/SKILL.md",
@@ -133,12 +161,16 @@
       "reference_category": "skills",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/skills/service.py",
+      "our_symbol": "SkillService / BUILTIN_SKILLS",
+      "status": "DONE",
+      "tests": [
+        "tests/test_skill_service.py",
+        "tests/test_skill_lifecycle.py",
+        "tests/test_runtime_context_and_tracing.py"
+      ],
+      "integration_test": "tests/test_runtime_context_and_tracing.py",
+      "notes": "Behavior-equivalent skill catalog/lifecycle is implemented: exact 21 builtin skills, install/create/test/list/show/enable/disable/remove/auto-load/plan/execute, project/global discovery, runtime injection and governed ToolRegistry exposure."
     },
     {
       "reference_path": ".opencode/skills/dbt-schema-verify/SKILL.md",
@@ -146,12 +178,16 @@
       "reference_category": "skills",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "PARTIAL",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/skills/service.py",
+      "our_symbol": "SkillService / BUILTIN_SKILLS",
+      "status": "DONE",
+      "tests": [
+        "tests/test_skill_service.py",
+        "tests/test_skill_lifecycle.py",
+        "tests/test_runtime_context_and_tracing.py"
+      ],
+      "integration_test": "tests/test_runtime_context_and_tracing.py",
+      "notes": "Behavior-equivalent skill catalog/lifecycle is implemented: exact 21 builtin skills, install/create/test/list/show/enable/disable/remove/auto-load/plan/execute, project/global discovery, runtime injection and governed ToolRegistry exposure."
     },
     {
       "reference_path": ".opencode/skills/dbt-test/SKILL.md",
@@ -159,12 +195,16 @@
       "reference_category": "skills",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/skills/service.py",
+      "our_symbol": "SkillService / BUILTIN_SKILLS",
+      "status": "DONE",
+      "tests": [
+        "tests/test_skill_service.py",
+        "tests/test_skill_lifecycle.py",
+        "tests/test_runtime_context_and_tracing.py"
+      ],
+      "integration_test": "tests/test_runtime_context_and_tracing.py",
+      "notes": "Behavior-equivalent skill catalog/lifecycle is implemented: exact 21 builtin skills, install/create/test/list/show/enable/disable/remove/auto-load/plan/execute, project/global discovery, runtime injection and governed ToolRegistry exposure."
     },
     {
       "reference_path": ".opencode/skills/dbt-troubleshoot/SKILL.md",
@@ -172,12 +212,16 @@
       "reference_category": "skills",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/skills/service.py",
+      "our_symbol": "SkillService / BUILTIN_SKILLS",
+      "status": "DONE",
+      "tests": [
+        "tests/test_skill_service.py",
+        "tests/test_skill_lifecycle.py",
+        "tests/test_runtime_context_and_tracing.py"
+      ],
+      "integration_test": "tests/test_runtime_context_and_tracing.py",
+      "notes": "Behavior-equivalent skill catalog/lifecycle is implemented: exact 21 builtin skills, install/create/test/list/show/enable/disable/remove/auto-load/plan/execute, project/global discovery, runtime injection and governed ToolRegistry exposure."
     },
     {
       "reference_path": ".opencode/skills/dbt-unit-tests/SKILL.md",
@@ -185,12 +229,16 @@
       "reference_category": "skills",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/skills/service.py",
+      "our_symbol": "SkillService / BUILTIN_SKILLS",
+      "status": "DONE",
+      "tests": [
+        "tests/test_skill_service.py",
+        "tests/test_skill_lifecycle.py",
+        "tests/test_runtime_context_and_tracing.py"
+      ],
+      "integration_test": "tests/test_runtime_context_and_tracing.py",
+      "notes": "Behavior-equivalent skill catalog/lifecycle is implemented: exact 21 builtin skills, install/create/test/list/show/enable/disable/remove/auto-load/plan/execute, project/global discovery, runtime injection and governed ToolRegistry exposure."
     },
     {
       "reference_path": ".opencode/skills/lineage-diff/SKILL.md",
@@ -198,12 +246,16 @@
       "reference_category": "skills",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/skills/service.py",
+      "our_symbol": "SkillService / BUILTIN_SKILLS",
+      "status": "DONE",
+      "tests": [
+        "tests/test_skill_service.py",
+        "tests/test_skill_lifecycle.py",
+        "tests/test_runtime_context_and_tracing.py"
+      ],
+      "integration_test": "tests/test_runtime_context_and_tracing.py",
+      "notes": "Behavior-equivalent skill catalog/lifecycle is implemented: exact 21 builtin skills, install/create/test/list/show/enable/disable/remove/auto-load/plan/execute, project/global discovery, runtime injection and governed ToolRegistry exposure."
     },
     {
       "reference_path": ".opencode/skills/pii-audit/SKILL.md",
@@ -211,12 +263,16 @@
       "reference_category": "skills",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/skills/service.py",
+      "our_symbol": "SkillService / BUILTIN_SKILLS",
+      "status": "DONE",
+      "tests": [
+        "tests/test_skill_service.py",
+        "tests/test_skill_lifecycle.py",
+        "tests/test_runtime_context_and_tracing.py"
+      ],
+      "integration_test": "tests/test_runtime_context_and_tracing.py",
+      "notes": "Behavior-equivalent skill catalog/lifecycle is implemented: exact 21 builtin skills, install/create/test/list/show/enable/disable/remove/auto-load/plan/execute, project/global discovery, runtime injection and governed ToolRegistry exposure."
     },
     {
       "reference_path": ".opencode/skills/query-optimize/SKILL.md",
@@ -224,12 +280,16 @@
       "reference_category": "skills",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/skills/service.py",
+      "our_symbol": "SkillService / BUILTIN_SKILLS",
+      "status": "DONE",
+      "tests": [
+        "tests/test_skill_service.py",
+        "tests/test_skill_lifecycle.py",
+        "tests/test_runtime_context_and_tracing.py"
+      ],
+      "integration_test": "tests/test_runtime_context_and_tracing.py",
+      "notes": "Behavior-equivalent skill catalog/lifecycle is implemented: exact 21 builtin skills, install/create/test/list/show/enable/disable/remove/auto-load/plan/execute, project/global discovery, runtime injection and governed ToolRegistry exposure."
     },
     {
       "reference_path": ".opencode/skills/schema-migration/SKILL.md",
@@ -237,12 +297,16 @@
       "reference_category": "skills",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "PARTIAL",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/skills/service.py",
+      "our_symbol": "SkillService / BUILTIN_SKILLS",
+      "status": "DONE",
+      "tests": [
+        "tests/test_skill_service.py",
+        "tests/test_skill_lifecycle.py",
+        "tests/test_runtime_context_and_tracing.py"
+      ],
+      "integration_test": "tests/test_runtime_context_and_tracing.py",
+      "notes": "Behavior-equivalent skill catalog/lifecycle is implemented: exact 21 builtin skills, install/create/test/list/show/enable/disable/remove/auto-load/plan/execute, project/global discovery, runtime injection and governed ToolRegistry exposure."
     },
     {
       "reference_path": ".opencode/skills/sql-review/SKILL.md",
@@ -250,12 +314,16 @@
       "reference_category": "skills",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "PARTIAL",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/skills/service.py",
+      "our_symbol": "SkillService / BUILTIN_SKILLS",
+      "status": "DONE",
+      "tests": [
+        "tests/test_skill_service.py",
+        "tests/test_skill_lifecycle.py",
+        "tests/test_runtime_context_and_tracing.py"
+      ],
+      "integration_test": "tests/test_runtime_context_and_tracing.py",
+      "notes": "Behavior-equivalent skill catalog/lifecycle is implemented: exact 21 builtin skills, install/create/test/list/show/enable/disable/remove/auto-load/plan/execute, project/global discovery, runtime injection and governed ToolRegistry exposure."
     },
     {
       "reference_path": ".opencode/skills/sql-translate/SKILL.md",
@@ -263,12 +331,16 @@
       "reference_category": "skills",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "PARTIAL",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/skills/service.py",
+      "our_symbol": "SkillService / BUILTIN_SKILLS",
+      "status": "DONE",
+      "tests": [
+        "tests/test_skill_service.py",
+        "tests/test_skill_lifecycle.py",
+        "tests/test_runtime_context_and_tracing.py"
+      ],
+      "integration_test": "tests/test_runtime_context_and_tracing.py",
+      "notes": "Behavior-equivalent skill catalog/lifecycle is implemented: exact 21 builtin skills, install/create/test/list/show/enable/disable/remove/auto-load/plan/execute, project/global discovery, runtime injection and governed ToolRegistry exposure."
     },
     {
       "reference_path": ".opencode/skills/teach/SKILL.md",
@@ -276,12 +348,16 @@
       "reference_category": "skills",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/skills/service.py",
+      "our_symbol": "SkillService / BUILTIN_SKILLS",
+      "status": "DONE",
+      "tests": [
+        "tests/test_skill_service.py",
+        "tests/test_skill_lifecycle.py",
+        "tests/test_runtime_context_and_tracing.py"
+      ],
+      "integration_test": "tests/test_runtime_context_and_tracing.py",
+      "notes": "Behavior-equivalent skill catalog/lifecycle is implemented: exact 21 builtin skills, install/create/test/list/show/enable/disable/remove/auto-load/plan/execute, project/global discovery, runtime injection and governed ToolRegistry exposure."
     },
     {
       "reference_path": ".opencode/skills/train/SKILL.md",
@@ -289,12 +365,16 @@
       "reference_category": "skills",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/skills/service.py",
+      "our_symbol": "SkillService / BUILTIN_SKILLS",
+      "status": "DONE",
+      "tests": [
+        "tests/test_skill_service.py",
+        "tests/test_skill_lifecycle.py",
+        "tests/test_runtime_context_and_tracing.py"
+      ],
+      "integration_test": "tests/test_runtime_context_and_tracing.py",
+      "notes": "Behavior-equivalent skill catalog/lifecycle is implemented: exact 21 builtin skills, install/create/test/list/show/enable/disable/remove/auto-load/plan/execute, project/global discovery, runtime injection and governed ToolRegistry exposure."
     },
     {
       "reference_path": ".opencode/skills/training-status/SKILL.md",
@@ -302,12 +382,16 @@
       "reference_category": "skills",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/skills/service.py",
+      "our_symbol": "SkillService / BUILTIN_SKILLS",
+      "status": "DONE",
+      "tests": [
+        "tests/test_skill_service.py",
+        "tests/test_skill_lifecycle.py",
+        "tests/test_runtime_context_and_tracing.py"
+      ],
+      "integration_test": "tests/test_runtime_context_and_tracing.py",
+      "notes": "Behavior-equivalent skill catalog/lifecycle is implemented: exact 21 builtin skills, install/create/test/list/show/enable/disable/remove/auto-load/plan/execute, project/global discovery, runtime injection and governed ToolRegistry exposure."
     },
     {
       "reference_path": "packages/opencode/src/altimate/native/altimate-core.ts",
@@ -1771,12 +1855,15 @@
       "reference_category": "validators",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/dbt/validators.py",
+      "our_symbol": "run_validators",
+      "status": "DONE",
+      "tests": [
+        "tests/test_dbt_validators.py",
+        "tests/test_dbt_pr_review.py"
+      ],
+      "integration_test": "tests/test_dbt_pr_review.py",
+      "notes": "All seven pinned dbt completion validator behaviors are implemented and participate in deterministic PR-review termination/blocking decisions."
     },
     {
       "reference_path": "packages/opencode/src/altimate/validators/dbt-deliverable-names.ts",
@@ -1784,12 +1871,15 @@
       "reference_category": "validators",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/dbt/validators.py",
+      "our_symbol": "run_validators",
+      "status": "DONE",
+      "tests": [
+        "tests/test_dbt_validators.py",
+        "tests/test_dbt_pr_review.py"
+      ],
+      "integration_test": "tests/test_dbt_pr_review.py",
+      "notes": "All seven pinned dbt completion validator behaviors are implemented and participate in deterministic PR-review termination/blocking decisions."
     },
     {
       "reference_path": "packages/opencode/src/altimate/validators/dbt-dialect-guard.ts",
@@ -1797,12 +1887,15 @@
       "reference_category": "validators",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/dbt/validators.py",
+      "our_symbol": "run_validators",
+      "status": "DONE",
+      "tests": [
+        "tests/test_dbt_validators.py",
+        "tests/test_dbt_pr_review.py"
+      ],
+      "integration_test": "tests/test_dbt_pr_review.py",
+      "notes": "All seven pinned dbt completion validator behaviors are implemented and participate in deterministic PR-review termination/blocking decisions."
     },
     {
       "reference_path": "packages/opencode/src/altimate/validators/dbt-incremental-config.ts",
@@ -1810,12 +1903,15 @@
       "reference_category": "validators",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/dbt/validators.py",
+      "our_symbol": "run_validators",
+      "status": "DONE",
+      "tests": [
+        "tests/test_dbt_validators.py",
+        "tests/test_dbt_pr_review.py"
+      ],
+      "integration_test": "tests/test_dbt_pr_review.py",
+      "notes": "All seven pinned dbt completion validator behaviors are implemented and participate in deterministic PR-review termination/blocking decisions."
     },
     {
       "reference_path": "packages/opencode/src/altimate/validators/dbt-nothing-built.ts",
@@ -1823,12 +1919,15 @@
       "reference_category": "validators",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/dbt/validators.py",
+      "our_symbol": "run_validators",
+      "status": "DONE",
+      "tests": [
+        "tests/test_dbt_validators.py",
+        "tests/test_dbt_pr_review.py"
+      ],
+      "integration_test": "tests/test_dbt_pr_review.py",
+      "notes": "All seven pinned dbt completion validator behaviors are implemented and participate in deterministic PR-review termination/blocking decisions."
     },
     {
       "reference_path": "packages/opencode/src/altimate/validators/dbt-schema-verify.ts",
@@ -1836,12 +1935,15 @@
       "reference_category": "validators",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "PARTIAL",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/dbt/validators.py",
+      "our_symbol": "run_validators",
+      "status": "DONE",
+      "tests": [
+        "tests/test_dbt_validators.py",
+        "tests/test_dbt_pr_review.py"
+      ],
+      "integration_test": "tests/test_dbt_pr_review.py",
+      "notes": "All seven pinned dbt completion validator behaviors are implemented and participate in deterministic PR-review termination/blocking decisions."
     },
     {
       "reference_path": "packages/opencode/src/altimate/validators/dbt-tests-pass.ts",
@@ -1849,12 +1951,15 @@
       "reference_category": "validators",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/dbt/validators.py",
+      "our_symbol": "run_validators",
+      "status": "DONE",
+      "tests": [
+        "tests/test_dbt_validators.py",
+        "tests/test_dbt_pr_review.py"
+      ],
+      "integration_test": "tests/test_dbt_pr_review.py",
+      "notes": "All seven pinned dbt completion validator behaviors are implemented and participate in deterministic PR-review termination/blocking decisions."
     },
     {
       "reference_path": "packages/opencode/src/mcp/auth.ts",
@@ -1862,12 +1967,15 @@
       "reference_category": "mcp",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/mcp/",
+      "our_symbol": "McpConfigStore / McpDiscovery / McpCatalog / McpAuthStore / McpOAuthManager / McpClient",
+      "status": "DONE",
+      "tests": [
+        "tests/test_mcp.py",
+        "tests/test_mcp_lifecycle.py"
+      ],
+      "integration_test": "tests/test_mcp_lifecycle.py",
+      "notes": "MCP config/discovery/catalog/auth/OAuth/client lifecycle and governed tools are implemented. Live remote server connectivity remains environment-dependent and reports SKIP_EXTERNAL when unavailable."
     },
     {
       "reference_path": "packages/opencode/src/mcp/catalog.ts",
@@ -1875,12 +1983,15 @@
       "reference_category": "mcp",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/mcp/",
+      "our_symbol": "McpConfigStore / McpDiscovery / McpCatalog / McpAuthStore / McpOAuthManager / McpClient",
+      "status": "DONE",
+      "tests": [
+        "tests/test_mcp.py",
+        "tests/test_mcp_lifecycle.py"
+      ],
+      "integration_test": "tests/test_mcp_lifecycle.py",
+      "notes": "MCP config/discovery/catalog/auth/OAuth/client lifecycle and governed tools are implemented. Live remote server connectivity remains environment-dependent and reports SKIP_EXTERNAL when unavailable."
     },
     {
       "reference_path": "packages/opencode/src/mcp/config.ts",
@@ -1888,12 +1999,15 @@
       "reference_category": "mcp",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/mcp/",
+      "our_symbol": "McpConfigStore / McpDiscovery / McpCatalog / McpAuthStore / McpOAuthManager / McpClient",
+      "status": "DONE",
+      "tests": [
+        "tests/test_mcp.py",
+        "tests/test_mcp_lifecycle.py"
+      ],
+      "integration_test": "tests/test_mcp_lifecycle.py",
+      "notes": "MCP config/discovery/catalog/auth/OAuth/client lifecycle and governed tools are implemented. Live remote server connectivity remains environment-dependent and reports SKIP_EXTERNAL when unavailable."
     },
     {
       "reference_path": "packages/opencode/src/mcp/discover.ts",
@@ -1901,12 +2015,15 @@
       "reference_category": "mcp",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/mcp/",
+      "our_symbol": "McpConfigStore / McpDiscovery / McpCatalog / McpAuthStore / McpOAuthManager / McpClient",
+      "status": "DONE",
+      "tests": [
+        "tests/test_mcp.py",
+        "tests/test_mcp_lifecycle.py"
+      ],
+      "integration_test": "tests/test_mcp_lifecycle.py",
+      "notes": "MCP config/discovery/catalog/auth/OAuth/client lifecycle and governed tools are implemented. Live remote server connectivity remains environment-dependent and reports SKIP_EXTERNAL when unavailable."
     },
     {
       "reference_path": "packages/opencode/src/mcp/index.ts",
@@ -1914,12 +2031,15 @@
       "reference_category": "mcp",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/mcp/",
+      "our_symbol": "McpConfigStore / McpDiscovery / McpCatalog / McpAuthStore / McpOAuthManager / McpClient",
+      "status": "DONE",
+      "tests": [
+        "tests/test_mcp.py",
+        "tests/test_mcp_lifecycle.py"
+      ],
+      "integration_test": "tests/test_mcp_lifecycle.py",
+      "notes": "MCP config/discovery/catalog/auth/OAuth/client lifecycle and governed tools are implemented. Live remote server connectivity remains environment-dependent and reports SKIP_EXTERNAL when unavailable."
     },
     {
       "reference_path": "packages/opencode/src/mcp/oauth-callback.ts",
@@ -1927,12 +2047,15 @@
       "reference_category": "mcp",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/mcp/",
+      "our_symbol": "McpConfigStore / McpDiscovery / McpCatalog / McpAuthStore / McpOAuthManager / McpClient",
+      "status": "DONE",
+      "tests": [
+        "tests/test_mcp.py",
+        "tests/test_mcp_lifecycle.py"
+      ],
+      "integration_test": "tests/test_mcp_lifecycle.py",
+      "notes": "MCP config/discovery/catalog/auth/OAuth/client lifecycle and governed tools are implemented. Live remote server connectivity remains environment-dependent and reports SKIP_EXTERNAL when unavailable."
     },
     {
       "reference_path": "packages/opencode/src/mcp/oauth-provider.ts",
@@ -1940,12 +2063,15 @@
       "reference_category": "mcp",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/mcp/",
+      "our_symbol": "McpConfigStore / McpDiscovery / McpCatalog / McpAuthStore / McpOAuthManager / McpClient",
+      "status": "DONE",
+      "tests": [
+        "tests/test_mcp.py",
+        "tests/test_mcp_lifecycle.py"
+      ],
+      "integration_test": "tests/test_mcp_lifecycle.py",
+      "notes": "MCP config/discovery/catalog/auth/OAuth/client lifecycle and governed tools are implemented. Live remote server connectivity remains environment-dependent and reports SKIP_EXTERNAL when unavailable."
     },
     {
       "reference_path": "packages/opencode/src/provider/auth-service.ts",
@@ -1953,12 +2079,16 @@
       "reference_category": "provider",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/providers/",
+      "our_symbol": "ProviderRegistry / ModelCatalog / provider adapters",
+      "status": "DONE",
+      "tests": [
+        "tests/test_providers.py",
+        "tests/test_provider_control.py",
+        "tests/test_provider_expanded.py"
+      ],
+      "integration_test": "tests/test_provider_expanded.py",
+      "notes": "Provider runtime behavior is implemented across auth status, normalized model catalog/status/snapshot, family mapping, transforms, token budgeting, structured errors and first-class OpenAI-compatible/Anthropic/Gemini/Vertex/Azure/Bedrock/Ollama adapters."
     },
     {
       "reference_path": "packages/opencode/src/provider/auth.ts",
@@ -1966,12 +2096,16 @@
       "reference_category": "provider",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/providers/",
+      "our_symbol": "ProviderRegistry / ModelCatalog / provider adapters",
+      "status": "DONE",
+      "tests": [
+        "tests/test_providers.py",
+        "tests/test_provider_control.py",
+        "tests/test_provider_expanded.py"
+      ],
+      "integration_test": "tests/test_provider_expanded.py",
+      "notes": "Provider runtime behavior is implemented across auth status, normalized model catalog/status/snapshot, family mapping, transforms, token budgeting, structured errors and first-class OpenAI-compatible/Anthropic/Gemini/Vertex/Azure/Bedrock/Ollama adapters."
     },
     {
       "reference_path": "packages/opencode/src/provider/error.ts",
@@ -1979,12 +2113,16 @@
       "reference_category": "provider",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/providers/",
+      "our_symbol": "ProviderRegistry / ModelCatalog / provider adapters",
+      "status": "DONE",
+      "tests": [
+        "tests/test_providers.py",
+        "tests/test_provider_control.py",
+        "tests/test_provider_expanded.py"
+      ],
+      "integration_test": "tests/test_provider_expanded.py",
+      "notes": "Provider runtime behavior is implemented across auth status, normalized model catalog/status/snapshot, family mapping, transforms, token budgeting, structured errors and first-class OpenAI-compatible/Anthropic/Gemini/Vertex/Azure/Bedrock/Ollama adapters."
     },
     {
       "reference_path": "packages/opencode/src/provider/family.ts",
@@ -1992,12 +2130,16 @@
       "reference_category": "provider",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/providers/",
+      "our_symbol": "ProviderRegistry / ModelCatalog / provider adapters",
+      "status": "DONE",
+      "tests": [
+        "tests/test_providers.py",
+        "tests/test_provider_control.py",
+        "tests/test_provider_expanded.py"
+      ],
+      "integration_test": "tests/test_provider_expanded.py",
+      "notes": "Provider runtime behavior is implemented across auth status, normalized model catalog/status/snapshot, family mapping, transforms, token budgeting, structured errors and first-class OpenAI-compatible/Anthropic/Gemini/Vertex/Azure/Bedrock/Ollama adapters."
     },
     {
       "reference_path": "packages/opencode/src/provider/model-status.ts",
@@ -2005,12 +2147,16 @@
       "reference_category": "provider",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/providers/",
+      "our_symbol": "ProviderRegistry / ModelCatalog / provider adapters",
+      "status": "DONE",
+      "tests": [
+        "tests/test_providers.py",
+        "tests/test_provider_control.py",
+        "tests/test_provider_expanded.py"
+      ],
+      "integration_test": "tests/test_provider_expanded.py",
+      "notes": "Provider runtime behavior is implemented across auth status, normalized model catalog/status/snapshot, family mapping, transforms, token budgeting, structured errors and first-class OpenAI-compatible/Anthropic/Gemini/Vertex/Azure/Bedrock/Ollama adapters."
     },
     {
       "reference_path": "packages/opencode/src/provider/models-catalog.ts",
@@ -2018,12 +2164,16 @@
       "reference_category": "provider",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/providers/",
+      "our_symbol": "ProviderRegistry / ModelCatalog / provider adapters",
+      "status": "DONE",
+      "tests": [
+        "tests/test_providers.py",
+        "tests/test_provider_control.py",
+        "tests/test_provider_expanded.py"
+      ],
+      "integration_test": "tests/test_provider_expanded.py",
+      "notes": "Provider runtime behavior is implemented across auth status, normalized model catalog/status/snapshot, family mapping, transforms, token budgeting, structured errors and first-class OpenAI-compatible/Anthropic/Gemini/Vertex/Azure/Bedrock/Ollama adapters."
     },
     {
       "reference_path": "packages/opencode/src/provider/models-snapshot.ts",
@@ -2031,12 +2181,16 @@
       "reference_category": "provider",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/providers/",
+      "our_symbol": "ProviderRegistry / ModelCatalog / provider adapters",
+      "status": "DONE",
+      "tests": [
+        "tests/test_providers.py",
+        "tests/test_provider_control.py",
+        "tests/test_provider_expanded.py"
+      ],
+      "integration_test": "tests/test_provider_expanded.py",
+      "notes": "Provider runtime behavior is implemented across auth status, normalized model catalog/status/snapshot, family mapping, transforms, token budgeting, structured errors and first-class OpenAI-compatible/Anthropic/Gemini/Vertex/Azure/Bedrock/Ollama adapters."
     },
     {
       "reference_path": "packages/opencode/src/provider/models.ts",
@@ -2044,12 +2198,16 @@
       "reference_category": "provider",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/providers/",
+      "our_symbol": "ProviderRegistry / ModelCatalog / provider adapters",
+      "status": "DONE",
+      "tests": [
+        "tests/test_providers.py",
+        "tests/test_provider_control.py",
+        "tests/test_provider_expanded.py"
+      ],
+      "integration_test": "tests/test_provider_expanded.py",
+      "notes": "Provider runtime behavior is implemented across auth status, normalized model catalog/status/snapshot, family mapping, transforms, token budgeting, structured errors and first-class OpenAI-compatible/Anthropic/Gemini/Vertex/Azure/Bedrock/Ollama adapters."
     },
     {
       "reference_path": "packages/opencode/src/provider/output-token-budget.ts",
@@ -2057,12 +2215,16 @@
       "reference_category": "provider",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/providers/",
+      "our_symbol": "ProviderRegistry / ModelCatalog / provider adapters",
+      "status": "DONE",
+      "tests": [
+        "tests/test_providers.py",
+        "tests/test_provider_control.py",
+        "tests/test_provider_expanded.py"
+      ],
+      "integration_test": "tests/test_provider_expanded.py",
+      "notes": "Provider runtime behavior is implemented across auth status, normalized model catalog/status/snapshot, family mapping, transforms, token budgeting, structured errors and first-class OpenAI-compatible/Anthropic/Gemini/Vertex/Azure/Bedrock/Ollama adapters."
     },
     {
       "reference_path": "packages/opencode/src/provider/provider.ts",
@@ -2070,12 +2232,16 @@
       "reference_category": "provider",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/providers/",
+      "our_symbol": "ProviderRegistry / ModelCatalog / provider adapters",
+      "status": "DONE",
+      "tests": [
+        "tests/test_providers.py",
+        "tests/test_provider_control.py",
+        "tests/test_provider_expanded.py"
+      ],
+      "integration_test": "tests/test_provider_expanded.py",
+      "notes": "Provider runtime behavior is implemented across auth status, normalized model catalog/status/snapshot, family mapping, transforms, token budgeting, structured errors and first-class OpenAI-compatible/Anthropic/Gemini/Vertex/Azure/Bedrock/Ollama adapters."
     },
     {
       "reference_path": "packages/opencode/src/provider/schema.ts",
@@ -2083,12 +2249,16 @@
       "reference_category": "provider",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/providers/",
+      "our_symbol": "ProviderRegistry / ModelCatalog / provider adapters",
+      "status": "DONE",
+      "tests": [
+        "tests/test_providers.py",
+        "tests/test_provider_control.py",
+        "tests/test_provider_expanded.py"
+      ],
+      "integration_test": "tests/test_provider_expanded.py",
+      "notes": "Provider runtime behavior is implemented across auth status, normalized model catalog/status/snapshot, family mapping, transforms, token budgeting, structured errors and first-class OpenAI-compatible/Anthropic/Gemini/Vertex/Azure/Bedrock/Ollama adapters."
     },
     {
       "reference_path": "packages/opencode/src/provider/transform.ts",
@@ -2096,12 +2266,16 @@
       "reference_category": "provider",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/providers/",
+      "our_symbol": "ProviderRegistry / ModelCatalog / provider adapters",
+      "status": "DONE",
+      "tests": [
+        "tests/test_providers.py",
+        "tests/test_provider_control.py",
+        "tests/test_provider_expanded.py"
+      ],
+      "integration_test": "tests/test_provider_expanded.py",
+      "notes": "Provider runtime behavior is implemented across auth status, normalized model catalog/status/snapshot, family mapping, transforms, token budgeting, structured errors and first-class OpenAI-compatible/Anthropic/Gemini/Vertex/Azure/Bedrock/Ollama adapters."
     },
     {
       "reference_path": "packages/opencode/src/session/compaction.ts",
@@ -2109,12 +2283,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/index.ts",
@@ -2122,12 +2301,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/instruction.ts",
@@ -2135,12 +2319,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/llm.ts",
@@ -2148,12 +2337,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/llm/ai-sdk.ts",
@@ -2161,12 +2355,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/llm/native-request.ts",
@@ -2174,12 +2373,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/llm/native-runtime.ts",
@@ -2187,12 +2391,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/llm/request.ts",
@@ -2200,12 +2409,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/message-error.ts",
@@ -2213,12 +2427,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/message-v2.ts",
@@ -2226,12 +2445,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/message.ts",
@@ -2239,12 +2463,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/nudge.ts",
@@ -2252,12 +2481,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/overflow.ts",
@@ -2265,12 +2499,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/processor.ts",
@@ -2278,12 +2517,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/projectors.ts",
@@ -2291,12 +2535,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/prompt.ts",
@@ -2304,12 +2553,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/reminders.ts",
@@ -2317,12 +2571,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/retry.ts",
@@ -2330,12 +2589,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/revert.ts",
@@ -2343,12 +2607,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/run-state.ts",
@@ -2356,12 +2625,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/schema.ts",
@@ -2369,12 +2643,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/session.ts",
@@ -2382,12 +2661,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/starvation.ts",
@@ -2395,12 +2679,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/status.ts",
@@ -2408,12 +2697,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/summary.ts",
@@ -2421,12 +2715,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/system.ts",
@@ -2434,12 +2733,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/termination.ts",
@@ -2447,12 +2751,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/todo.ts",
@@ -2460,12 +2769,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/tool-result-cap.ts",
@@ -2473,12 +2787,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/tools.ts",
@@ -2486,12 +2805,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/validators/registry.ts",
@@ -2499,12 +2823,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     },
     {
       "reference_path": "packages/opencode/src/session/validators/types.ts",
@@ -2512,12 +2841,17 @@
       "reference_category": "session",
       "reference_tool_name": null,
       "reference_behavior": "See pinned Altimate reference source; behavioral mapping must include inputs, outputs, errors, permissions, persistence, lifecycle and tests.",
-      "our_path": null,
-      "our_symbol": null,
-      "status": "MISSING",
-      "tests": [],
-      "integration_test": null,
-      "notes": "Initial mechanically discovered ledger row. Status must only move to DONE with implementation and verification evidence."
+      "our_path": "src/agentic_data_platform/session/",
+      "our_symbol": "SessionRuntime / SessionStore / ValidatorRegistry",
+      "status": "DONE",
+      "tests": [
+        "tests/test_session_runtime.py",
+        "tests/test_runtime_context_and_tracing.py",
+        "tests/test_runtime_tool_registry.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "integration_test": "tests/test_session_runtime.py",
+      "notes": "Behavior-equivalent session runtime is implemented: persistent sessions/messages/errors/todos/reminders/state, instructions/prompts, compaction, retry/backoff, overflow, starvation/nudges, revert, tool-result caps, validators, termination gates, provider execution and projections."
     }
   ]
 }
