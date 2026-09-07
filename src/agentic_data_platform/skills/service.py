@@ -418,6 +418,13 @@ class SkillService:
             if self.state.enabled(skill.name)
         ]
 
+    def active_registry(self) -> SkillRegistry:
+        """Return only enabled skills for runtime context selection."""
+        registry = self.registry()
+        return SkillRegistry(
+            skill for skill in registry.list() if self.state.enabled(skill.name)
+        )
+
     def plan(self, name: str, available_tools: Iterable[str]) -> dict[str, Any]:
         skill = self.inspect(name)
         if not skill["enabled"]:
