@@ -103,7 +103,12 @@ def test_operator_dbt_airflow_migration_and_warehouse_contracts(tmp_path, monkey
     migration = api.get("/api/v1/migration/inventory")
     assert migration.status_code == 200 and migration.json()["models"] >= 1
     warehouses = api.get("/api/v1/warehouses")
-    assert warehouses.status_code == 200 and len(warehouses.json()["adapters"]) == 7
+    assert warehouses.status_code == 200
+    platforms = {item["platform"] for item in warehouses.json()["adapters"]}
+    assert {
+        "snowflake", "bigquery", "databricks", "postgres", "redshift", "oracle",
+        "mysql", "sqlserver", "duckdb", "sqlite", "clickhouse", "trino",
+    }.issubset(platforms)
 
 
 def test_deterministic_agent_reports_tool_evidence(tmp_path, monkeypatch):
