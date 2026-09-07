@@ -183,6 +183,7 @@ from agentic_data_platform.connections.driver_install import (
 from agentic_data_platform.connections.dbt_profiles import discover_dbt_profiles
 from agentic_data_platform.connections.ssh_tunnel import SSHTunnelManager, TunnelConfig
 from agentic_data_platform.onboarding import materialize_sample
+from agentic_data_platform.teammates import TeammateManager
 from agentic_data_platform.tools.feedback import submit_feedback
 from agentic_data_platform.tools.parity_utils import (
     PostConnectSuggestions,
@@ -408,6 +409,7 @@ def build_tool_registry() -> ToolRegistry:
         }
 
     add("sample_setup", Capability.GENERATE, lambda a: materialize_sample(home=a.get("home"), preferred_target_name=a.get("preferred_target_name", "agentic-data-sample-dbt"), allow_in_place_upgrade=bool(a.get("allow_in_place_upgrade", False)), install_alongside=bool(a.get("install_alongside", False))), "Materialize or safely reuse the shipped dbt + DuckDB starter sample.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("datamate_manager", Capability.EXECUTE, lambda a: TeammateManager(_target(a), database=a.get("teammate_database"), global_root=a.get("teammate_global_root")).execute(a["operation"], a), "Manage local AI teammates and their MCP integrations using the Datamate lifecycle operations.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
     add("feedback_submit", Capability.EXECUTE, lambda a: submit_feedback(title=a["title"], category=a["category"], description=a["description"], include_context=bool(a.get("include_context", False)), repository=a.get("repository", "rrahul0904/Agentic_AI_Data_Quality_Testing"), session_id=a.get("session_id")), "Submit user feedback as a GitHub issue when gh is installed and authenticated.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
 
     add("tool_lookup", Capability.DISCOVER, tool_lookup_handler, "Look up a deterministic tool's full contract, risk and parameter schema.", platforms=frozenset({Platform.LOCAL}))
