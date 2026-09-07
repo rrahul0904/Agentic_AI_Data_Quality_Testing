@@ -54,6 +54,11 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
         "seed": "dbt_seed", "snapshot": "dbt_snapshot", "validate": "dbt_validate",
         "test-generate": "dbt_test_generate", "unit-test-generate": "dbt_unit_test_gen",
     },
+    "review": {
+        "dbt": "dbt_pr_review", "impact": "change_impact",
+        "tests": "recommended_tests", "risk": "deployment_risk",
+        "github": "github_pr_review", "gitlab": "gitlab_mr_review",
+    },
     "connection": {
         "add": "connection_add", "remove": "connection_remove", "list": "connection_list",
         "show": "connection_show", "test": "connection_test", "default": "connection_default",
