@@ -102,13 +102,21 @@ def analyze_column_lineage(
             raise ValueError("statement does not contain a query projection")
 
         ambiguity = _ambiguous_unqualified_columns(tree, schema)
-        nodes = sqlglot_lineage(
-            None,
-            tree,
-            schema=dict(schema or {}),
-            sources=dict(sources or {}),
-            dialect=dialect_name(dialect),
+        output_names = [projection.alias_or_name for projection in tree.selects]
+        duplicate_names = sorted(
+            name for name in set(output_names) if name and output_names.count(name) > 1
         )
+        nodes: dict[str, Any] = {}
+        for output_name in output_names:
+            if not output_name or output_name in nodes:
+                continue
+            nodes[output_name] = sqlglot_lineage(
+                output_name,
+                tree,
+                schema=dict(schema or {}),
+                sources=dict(sources or {}),
+                dialect=dialect_name(dialect),
+            )
         mappings: list[ColumnMapping] = []
 
         for output_name, node in nodes.items():
@@ -155,6 +163,7 @@ def analyze_column_lineage(
         unresolved = sorted(
             {message for mapping in mappings for message in mapping.unresolved_references}
             | set(ambiguity)
+            | {f"duplicate output name: {name}" for name in duplicate_names}
         )
         return {
             "parseable": True,
