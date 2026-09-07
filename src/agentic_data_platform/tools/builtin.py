@@ -80,6 +80,8 @@ from agentic_data_platform.sql.parity import (
 from agentic_data_platform.connectors.factory import ExternalConnectionUnavailable, connector_from_args
 from agentic_data_platform.metadata.index import MetadataIndex
 from agentic_data_platform.metadata.service import MetadataService
+from agentic_data_platform.training import TrainingStore
+from agentic_data_platform.skills import SkillService
 from agentic_data_platform.mcp import (
     McpAuthStore,
     McpCatalog,
@@ -351,6 +353,68 @@ def build_tool_registry() -> ToolRegistry:
     add("mcp_call", Capability.EXECUTE, lambda a: mcp_external(a, "call"), "Call an MCP tool through the governed runtime.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
     add("mcp_oauth_begin", Capability.GENERATE, lambda a: mcp_oauth_manager(a).begin(a["name"], authorize_url=a["authorize_url"], client_id=a["client_id"], redirect_uri=a["redirect_uri"], token_url=a.get("token_url"), scope=a.get("scope")), "Begin MCP OAuth authorization with PKCE.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
     add("mcp_oauth_callback", Capability.GENERATE, lambda a: mcp_oauth_manager(a).callback(state=a["state"], code=a.get("code"), error=a.get("error")), "Validate and consume an MCP OAuth callback state.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+
+
+    def training_store(a: dict[str, Any]) -> TrainingStore:
+        return TrainingStore(
+            a.get("training_database")
+            or (_target(a) / ".ade" / "training.db")
+        )
+
+    def skill_service(a: dict[str, Any]) -> SkillService:
+        return SkillService(
+            _target(a),
+            state_path=a.get("skill_database")
+            or (_target(a) / ".ade" / "skills.db"),
+        )
+
+    def skill_execute_handler(a: dict[str, Any]) -> dict[str, Any]:
+        service = skill_service(a)
+        available = {definition.name for definition in registry.definitions()}
+
+        def invoke_inner(tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+            definition = registry.describe(tool_name)
+            request = ToolRequest(
+                tool=tool_name,
+                operation=tool_name,
+                environment=Environment.DEV,
+                risk=definition.risk,
+                args=payload,
+            )
+            return registry.invoke(
+                ToolInvocation(
+                    request,
+                    run_id=str(a.get("_run_id") or f"skill-{a['name']}"),
+                    actor_mode=ActorMode.BUILDER,
+                )
+            )
+
+        return service.execute(
+            a["name"],
+            available_tools=available,
+            invoke=invoke_inner,
+            args=a.get("args"),
+            tool_args=a.get("tool_args"),
+        )
+
+    add("training_ingest", Capability.GENERATE, lambda a: training_store(a).ingest_project(_target(a), patterns=tuple(a.get("patterns") or ("AGENTS.md", "CLAUDE.md", "README.md", "docs/**/*.md", "specs/**/*.md", "models/**/*.sql", "models/**/*.yml", "models/**/*.yaml", "dbt_project.yml")), max_files=int(a.get("max_files", 2000)), max_bytes_per_file=int(a.get("max_bytes_per_file", 2000000))), "Index bounded project knowledge into the local training corpus.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("training_ingest_text", Capability.GENERATE, lambda a: training_store(a).ingest_text(a["source"], a["text"], source_type=a.get("source_type", "text"), metadata=a.get("metadata")), "Index explicit approved text into the local training corpus.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("training_search", Capability.DISCOVER, lambda a: {"results": training_store(a).search(a.get("query", ""), limit=int(a.get("limit", 10)))}, "Search local project training knowledge.", platforms=frozenset({Platform.LOCAL}))
+    add("training_context", Capability.DISCOVER, lambda a: training_store(a).context(a.get("query", ""), limit=int(a.get("limit", 8)), max_chars=int(a.get("max_chars", 12000))), "Build bounded project context for agent injection.", platforms=frozenset({Platform.LOCAL}))
+    add("training_status", Capability.DISCOVER, lambda a: training_store(a).status(), "Report local project training corpus status.", platforms=frozenset({Platform.LOCAL}))
+    add("training_clear", Capability.GENERATE, lambda a: training_store(a).clear(), "Clear the local project training corpus.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+
+    add("skill_catalog", Capability.DISCOVER, lambda a: {"skills": skill_service(a).catalog()}, "List the exact builtin parity skill catalog.", platforms=frozenset({Platform.LOCAL}))
+    add("skill_install", Capability.GENERATE, lambda a: skill_service(a).install(a["name"], overwrite=bool(a.get("overwrite", False))), "Install one builtin skill into the project.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("skill_install_all", Capability.GENERATE, lambda a: skill_service(a).install_all(overwrite=bool(a.get("overwrite", False))), "Install all builtin parity skills.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("skill_list", Capability.DISCOVER, lambda a: {"skills": skill_service(a).list()}, "List installed project/global skills and state.", platforms=frozenset({Platform.LOCAL}))
+    add("skill_show", Capability.DISCOVER, lambda a: skill_service(a).inspect(a["name"]), "Inspect one installed skill.", platforms=frozenset({Platform.LOCAL}))
+    add("skill_enable", Capability.GENERATE, lambda a: skill_service(a).set_enabled(a["name"], True), "Enable an installed skill.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("skill_disable", Capability.GENERATE, lambda a: skill_service(a).set_enabled(a["name"], False), "Disable an installed skill.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("skill_remove", Capability.GENERATE, lambda a: skill_service(a).remove(a["name"]), "Remove an installed skill.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("skill_auto_load", Capability.DISCOVER, lambda a: {"skills": skill_service(a).auto_load()}, "Resolve deterministic skill auto-load rules for the project.", platforms=frozenset({Platform.LOCAL}))
+    add("skill_plan", Capability.PLAN, lambda a: skill_service(a).plan(a["name"], {definition.name for definition in registry.definitions()}), "Plan an executable skill and report missing tool dependencies.", platforms=frozenset({Platform.LOCAL}))
+    add("skill_execute", Capability.EXECUTE, skill_execute_handler, "Execute a skill as an ordered governed deterministic tool workflow.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
 
     add("doctor", Capability.DISCOVER, lambda a: run_doctor(_target(a)), "Check local development dependencies and optional integrations.")
 
