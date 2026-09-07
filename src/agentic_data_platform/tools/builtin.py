@@ -175,6 +175,11 @@ from agentic_data_platform.finops import (
     warehouse_usage as finops_warehouse_usage,
 )
 from agentic_data_platform.connections.store import ConnectionStore
+from agentic_data_platform.connections.docker_discovery import discover_docker_connections
+from agentic_data_platform.connections.driver_install import (
+    install_warehouse_driver,
+    warehouse_driver_status,
+)
 from agentic_data_platform.connections.dbt_profiles import discover_dbt_profiles
 from agentic_data_platform.connections.ssh_tunnel import SSHTunnelManager, TunnelConfig
 from agentic_data_platform.onboarding import materialize_sample
