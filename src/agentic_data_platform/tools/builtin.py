@@ -64,6 +64,21 @@ from agentic_data_platform.quality.warehouse_diff import WarehouseDiffEngine
 from agentic_data_platform.sql.intelligence import (
     column_downstream, column_lineage, column_upstream, review_sql, sql_lineage,
 )
+from agentic_data_platform.sql.core_compat import (
+    complete_sql as core_complete_sql,
+    correct_sql as core_correct_sql,
+    full_check as core_full_check,
+    grade_sql as core_grade_sql,
+    import_ddl as core_import_ddl,
+    introspection_sql as core_introspection_sql,
+    optimize_schema_context as core_optimize_schema_context,
+    policy_check as core_policy_check,
+    prune_schema as core_prune_schema,
+    resolve_term as core_resolve_term,
+    semantic_equivalence as core_semantic_equivalence,
+    semantics as core_semantics,
+    validate_sql as core_validate_sql,
+)
 from agentic_data_platform.sql.parity import (
     analyze_sql as sql_analyze_impl,
     autocomplete_sql as sql_autocomplete_impl,
@@ -865,6 +880,28 @@ def build_tool_registry() -> ToolRegistry:
     add("sql_rewrite", Capability.GENERATE, lambda a: sql_rewrite_impl(a["sql"], a.get("dialect"), a.get("schema_context")), "Rewrite supported SQL anti-patterns with deterministic AST transforms.", platforms=sql_platforms)
     add("sql_translate", Capability.GENERATE, lambda a: sql_translate_impl(a["sql"], a["source_dialect"], a["target_dialect"]), "Translate SQL across major dialects with semantic-risk warnings.", platforms=sql_platforms)
     add("sql_fingerprint", Capability.VERIFY, lambda a: sql_fingerprint_impl(a["sql"], a.get("dialect")), "Return PII-safe structural SQL fingerprint.", platforms=sql_platforms)
+
+    # Behavior-compatible Altimate core wrappers over deterministic Python engines.
+    add("altimate_core_complete", Capability.DISCOVER, lambda a: core_complete_sql(a["sql"], int(a.get("cursor_pos", len(a["sql"]))), schema_context=a.get("schema_context"), schema_path=a.get("schema_path")), "Return cursor-aware SQL completion suggestions.", platforms=sql_platforms)
+    add("altimate_core_equivalence", Capability.VERIFY, lambda a: core_semantic_equivalence(a["sql1"], a["sql2"], dialect=a.get("dialect"), schema_context=a.get("schema_context"), schema_path=a.get("schema_path")), "Check schema-aware semantic SQL equivalence.", platforms=sql_platforms)
+    add("altimate_core_grade", Capability.VERIFY, lambda a: core_grade_sql(a["sql"], dialect=a.get("dialect"), schema_context=a.get("schema_context"), schema_path=a.get("schema_path")), "Grade deterministic SQL quality on an A-F scale.", platforms=sql_platforms)
+    add("altimate_core_optimize_context", Capability.DISCOVER, lambda a: core_optimize_schema_context(schema_context=a.get("schema_context"), schema_path=a.get("schema_path")), "Create five progressive schema-context disclosure levels.", platforms=sql_platforms)
+    add("altimate_core_policy", Capability.VERIFY, lambda a: core_policy_check(a["sql"], a["policy_json"], dialect=a.get("dialect"), schema_context=a.get("schema_context"), schema_path=a.get("schema_path")), "Check SQL against deterministic JSON governance policy.", platforms=sql_platforms)
+    add("altimate_core_prune_schema", Capability.DISCOVER, lambda a: core_prune_schema(a["sql"], dialect=a.get("dialect"), schema_context=a.get("schema_context"), schema_path=a.get("schema_path")), "Prune schema context to SQL-referenced tables.", platforms=sql_platforms)
+    add("altimate_core_resolve_term", Capability.DISCOVER, lambda a: core_resolve_term(a["term"], schema_context=a.get("schema_context"), schema_path=a.get("schema_path"), limit=int(a.get("limit", 20))), "Resolve business terms to schema tables and columns.", platforms=sql_platforms)
+    add("altimate_core_semantics", Capability.VERIFY, lambda a: core_semantics(a["sql"], dialect=a.get("dialect"), schema_context=a.get("schema_context"), schema_path=a.get("schema_path")), "Run schema-aware semantic SQL validation.", platforms=sql_platforms)
+    add("altimate_core_validate", Capability.VERIFY, lambda a: core_validate_sql(a["sql"], dialect=a.get("dialect"), schema_context=a.get("schema_context"), schema_path=a.get("schema_path")), "Validate SQL syntax and schema references.", platforms=sql_platforms)
+    add("altimate_core_check", Capability.VERIFY, lambda a: core_full_check(a["sql"], dialect=a.get("dialect"), schema_context=a.get("schema_context"), schema_path=a.get("schema_path")), "Run composite validation, lint, safety and PII analysis.", platforms=sql_platforms)
+    add("altimate_core_correct", Capability.GENERATE, lambda a: core_correct_sql(a["sql"], dialect=a.get("dialect"), schema_context=a.get("schema_context"), schema_path=a.get("schema_path"), max_iterations=int(a.get("max_iterations", 3))), "Iteratively correct supported SQL defects with deterministic verification.", platforms=sql_platforms)
+    add("altimate_core_import_ddl", Capability.GENERATE, lambda a: core_import_ddl(a["ddl"], dialect=a.get("dialect")), "Convert CREATE TABLE DDL into structured schema context.", platforms=sql_platforms)
+    add("altimate_core_introspection_sql", Capability.GENERATE, lambda a: core_introspection_sql(a["db_type"], a["database"], schema_name=a.get("schema_name")), "Generate warehouse introspection SQL for supported engines.", platforms=sql_platforms)
+
+    # Compatibility aliases where the native ADE engine already supersedes the reference wrapper.
+    add("altimate_core_fingerprint", Capability.VERIFY, lambda a: sql_fingerprint_impl(a["sql"], a.get("dialect")), "Compatibility alias for structural SQL fingerprint.", platforms=sql_platforms)
+    add("altimate_core_fix", Capability.GENERATE, lambda a: sql_fix_impl(a["sql"], a.get("dialect"), a.get("schema_context")), "Compatibility alias for deterministic SQL fix.", platforms=sql_platforms)
+    add("altimate_core_rewrite", Capability.GENERATE, lambda a: sql_rewrite_impl(a["sql"], a.get("dialect"), a.get("schema_context")), "Compatibility alias for deterministic SQL rewrite.", platforms=sql_platforms)
+    add("altimate_core_column_lineage", Capability.VERIFY, lambda a: production_column_lineage(a["sql"], dialect=a.get("dialect"), schema=a.get("schema_context"), sources=a.get("sources")), "Compatibility alias for column lineage.", platforms=sql_platforms)
+    add("altimate_core_schema_diff", Capability.VERIFY, lambda a: data_diff_schema_impl(a["source_schema"], a["target_schema"]), "Compatibility alias for schema diff.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
 
     def column_lineage_handler(a: dict[str, Any]) -> dict[str, Any]:
         if a.get("sql"):
