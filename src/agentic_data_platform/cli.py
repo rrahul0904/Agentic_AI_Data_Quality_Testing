@@ -15,6 +15,45 @@ from agentic_data_platform.tools.registry import ToolInvocation
 
 
 DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
+    "sql": {
+        "analyze": "sql_analyze", "review": "sql_review", "autocomplete": "sql_autocomplete",
+        "classify": "sql_classify", "diff": "sql_diff", "execute": "sql_execute",
+        "explain": "sql_explain", "fix": "sql_fix", "format": "sql_format",
+        "optimize": "sql_optimize", "rewrite": "sql_rewrite", "translate": "sql_translate",
+        "fingerprint": "sql_fingerprint",
+    },
+    "lineage": {
+        "sql": "sql_column_lineage", "column": "column_lineage",
+        "upstream": "column_upstream", "downstream": "column_downstream",
+        "impact": "column_impact", "diff": "column_lineage_diff",
+        "graph": "project_column_graph", "path": "column_path",
+    },
+    "schema": {
+        "refresh": "schema_refresh", "index": "schema_index", "search": "schema_search",
+        "inspect": "schema_inspect", "tags": "schema_tags", "status": "metadata_status",
+        "autocomplete": "autocomplete",
+    },
+    "warehouse": {
+        "status": "warehouse_status", "add": "connection_add", "remove": "connection_remove",
+        "list": "connection_list", "show": "connection_show", "test": "connection_test",
+        "default": "connection_default", "discover": "connection_discover",
+    },
+    "diff": {
+        "run": "data_diff", "plan": "data_diff_plan", "profile": "data_diff_profile",
+        "join": "data_diff_join", "hash": "data_diff_hash", "cascade": "data_diff_cascade",
+        "schema": "data_diff_schema",
+    },
+    "quality": {
+        "summary": "quality_summary", "recent": "quality_recent",
+        "reconciliation-history": "reconciliation_history",
+        "asset-health": "asset_health_score", "pipeline-health": "pipeline_health_score",
+    },
+    "dbt-run": {
+        "parse": "dbt_parse", "ls": "dbt_ls", "compile": "dbt_compile",
+        "run": "dbt_run", "test": "dbt_test", "build": "dbt_build",
+        "seed": "dbt_seed", "snapshot": "dbt_snapshot", "validate": "dbt_validate",
+        "test-generate": "dbt_test_generate", "unit-test-generate": "dbt_unit_test_gen",
+    },
     "connection": {
         "add": "connection_add", "remove": "connection_remove", "list": "connection_list",
         "show": "connection_show", "test": "connection_test", "default": "connection_default",
