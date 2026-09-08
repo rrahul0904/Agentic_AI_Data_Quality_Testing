@@ -29,6 +29,20 @@ Agentic Data Engineering OS creates a single engineering layer across those syst
 
 ---
 
+## Unified project context
+
+ADE can index repository knowledge locally and, on the unified-context branch, ingest text PDFs, DOCX, Markdown and other text-based project documents into the same project-local context used by the governed agent runtime.
+
+```bash
+ade knowledge index --project /path/to/project
+ade knowledge ingest /path/to/business-rules.docx --project /path/to/project
+ade ask "Why is the revenue report wrong?" --project /path/to/project
+```
+
+With an LLM provider configured, the agent chooses read-only deterministic tools and retrieves only relevant project context. Without a provider key, the existing deterministic operation remains available. See `docs/UNIFIED_CONTEXT.md`.
+
+---
+
 ## Architecture
 
 ```text
