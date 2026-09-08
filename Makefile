@@ -143,7 +143,7 @@ final-audit:
 
 
 
-.PHONY: snowflake-live-e2e airflow-live-e2e agent-live-e2e live-e2e
+.PHONY: snowflake-live-e2e airflow-live-e2e agent-live-e2e dbt-live-e2e live-e2e
 
 snowflake-live-e2e:
 	PYTHONPATH=src $(PYTHON) scripts/live_snowflake_e2e.py
@@ -154,4 +154,7 @@ airflow-live-e2e:
 agent-live-e2e:
 	PYTHONPATH=src $(PYTHON) scripts/live_agent_e2e.py
 
-live-e2e: snowflake-live-e2e airflow-live-e2e agent-live-e2e
+dbt-live-e2e:
+	PYTHONPATH=src $(PYTHON) scripts/live_dbt_e2e.py
+
+live-e2e: snowflake-live-e2e airflow-live-e2e agent-live-e2e dbt-live-e2e
