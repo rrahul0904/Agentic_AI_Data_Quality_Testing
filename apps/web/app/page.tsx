@@ -173,9 +173,31 @@ type WarehouseStatus = {
   }[];
 };
 type AgentAnswer = {
+  status?: string;
   question: string;
   result: unknown;
-  evidence: { tools_used: string[]; data_sources: string[]; timestamp: string; mode: string };
+  provider?: string;
+  model?: string;
+  session_id?: string;
+  trace_id?: string;
+  steps?: number;
+  evidence: {
+    tools_used?: string[];
+    data_sources?: string[];
+    timestamp?: string;
+    mode: string;
+    tool_statuses?: { tool: string; status: string }[];
+    context_sources?: RecordValue;
+    project_index?: { indexed?: number; unchanged?: number; skipped?: number };
+  };
+};
+
+type KnowledgeStatus = {
+  status: string;
+  documents: number;
+  chunks: number;
+  fts: boolean;
+  latest_indexed_at?: string | null;
 };
 type DataDiffDemo = {
   mode: string;
@@ -447,7 +469,7 @@ export default function OperatorConsole() {
             {active === "Governance / PII" && <DomainView title="Governance / PII" eyebrow="RBAC & SENSITIVE DATA" endpoint="/api/v1/rbac/audit" />}
             {active === "PR Reviews" && <DomainView title="PR Reviews" eyebrow="DETERMINISTIC REVIEW SURFACE" endpoint="/api/v1/domains" selectKey="review" />}
             {active === "Skills" && <DomainView title="Skills" eyebrow="EXECUTABLE SKILL CATALOG" endpoint="/api/v1/skills/catalog" />}
-            {active === "Training" && <DomainView title="Training" eyebrow="LOCAL TRAINING CORPUS" endpoint="/api/v1/training/status" />}
+            {active === "Training" && <KnowledgeView />}
             {active === "Providers" && <DomainView title="Providers" eyebrow="MODEL PROVIDER CONTROL PLANE" endpoint="/api/v1/providers" />}
             {active === "MCP" && <DomainView title="MCP" eyebrow="MODEL CONTEXT PROTOCOL" endpoint="/api/v1/mcp" />}
             {active === "Jobs" && <DomainView title="Jobs" eyebrow="BACKGROUND JOB CONTROL" endpoint="/api/v1/jobs" />}
@@ -719,14 +741,120 @@ function EvidenceView({ overview, quality }: { overview: Overview; quality: Qual
 }
 
 function AgentView({ question, setQuestion, ask, busy, answer }: { question: string; setQuestion: (value: string) => void; ask: (question?: string) => Promise<void>; busy: boolean; answer: AgentAnswer | null }) {
-  const samples = ["Why is fact_reservation unhealthy?", "What depends on stg_oracle_reservation?", "Which DAG loads reservations?", "What dbt models have no tests?", "Show migration blockers."];
+  const samples = [
+    "Today's revenue is unexpectedly low. Determine whether this is a business change or a data-pipeline issue.",
+    "The Airflow DAG is green but the report is wrong. Investigate.",
+    "Why does fact_reservation contain fewer rows than RAW.RESERVATIONS?",
+    "What depends on stg_oracle_reservation?",
+  ];
+  const tools = answer?.evidence.tools_used ?? [];
+  const sources = answer?.evidence.data_sources ?? [];
+  const resultText = typeof answer?.result === "string" ? answer.result : JSON.stringify(answer?.result, null, 2);
   return (
     <>
-      <Panel title="Deterministic agent console" eyebrow="TOOLS ARE THE SOURCE OF TRUTH">
-        <div className="agent-input"><textarea value={question} onChange={(e) => setQuestion(e.target.value)} /><button className="primary" onClick={() => void ask()} disabled={busy}>{busy ? "Resolving…" : "Ask with tools"}</button></div>
+      <Panel title="Project-aware agent" eyebrow="LLM OR DETERMINISTIC · TOOLS ARE THE SOURCE OF TRUTH">
+        <div className="agent-input"><textarea value={question} onChange={(e) => setQuestion(e.target.value)} /><button className="primary" onClick={() => void ask()} disabled={busy}>{busy ? "Investigating…" : "Ask ADE"}</button></div>
         <div className="sample-prompts">{samples.map((sample) => <button key={sample} onClick={() => void ask(sample)}>{sample}</button>)}</div>
+        <p className="note">With a configured LLM, ADE chooses read-only tools and retrieves relevant project documents. Without a key, it falls back to deterministic routing.</p>
       </Panel>
-      {answer && <div className="two-col equal"><Panel title="Result" eyebrow="DETERMINISTIC ANSWER"><pre className="json-panel tall-json">{JSON.stringify(answer.result, null, 2)}</pre></Panel><Panel title="Evidence" eyebrow="AUDIT TRAIL"><div className="stacked-list"><KeyValue label="Tools used" value={answer.evidence.tools_used.join(", ") || "No tool matched"} status={answer.evidence.tools_used.length ? "PASS" : "WARN"} /><KeyValue label="Data sources" value={answer.evidence.data_sources.join(", ") || "—"} status="EVIDENCE" /><KeyValue label="Router" value={answer.evidence.mode} status="READ ONLY" /><KeyValue label="Timestamp" value={new Date(answer.evidence.timestamp).toLocaleString()} status="RECORDED" /></div></Panel></div>}
+      {answer && <div className="two-col equal">
+        <Panel title="Result" eyebrow={answer.evidence.mode === "LLM_GOVERNED_TOOL_RUNTIME" ? "AGENTIC ANSWER" : "DETERMINISTIC ANSWER"}><pre className="json-panel tall-json">{resultText}</pre></Panel>
+        <Panel title="Evidence" eyebrow="AUDIT TRAIL"><div className="stacked-list">
+          <KeyValue label="Mode" value={answer.evidence.mode} status="READ ONLY" />
+          {answer.provider && <KeyValue label="Provider / model" value={`${answer.provider} / ${answer.model ?? "—"}`} status="LIVE" />}
+          <KeyValue label="Tools used" value={tools.join(", ") || "No tool matched"} status={tools.length ? "PASS" : "WARN"} />
+          {sources.length > 0 && <KeyValue label="Data sources" value={sources.join(", ")} status="EVIDENCE" />}
+          {answer.evidence.context_sources && <KeyValue label="Context" value={JSON.stringify(answer.evidence.context_sources)} status="RETRIEVED" />}
+          {answer.trace_id && <KeyValue label="Trace" value={answer.trace_id} status="RECORDED" />}
+          {answer.evidence.timestamp && <KeyValue label="Timestamp" value={new Date(answer.evidence.timestamp).toLocaleString()} status="RECORDED" />}
+        </div></Panel>
+      </div>}
+    </>
+  );
+}
+
+function KnowledgeView() {
+  const [status, setStatus] = useState<KnowledgeStatus | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [text, setText] = useState("");
+  const [source, setSource] = useState("project-notes");
+  const [query, setQuery] = useState("");
+  const [result, setResult] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function refresh() {
+    setStatus(await getJson<KnowledgeStatus>("/api/v1/knowledge/status"));
+  }
+  useEffect(() => { void refresh(); }, []);
+
+  async function upload() {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const response = await fetch(`${API}/api/v1/knowledge/upload`, { method: "POST", body: form });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(JSON.stringify(payload));
+      setResult(payload);
+      await refresh();
+    } finally { setBusy(false); }
+  }
+
+  async function ingestText() {
+    if (!text.trim()) return;
+    setBusy(true);
+    try {
+      setResult(await postJson("/api/v1/knowledge/ingest-text", { source, text, source_type: "text", metadata: { entered_from: "operator-console" } }));
+      setText("");
+      await refresh();
+    } finally { setBusy(false); }
+  }
+
+  async function indexProject() {
+    setBusy(true);
+    try {
+      setResult(await postJson("/api/v1/knowledge/index-project", {}));
+      await refresh();
+    } finally { setBusy(false); }
+  }
+
+  async function search() {
+    if (!query.trim()) return;
+    setBusy(true);
+    try { setResult(await getJson(`/api/v1/knowledge/search?query=${encodeURIComponent(query)}&limit=10`)); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <>
+      <section className="metrics">
+        <Metric label="Documents" value={status?.documents ?? "—"} sub="indexed project knowledge" />
+        <Metric label="Chunks" value={status?.chunks ?? "—"} sub="bounded retrieval units" />
+        <Metric label="Local retrieval" value={status?.fts ? "FTS5" : "LIKE"} sub="no embedding API required" />
+        <Metric label="Latest index" value={status?.latest_indexed_at ? new Date(status.latest_indexed_at).toLocaleString() : "—"} sub="local project corpus" />
+      </section>
+      <div className="two-col equal">
+        <Panel title="Upload project knowledge" eyebrow="PDF · DOCX · TEXT · MARKDOWN">
+          <div className="stacked-list">
+            <input type="file" accept=".pdf,.docx,.txt,.md,.markdown,.sql,.py,.yml,.yaml,.json,.csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            <button className="primary" disabled={!file || busy} onClick={() => void upload()}>{busy ? "Working…" : "Upload & index"}</button>
+            <button className="ghost" disabled={busy} onClick={() => void indexProject()}>Index repository context</button>
+          </div>
+          <p className="note">Text PDFs and DOCX files are extracted locally. Scanned/image-only PDFs fail closed rather than silently inventing OCR text.</p>
+        </Panel>
+        <Panel title="Add plain context" eyebrow="BUSINESS RULES · RUNBOOKS · NOTES">
+          <div className="agent-input">
+            <input value={source} onChange={(e) => setSource(e.target.value)} placeholder="Source name" />
+            <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Paste approved project context…" />
+            <button className="primary" disabled={!text.trim() || busy} onClick={() => void ingestText()}>Index text</button>
+          </div>
+        </Panel>
+      </div>
+      <Panel title="Search project context" eyebrow="LOCAL RETRIEVAL">
+        <div className="agent-input"><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search business rules, mappings, runbooks…" /><button className="primary" disabled={!query.trim() || busy} onClick={() => void search()}>Search</button></div>
+        {result !== null && <pre className="json-panel tall-json">{JSON.stringify(result, null, 2)}</pre>}
+      </Panel>
     </>
   );
 }
