@@ -75,7 +75,14 @@ class PlatformAssetGraph:
     def _add_airflow(self) -> AirflowProject:
         airflow = AirflowProject.scan(self.project)
         for dag in airflow.dags.values():
-            dag_node = self._node("airflow_dag", dag.dag_id, file=dag.file, schedule=dag.schedule, source=dag.source)
+            dag_node = self._node(
+                "airflow_dag",
+                dag.dag_id,
+                file=dag.file,
+                schedule=dag.schedule,
+                source=dag.source,
+                load_strategy=dag.load_strategy,
+            )
             task_nodes: dict[str, GraphNode] = {}
             for task in dag.tasks:
                 task_node = self._node("airflow_task", f"{dag.dag_id}.{task}", dag_id=dag.dag_id, task_id=task)

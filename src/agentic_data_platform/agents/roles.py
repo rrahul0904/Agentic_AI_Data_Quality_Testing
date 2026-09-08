@@ -72,7 +72,7 @@ class BaseSpecialistAgent:
 
 class MetadataAgent(BaseSpecialistAgent):
     role = AgentRole.METADATA
-    policy = AgentPolicy(("platform_graph", "airflow_inventory", "dbt_manifest_summary", "dbt_incremental_analysis"))
+    policy = AgentPolicy(("platform_graph", "airflow_inventory", "airflow_dag_details", "dbt_manifest_summary", "dbt_incremental_analysis"))
 
     def run(self, context: AgentContext) -> AgentResult:
         used = []
@@ -80,12 +80,23 @@ class MetadataAgent(BaseSpecialistAgent):
             "pipeline_path": list(context.scenario.pipeline_path),
             "affected_asset": context.scenario.affected_asset,
         }
-        for name, args in (
+        dag_id = next(
+            (
+                asset.removeprefix("airflow.")
+                for asset in context.scenario.pipeline_path
+                if asset.startswith("airflow.")
+            ),
+            None,
+        )
+        calls = [
             ("platform_graph", {"project": str(context.project)}),
             ("airflow_inventory", {"project": str(context.project)}),
             ("dbt_manifest_summary", {"project": str(context.project)}),
             ("dbt_incremental_analysis", {"project": str(context.project)}),
-        ):
+        ]
+        if dag_id:
+            calls.append(("airflow_dag_details", {"project": str(context.project), "dag_id": dag_id}))
+        for name, args in calls:
             try:
                 value = context.tool(self.role, name, args)
                 used.append(name)
@@ -97,6 +108,14 @@ class MetadataAgent(BaseSpecialistAgent):
                     }
                 elif name == "airflow_inventory":
                     observations["airflow_dag_count"] = value.get("dag_count")
+                elif name == "airflow_dag_details":
+                    observations["ingestion"] = {
+                        "dag_id": value.get("dag_id"),
+                        "source": value.get("source"),
+                        "entities": value.get("entities"),
+                        "load_strategy": value.get("load_strategy"),
+                        "schedule": value.get("schedule"),
+                    }
                 elif name == "dbt_manifest_summary":
                     observations["dbt"] = value
                 else:
@@ -128,16 +147,45 @@ class BusinessContextAgent(BaseSpecialistAgent):
     }
 
     def run(self, context: AgentContext) -> AgentResult:
-        concept = self._CONCEPTS.get(context.scenario.business_concept, {"metrics": [], "criticality": "P2"})
+        concept = dict(self._CONCEPTS.get(
+            context.scenario.business_concept,
+            {"metrics": [], "criticality": "P2"},
+        ))
+        path = list(context.scenario.pipeline_path)
+        concept["source_assets"] = [
+            item for item in path
+            if item.startswith(("oracle.", "postgres.", "files."))
+        ]
+        concept["raw_assets"] = [
+            item for item in path
+            if ".RAW." in item.upper() or item.upper().startswith("RAW.")
+        ]
+        concept["dbt_assets"] = [
+            item for item in path
+            if item.rsplit(".", 1)[-1].startswith(("stg_", "int_", "fact_", "dim_", "mart_"))
+        ]
+        concept["mart_assets"] = [
+            item for item in path
+            if item.rsplit(".", 1)[-1].startswith("mart_")
+        ]
+        concept["quality_contract"] = {
+            "technical_success_is_not_business_correctness": True,
+            "required_checks": [
+                "completeness",
+                "freshness",
+                "business_metric_reconciliation",
+            ],
+        }
         context.shared["business_context"] = concept
         return self.result(
             status="PASS",
             claim=f"{context.scenario.business_concept} incident affects business correctness even if orchestration is technically green.",
             confidence=0.96,
             context=context,
-            reasoning="Business quality is evaluated from measured domain metrics independently of Airflow/dbt task status.",
+            reasoning="Business concepts are mapped to source, RAW, dbt and mart assets plus deterministic quality expectations.",
             next_action="Evaluate business-aware quality signals and determine whether an incident is warranted.",
             observations=concept,
+            assets=tuple(path),
         )
 
 
@@ -271,22 +319,43 @@ class ExecutionPlanningAgent(BaseSpecialistAgent):
 
     def run(self, context: AgentContext) -> AgentResult:
         comparisons = list(context.scenario.comparisons)
-        strategy = "aggregate_reconciliation"
-        if any("source_count" in item for item in comparisons):
-            strategy = "bounded_row_count_reconciliation"
-        if context.scenario.signals.get("cdc_gap"):
-            strategy = "incremental_sequence_reconciliation"
-        if context.scenario.signals.get("schema_drift"):
-            strategy = "metadata_only_schema_comparison"
+        signals = context.scenario.signals
+        row_estimate = int(signals.get("row_estimate") or max(
+            [
+                int(item.get("source_count") or item.get("extracted_count") or 0)
+                for item in comparisons
+            ] or [0]
+        ))
+        if signals.get("schema_drift"):
+            strategy = "metadata-only"
+        elif signals.get("cdc_gap"):
+            strategy = "incremental-scan"
+        elif row_estimate >= 500_000_000:
+            strategy = "hierarchical-bucket-hashing"
+        elif row_estimate >= 10_000_000:
+            strategy = "partition-aggregate-reconciliation"
+        elif any("source_count" in item for item in comparisons):
+            strategy = "bounded-row-count-reconciliation"
+        elif any("amount" in key for item in comparisons for key in item):
+            strategy = "aggregate-reconciliation"
+        else:
+            strategy = "metadata-and-targeted-record-comparison"
         plan = {
             "strategy": strategy,
+            "row_estimate": row_estimate,
             "comparisons": comparisons,
             "maximum_exception_rows": 1000,
-            "full_scan": False,
-            "estimated_cost": "bounded/local fixture; warehouse estimator required for live mode",
+            "full_scan": row_estimate < 10_000_000,
+            "estimated_cost": "bounded local plan; live warehouse estimator is required before external execution",
             "timeout_seconds": 120,
-            "fallback": "bucket_hash_then_exception_keys",
+            "fallback": "bucket-hash → mismatched buckets → exception keys → record comparison",
             "approval_required": False,
+            "evidence_requirements": [
+                "source measurement",
+                "target measurement",
+                "runtime metadata",
+                "lineage path",
+            ],
         }
         context.shared["execution_plan"] = plan
         return self.result(
@@ -294,7 +363,7 @@ class ExecutionPlanningAgent(BaseSpecialistAgent):
             claim=f"Bounded investigation plan selected: {strategy}.",
             confidence=0.97,
             context=context,
-            reasoning="The planner chooses the cheapest deterministic strategy that can prove or reject the current hypotheses.",
+            reasoning="The planner changes strategy with scale and failure type instead of blindly issuing full scans.",
             next_action="Collect immutable evidence for each planned comparison.",
             observations=plan,
         )
