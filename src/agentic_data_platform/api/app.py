@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from agentic_data_platform.agents.planner import PlannerAgent
+from agentic_data_platform.errors import safe_error
 from agentic_data_platform.agents import InvestigationStore, SupervisorAgent
 from agentic_data_platform.models import ActorMode, ApprovalRecord, Environment, ProjectRecord, RunRecord, ToolRequest
 from agentic_data_platform.persistence.sqlite import SQLiteControlPlaneRepository
@@ -225,8 +226,14 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
                     actor_mode=actor_mode,
                 )
             )
-        except (KeyError, ValueError, PermissionError, FileNotFoundError) as exc:
-            raise HTTPException(400, str(exc)) from exc
+        except PermissionError as exc:
+            raise HTTPException(403, safe_error(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(404, safe_error(exc)) from exc
+        except KeyError as exc:
+            raise HTTPException(404, safe_error(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(400, safe_error(exc)) from exc
 
     def invoke_read(tool_name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
         return invoke_governed(tool_name, args, actor_mode=ActorMode.ANALYST)
@@ -358,7 +365,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
                 scenario_id=payload.scenario_id,
             )
         except KeyError as exc:
-            raise HTTPException(404, str(exc)) from exc
+            raise HTTPException(404, safe_error(exc)) from exc
 
     @app.get("/api/v1/investigations")
     def investigation_list(limit: int = 100) -> dict[str, Any]:
@@ -371,21 +378,21 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             report = supervisor.investigate(scenario_id)
             return supervisor.public_report(report.incident_id)
         except KeyError as exc:
-            raise HTTPException(404, str(exc)) from exc
+            raise HTTPException(404, safe_error(exc)) from exc
 
     @app.get("/api/v1/investigations/{incident_id}")
     def investigation_detail(incident_id: str) -> dict[str, Any]:
         try:
             return supervisor.public_report(incident_id)
         except KeyError as exc:
-            raise HTTPException(404, str(exc)) from exc
+            raise HTTPException(404, safe_error(exc)) from exc
 
     @app.post("/api/v1/investigations/{incident_id}/approve")
     def investigation_approve(incident_id: str, payload: InvestigationApprovalInput) -> dict[str, Any]:
         try:
             return supervisor.approve(incident_id, approved_by=payload.approved_by)
         except (KeyError, ValueError) as exc:
-            raise HTTPException(400, str(exc)) from exc
+            raise HTTPException(400, safe_error(exc)) from exc
 
     @app.post("/api/v1/investigations/{incident_id}/execute")
     def investigation_execute(incident_id: str) -> dict[str, Any]:
@@ -393,16 +400,16 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             report = supervisor.execute_approved(incident_id)
             return supervisor.public_report(report.incident_id)
         except PermissionError as exc:
-            raise HTTPException(403, str(exc)) from exc
+            raise HTTPException(403, safe_error(exc)) from exc
         except (KeyError, ValueError) as exc:
-            raise HTTPException(400, str(exc)) from exc
+            raise HTTPException(400, safe_error(exc)) from exc
 
     @app.post("/api/v1/investigations/{incident_id}/reject")
     def investigation_reject(incident_id: str, payload: InvestigationRejectInput) -> dict[str, Any]:
         try:
             return supervisor.reject(incident_id, rejected_by=payload.rejected_by, reason=payload.reason)
         except (KeyError, ValueError) as exc:
-            raise HTTPException(400, str(exc)) from exc
+            raise HTTPException(400, safe_error(exc)) from exc
 
     @app.post("/api/v1/sql/review")
     def sql_review(payload: SqlWorkspaceInput) -> dict[str, Any]:
