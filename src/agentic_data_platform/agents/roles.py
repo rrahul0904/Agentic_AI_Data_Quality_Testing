@@ -15,6 +15,7 @@ from agentic_data_platform.agents.contracts import (
     RemediationPlan,
 )
 from agentic_data_platform.agents.scenarios import FailureScenario
+from agentic_data_platform.agents.recovery import build_selective_recovery_plan
 from agentic_data_platform.quality.anomaly import detect_pipeline_anomalies
 
 
@@ -503,6 +504,7 @@ class RemediationAgent(BaseSpecialistAgent):
         evidence_ids = tuple(item.evidence_id for item in context.evidence)
         blast = tuple(context.shared.get("blast_radius", ()))
         action = context.scenario.remediation_action
+        selective = build_selective_recovery_plan(context.scenario, blast)
         plan = RemediationPlan(
             action=action,
             reason=f"Evidence-supported root cause: {context.shared.get('root_cause')}",
@@ -518,7 +520,11 @@ class RemediationAgent(BaseSpecialistAgent):
                 "re-certify impacted assets",
             ),
             requires_approval=True,
-            arguments={"scenario_id": context.scenario.scenario_id, "bounded": True},
+            arguments={
+                "scenario_id": context.scenario.scenario_id,
+                "bounded": True,
+                "selective_recovery": selective.public(),
+            },
         )
         result = self.result(
             status="PROPOSED",

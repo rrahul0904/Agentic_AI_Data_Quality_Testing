@@ -299,13 +299,22 @@ class SupervisorAgent:
 
         remediation = self.store.remediation(incident_id)
         # Local proving-ground execution is explicit and never presented as live Snowflake/Airflow execution.
+        selective = (
+            remediation.get("arguments", {}).get("selective_recovery", {})
+            if remediation else {}
+        )
         execution = {
             "status": "PASS",
             "mode": "LOCAL_PROVING_GROUND",
             "action": remediation["action"] if remediation else scenario.remediation_action,
             "bounded": True,
             "external_mutation": False,
-            "message": "Deterministic scenario recovery applied to the proving-ground fixture. Use live-e2e for external execution.",
+            "airflow_actions": selective.get("airflow_actions", []),
+            "dbt_selector": selective.get("dbt_selector"),
+            "dbt_command": selective.get("dbt_command"),
+            "quality_rechecks": selective.get("quality_rechecks", []),
+            "certification_targets": selective.get("certification_targets", []),
+            "message": "Approved selective recovery plan exercised against the deterministic proving-ground state. Use live-e2e for external execution.",
         }
         self.store.update_outcome(incident_id, execution_result=execution)
 
