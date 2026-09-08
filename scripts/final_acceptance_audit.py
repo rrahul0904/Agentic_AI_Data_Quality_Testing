@@ -21,6 +21,9 @@ SKIP_PREFIXES = (
 PRODUCTION_PREFIXES = (
     "src/", "apps/", "scripts/", ".github/", "shiftforge/src/", "local-data-harness/",
 )
+SECURITY_FIXTURE_PATHS = {
+    "tests/test_final_acceptance_audit.py",
+}
 USER_FACING_PREFIXES = (
     "apps/web/", "src/agentic_data_platform/api/", "README.md", "docs/",
 )
@@ -93,10 +96,11 @@ def security_audit(files: list[Path]) -> tuple[list[dict[str, object]], int]:
             continue
         scanned += 1
         rel = path.relative_to(ROOT).as_posix()
-        for rule_id, pattern in HIGH_SIGNAL_SECRET_PATTERNS.items():
-            for match in pattern.finditer(text):
-                line = text.count("\n", 0, match.start()) + 1
-                findings.append({"rule_id": rule_id, "file": rel, "line": line})
+        if rel not in SECURITY_FIXTURE_PATHS:
+            for rule_id, pattern in HIGH_SIGNAL_SECRET_PATTERNS.items():
+                for match in pattern.finditer(text):
+                    line = text.count("\n", 0, match.start()) + 1
+                    findings.append({"rule_id": rule_id, "file": rel, "line": line})
         if rel.startswith(PRODUCTION_PREFIXES):
             for match in LITERAL_SECRET.finditer(text):
                 value = match.group(2).casefold()
