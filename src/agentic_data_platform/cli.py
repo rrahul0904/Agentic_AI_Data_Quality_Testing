@@ -198,9 +198,14 @@ def build_parser() -> argparse.ArgumentParser:
     dbt.add_argument("--project", default=_default_project())
     dbt.add_argument("--depth", type=int)
     airflow = sub.add_parser("airflow")
-    airflow.add_argument("operation", choices=["inventory", "details", "task-graph", "dependencies", "connections", "health"])
+    airflow.add_argument("operation", choices=[
+        "inventory", "dag", "tasks", "dependencies", "graph", "assets", "bundles",
+        "connections", "pools", "capacity", "backfill-plan", "retry-analysis",
+        "root-cause", "upgrade", "security", "xcom", "quality", "runtime", "doctor", "health",
+    ])
     airflow.add_argument("dag_id", nargs="?")
     airflow.add_argument("--project", default=_default_project())
+    airflow.add_argument("--args", default="{}", help="JSON arguments for advanced Airflow analysis")
     platform = sub.add_parser("platform")
     platform.add_argument("operation", choices=["discover", "inventory", "health", "graph", "lineage", "impact"])
     platform.add_argument("node", nargs="?")
@@ -287,8 +292,19 @@ def main(argv: list[str] | None = None) -> int:
                 params["depth"] = args.depth
             payload = _invoke(mapping[args.operation], params)
         elif args.command == "airflow":
-            mapping = {"inventory": "airflow_inventory", "details": "airflow_dag_details", "task-graph": "airflow_task_graph", "dependencies": "airflow_dependencies", "connections": "airflow_connections_used", "health": "airflow_health"}
-            params = {"project": args.project}
+            mapping = {
+                "inventory": "airflow_inventory", "dag": "airflow_dag_details",
+                "tasks": "airflow_task_graph", "dependencies": "airflow_dependencies",
+                "graph": "airflow_graph", "assets": "airflow_asset_inventory",
+                "bundles": "airflow_bundle_inventory", "connections": "airflow_connections_used",
+                "pools": "airflow_pool_health", "capacity": "airflow_capacity_plan",
+                "backfill-plan": "airflow_backfill_plan", "retry-analysis": "airflow_retry_analysis",
+                "root-cause": "airflow_root_cause", "upgrade": "airflow_upgrade_analysis",
+                "security": "airflow_secret_risk", "xcom": "airflow_xcom_analysis",
+                "quality": "airflow_quality_scan", "runtime": "airflow_runtime_readiness",
+                "doctor": "airflow_doctor", "health": "airflow_health",
+            }
+            params = {"project": args.project, **json.loads(args.args)}
             if args.dag_id:
                 params["dag_id"] = args.dag_id
             payload = _invoke(mapping[args.operation], params)

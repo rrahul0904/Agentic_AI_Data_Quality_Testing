@@ -11,6 +11,7 @@ from typing import Any, Callable
 from agentic_data_platform.models import ActorMode, Capability, Environment, Platform, Risk, ToolRequest
 from agentic_data_platform.migration.shiftforge_adapter import ShiftForgeAdapter
 from agentic_data_platform.platform.airflow import AirflowProject
+from agentic_data_platform.airflow_compat import AirflowAdapter, AirflowControlPlane
 from agentic_data_platform.platform.discovery import PlatformDiscovery
 from agentic_data_platform.platform.doctor import run_doctor
 from agentic_data_platform.platform.graph import PlatformAssetGraph
@@ -366,10 +367,13 @@ def build_tool_registry() -> ToolRegistry:
         platforms: frozenset[Platform] = local,
         schema: dict[str, Any] | None = None,
         risk: Risk = read,
+        supports_dry_run: bool = False,
+        requires_approval: bool = False,
     ) -> None:
         registry.register(ToolDefinition(
             name=name, capability=capability, risk=risk, supported_platforms=platforms, handler=handler,
             description=description, input_schema=schema or {"type": "object"}, output_schema={"type": "object"},
+            supports_dry_run=supports_dry_run, requires_approval=requires_approval,
         ))
 
     def tool_lookup_handler(a: dict[str, Any]) -> dict[str, Any]:
@@ -847,6 +851,100 @@ def build_tool_registry() -> ToolRegistry:
     add("airflow_connections_used", Capability.DISCOVER, lambda a: {"connections": airflow(a).connections_used(a.get("dag_id"))}, "List Airflow connection IDs.")
     add("airflow_health", Capability.VERIFY, lambda a: airflow(a).health(), "Report static Airflow health.")
     add("airflow_failure_summary", Capability.VERIFY, lambda a: airflow(a).failure_summary(), "Return honest static/runtime Airflow failure evidence.")
+
+    def airflow_control(a: dict[str, Any]) -> AirflowControlPlane:
+        return AirflowControlPlane(_target(a))
+
+    def airflow_runtime(a: dict[str, Any], *, allow_mutation: bool = False) -> AirflowAdapter:
+        return AirflowAdapter(
+            a.get("airflow_url") or os.getenv("ADE_AIRFLOW_URL"),
+            version=a.get("airflow_version") or os.getenv("ADE_AIRFLOW_VERSION"),
+            token=a.get("airflow_token") or os.getenv("ADE_AIRFLOW_TOKEN"),
+            username=a.get("airflow_username") or os.getenv("ADE_AIRFLOW_USERNAME"),
+            password=a.get("airflow_password") or os.getenv("ADE_AIRFLOW_PASSWORD"),
+            transport=a.get("_airflow_transport"),
+            allow_mutation=allow_mutation,
+        )
+
+    add("airflow_graph", Capability.DISCOVER, lambda a, kind="graph": airflow_control(a).report(kind, a), "Airflow 2/3 airflow graph deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_dag_lineage", Capability.DISCOVER, lambda a, kind="graph": airflow_control(a).report(kind, a), "Airflow 2/3 airflow dag lineage deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_task_lineage", Capability.DISCOVER, lambda a, kind="graph": airflow_control(a).report(kind, a), "Airflow 2/3 airflow task lineage deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_asset_lineage", Capability.DISCOVER, lambda a, kind="graph": airflow_control(a).report(kind, a), "Airflow 2/3 airflow asset lineage deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_cross_system_lineage", Capability.DISCOVER, lambda a, kind="graph": airflow_control(a).report(kind, a), "Airflow 2/3 airflow cross system lineage deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_asset_inventory", Capability.DISCOVER, lambda a, kind="assets": airflow_control(a).report(kind, a), "Airflow 2/3 airflow asset inventory deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_asset_dependencies", Capability.DISCOVER, lambda a, kind="assets": airflow_control(a).report(kind, a), "Airflow 2/3 airflow asset dependencies deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_asset_producers", Capability.DISCOVER, lambda a, kind="assets": airflow_control(a).report(kind, a), "Airflow 2/3 airflow asset producers deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_asset_consumers", Capability.DISCOVER, lambda a, kind="assets": airflow_control(a).report(kind, a), "Airflow 2/3 airflow asset consumers deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_asset_events", Capability.DISCOVER, lambda a, kind="events": airflow_control(a).report(kind, a), "Airflow 2/3 airflow asset events deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_asset_partition_analysis", Capability.VERIFY, lambda a, kind="assets": airflow_control(a).report(kind, a), "Airflow 2/3 airflow asset partition analysis deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_event_schedule_analysis", Capability.VERIFY, lambda a, kind="events": airflow_control(a).report(kind, a), "Airflow 2/3 airflow event schedule analysis deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_asset_watchers", Capability.DISCOVER, lambda a, kind="events": airflow_control(a).report(kind, a), "Airflow 2/3 airflow asset watchers deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_event_stalls", Capability.VERIFY, lambda a, kind="events": airflow_control(a).report(kind, a), "Airflow 2/3 airflow event stalls deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_dynamic_mapping_analysis", Capability.VERIFY, lambda a, kind="mapping": airflow_control(a).report(kind, a), "Airflow 2/3 airflow dynamic mapping analysis deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_mapping_risk", Capability.VERIFY, lambda a, kind="mapping": airflow_control(a).report(kind, a), "Airflow 2/3 airflow mapping risk deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_mapping_cardinality", Capability.VERIFY, lambda a, kind="mapping": airflow_control(a).report(kind, a), "Airflow 2/3 airflow mapping cardinality deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_deferrable_analysis", Capability.VERIFY, lambda a, kind="deferrable": airflow_control(a).report(kind, a), "Airflow 2/3 airflow deferrable analysis deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_triggerer_health", Capability.VERIFY, lambda a, kind="deferrable": airflow_control(a).report(kind, a), "Airflow 2/3 airflow triggerer health deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_sensor_efficiency", Capability.VERIFY, lambda a, kind="deferrable": airflow_control(a).report(kind, a), "Airflow 2/3 airflow sensor efficiency deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_bundle_inventory", Capability.DISCOVER, lambda a, kind="bundles": airflow_control(a).report(kind, a), "Airflow 2/3 airflow bundle inventory deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_bundle_versions", Capability.DISCOVER, lambda a, kind="bundles": airflow_control(a).report(kind, a), "Airflow 2/3 airflow bundle versions deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_bundle_security", Capability.VERIFY, lambda a, kind="bundles": airflow_control(a).report(kind, a), "Airflow 2/3 airflow bundle security deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_bundle_drift", Capability.VERIFY, lambda a, kind="bundles": airflow_control(a).report(kind, a), "Airflow 2/3 airflow bundle drift deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_sdk_compatibility", Capability.VERIFY, lambda a, kind="sdk": airflow_control(a).report(kind, a), "Airflow 2/3 airflow sdk compatibility deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_upgrade_findings", Capability.VERIFY, lambda a, kind="upgrade": airflow_control(a).report(kind, a), "Airflow 2/3 airflow upgrade findings deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_import_errors", Capability.VERIFY, lambda a, kind="parse": airflow_control(a).report(kind, a), "Airflow 2/3 airflow import errors deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_parse_health", Capability.VERIFY, lambda a, kind="parse": airflow_control(a).report(kind, a), "Airflow 2/3 airflow parse health deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_duplicate_dags", Capability.VERIFY, lambda a, kind="parse": airflow_control(a).report(kind, a), "Airflow 2/3 airflow duplicate dags deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_parse_performance", Capability.VERIFY, lambda a, kind="parse": airflow_control(a).report(kind, a), "Airflow 2/3 airflow parse performance deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_upgrade_analysis", Capability.VERIFY, lambda a, kind="upgrade": airflow_control(a).report(kind, a), "Airflow 2/3 airflow upgrade analysis deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_failed_dags", Capability.VERIFY, lambda a, kind="parse": airflow_control(a).report(kind, a), "Airflow 2/3 airflow failed dags deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_failed_tasks", Capability.VERIFY, lambda a, kind="parse": airflow_control(a).report(kind, a), "Airflow 2/3 airflow failed tasks deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_duration_analysis", Capability.VERIFY, lambda a, kind="capacity": airflow_control(a).report(kind, a), "Airflow 2/3 airflow duration analysis deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_queue_analysis", Capability.VERIFY, lambda a, kind="capacity": airflow_control(a).report(kind, a), "Airflow 2/3 airflow queue analysis deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_pool_analysis", Capability.VERIFY, lambda a, kind="capacity": airflow_control(a).report(kind, a), "Airflow 2/3 airflow pool analysis deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_scheduler_health", Capability.VERIFY, lambda a, kind="capacity": airflow_control(a).report(kind, a), "Airflow 2/3 airflow scheduler health deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_dag_processor_health", Capability.VERIFY, lambda a, kind="capacity": airflow_control(a).report(kind, a), "Airflow 2/3 airflow dag processor health deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_worker_health", Capability.VERIFY, lambda a, kind="capacity": airflow_control(a).report(kind, a), "Airflow 2/3 airflow worker health deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_deadline_analysis", Capability.VERIFY, lambda a, kind="deadline": airflow_control(a).report(kind, a), "Airflow 2/3 airflow deadline analysis deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_task_root_cause", Capability.VERIFY, lambda a, kind="root_cause": airflow_control(a).report(kind, a), "Airflow 2/3 airflow task root cause deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_pipeline_root_cause", Capability.VERIFY, lambda a, kind="root_cause": airflow_control(a).report(kind, a), "Airflow 2/3 airflow pipeline root cause deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_backfill_plan", Capability.PLAN, lambda a, kind="backfill": airflow_control(a).report(kind, a), "Airflow 2/3 airflow backfill plan deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_backfill_risk", Capability.VERIFY, lambda a, kind="backfill": airflow_control(a).report(kind, a), "Airflow 2/3 airflow backfill risk deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_backfill_dry_run", Capability.PLAN, lambda a, kind="backfill": airflow_control(a).report(kind, a), "Airflow 2/3 airflow backfill dry run deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_retry_policy_analysis", Capability.VERIFY, lambda a, kind="quality": airflow_control(a).report(kind, a), "Airflow 2/3 airflow retry policy analysis deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_retry_storms", Capability.VERIFY, lambda a, kind="quality": airflow_control(a).report(kind, a), "Airflow 2/3 airflow retry storms deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_deadline_health", Capability.VERIFY, lambda a, kind="deadline": airflow_control(a).report(kind, a), "Airflow 2/3 airflow deadline health deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_connection_impact", Capability.VERIFY, lambda a, kind="graph": airflow_control(a).report(kind, a), "Airflow 2/3 airflow connection impact deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_variables_used", Capability.DISCOVER, lambda a, kind="security": airflow_control(a).report(kind, a), "Airflow 2/3 airflow variables used deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_secret_risk", Capability.VERIFY, lambda a, kind="security": airflow_control(a).report(kind, a), "Airflow 2/3 airflow secret risk deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_xcom_analysis", Capability.VERIFY, lambda a, kind="xcom": airflow_control(a).report(kind, a), "Airflow 2/3 airflow xcom analysis deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_xcom_risk", Capability.VERIFY, lambda a, kind="xcom": airflow_control(a).report(kind, a), "Airflow 2/3 airflow xcom risk deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_pool_health", Capability.VERIFY, lambda a, kind="capacity": airflow_control(a).report(kind, a), "Airflow 2/3 airflow pool health deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_queue_health", Capability.VERIFY, lambda a, kind="capacity": airflow_control(a).report(kind, a), "Airflow 2/3 airflow queue health deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_concurrency_analysis", Capability.VERIFY, lambda a, kind="capacity": airflow_control(a).report(kind, a), "Airflow 2/3 airflow concurrency analysis deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_capacity_plan", Capability.PLAN, lambda a, kind="capacity": airflow_control(a).report(kind, a), "Airflow 2/3 airflow capacity plan deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_executor_analysis", Capability.VERIFY, lambda a, kind="executor": airflow_control(a).report(kind, a), "Airflow 2/3 airflow executor analysis deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_log_summary", Capability.VERIFY, lambda a, kind="logs": airflow_control(a).report(kind, a), "Airflow 2/3 airflow log summary deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_log_errors", Capability.VERIFY, lambda a, kind="logs": airflow_control(a).report(kind, a), "Airflow 2/3 airflow log errors deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_log_root_cause", Capability.VERIFY, lambda a, kind="root_cause": airflow_control(a).report(kind, a), "Airflow 2/3 airflow log root cause deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_openlineage_status", Capability.VERIFY, lambda a, kind="openlineage": airflow_control(a).report(kind, a), "Airflow 2/3 airflow openlineage status deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_openlineage_events", Capability.DISCOVER, lambda a, kind="openlineage": airflow_control(a).report(kind, a), "Airflow 2/3 airflow openlineage events deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_openlineage_graph", Capability.DISCOVER, lambda a, kind="openlineage": airflow_control(a).report(kind, a), "Airflow 2/3 airflow openlineage graph deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_deployment_readiness", Capability.VERIFY, lambda a, kind="deployment": airflow_control(a).report(kind, a), "Airflow 2/3 airflow deployment readiness deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_doctor", Capability.VERIFY, lambda a, kind="doctor": airflow_control(a).report(kind, a), "Airflow 2/3 airflow doctor deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_quality_scan", Capability.VERIFY, lambda a, kind="quality": airflow_control(a).report(kind, a), "Airflow 2/3 airflow quality scan deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+
+    add("airflow_runtime_dags", Capability.DISCOVER, lambda a: airflow_runtime(a).dags(limit=int(a.get("limit", 100))), "List DAGs through the version-aware Airflow REST adapter.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_runtime_dag_runs", Capability.DISCOVER, lambda a: airflow_runtime(a).dag_runs(a["dag_id"], limit=int(a.get("limit", 100))), "List DAG runs through the Airflow REST adapter.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_runtime_task_instances", Capability.DISCOVER, lambda a: airflow_runtime(a).task_instances(a["dag_id"], a["run_id"]), "List task instances through the Airflow REST adapter.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_runtime_logs", Capability.DISCOVER, lambda a: airflow_runtime(a).logs(a["dag_id"], a["run_id"], a["task_id"], try_number=int(a.get("try_number", 1))), "Read bounded task logs through the Airflow REST adapter.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_runtime_assets", Capability.DISCOVER, lambda a: airflow_runtime(a).assets(), "List runtime Assets/Datasets via Airflow API.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_runtime_import_errors", Capability.DISCOVER, lambda a: airflow_runtime(a).import_errors(), "List runtime DAG import errors via Airflow API.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_trigger", Capability.EXECUTE, lambda a: airflow_runtime(a, allow_mutation=True).trigger(a["dag_id"], conf=a.get("conf"), dry_run=bool(a.get("_dry_run"))), "Trigger an Airflow DAG only through governed Builder approval.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING, supports_dry_run=True, requires_approval=True)
+    add("airflow_pause", Capability.EXECUTE, lambda a: airflow_runtime(a, allow_mutation=True).pause(a["dag_id"], dry_run=bool(a.get("_dry_run"))), "Pause an Airflow DAG only through governed Builder approval.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING, supports_dry_run=True, requires_approval=True)
+    add("airflow_unpause", Capability.EXECUTE, lambda a: airflow_runtime(a, allow_mutation=True).unpause(a["dag_id"], dry_run=bool(a.get("_dry_run"))), "Unpause an Airflow DAG only through governed Builder approval.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING, supports_dry_run=True, requires_approval=True)
+    add("airflow_clear", Capability.EXECUTE, lambda a: airflow_runtime(a, allow_mutation=True).clear(a["dag_id"], start_date=a.get("start_date"), end_date=a.get("end_date"), dry_run=bool(a.get("_dry_run"))), "Clear Airflow task instances only through governed Builder approval.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING, supports_dry_run=True, requires_approval=True)
+    add("airflow_backfill_execute", Capability.EXECUTE, lambda a: airflow_runtime(a, allow_mutation=True).backfill(a["dag_id"], start_date=a["start_date"], end_date=a["end_date"], dry_run=bool(a.get("_dry_run"))), "Execute an Airflow backfill only through governed Builder approval.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING, supports_dry_run=True, requires_approval=True)
 
     add("reconcile_row_count", Capability.VERIFY, lambda a: reconcile_row_count(a["source_value"], a["target_value"], absolute_tolerance=a.get("absolute_tolerance", 0), percentage_tolerance=a.get("percentage_tolerance", 0)), "Compare source and target row counts.")
     add("reconcile_primary_keys", Capability.VERIFY, lambda a: reconcile_primary_keys(a["source_keys"], a["target_keys"]), "Compare source and target primary-key sets.")

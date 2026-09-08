@@ -363,6 +363,82 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     def airflow_failures() -> dict[str, Any]:
         return invoke_read("airflow_failure_summary", demo_project_args())
 
+    @app.get("/api/v1/airflow/dags")
+    def airflow_dags() -> dict[str, Any]:
+        return invoke_read("airflow_inventory", demo_project_args())
+
+    @app.get("/api/v1/airflow/dags/{dag_id}")
+    def airflow_dag(dag_id: str) -> dict[str, Any]:
+        return invoke_read("airflow_dag_details", {**demo_project_args(), "dag_id": dag_id})
+
+    @app.get("/api/v1/airflow/dags/{dag_id}/tasks")
+    def airflow_dag_tasks(dag_id: str) -> dict[str, Any]:
+        return invoke_read("airflow_task_graph", {**demo_project_args(), "dag_id": dag_id})
+
+    @app.get("/api/v1/airflow/dags/{dag_id}/runs")
+    def airflow_dag_runs(dag_id: str, limit: int = 100) -> dict[str, Any]:
+        return invoke_read("airflow_runtime_dag_runs", {**demo_project_args(), "dag_id": dag_id, "limit": limit})
+
+    @app.get("/api/v1/airflow/tasks/{task_id}")
+    def airflow_task(task_id: str) -> dict[str, Any]:
+        graph = invoke_read("airflow_graph", demo_project_args())
+        matches = [node for node in graph["nodes"] if node.get("kind") == "task" and node.get("name") == task_id]
+        if not matches:
+            raise HTTPException(404, f"Airflow task not found: {task_id}")
+        return {"task_id": task_id, "matches": matches}
+
+    @app.get("/api/v1/airflow/assets")
+    def airflow_assets() -> dict[str, Any]:
+        return invoke_read("airflow_asset_inventory", demo_project_args())
+
+    @app.get("/api/v1/airflow/assets/{asset:path}")
+    def airflow_asset(asset: str) -> dict[str, Any]:
+        result = invoke_read("airflow_asset_inventory", demo_project_args())
+        matches = [item for item in result["items"] if item["name"] == asset]
+        if not matches:
+            raise HTTPException(404, f"Airflow asset not found: {asset}")
+        return matches[0]
+
+    @app.get("/api/v1/airflow/connections")
+    def airflow_connections() -> dict[str, Any]:
+        return invoke_read("airflow_connection_analysis", demo_project_args())
+
+    @app.get("/api/v1/airflow/pools")
+    def airflow_pools() -> dict[str, Any]:
+        return invoke_read("airflow_pool_health", demo_project_args())
+
+    @app.get("/api/v1/airflow/import-errors")
+    def airflow_import_errors() -> dict[str, Any]:
+        return invoke_read("airflow_import_errors", demo_project_args())
+
+    @app.post("/api/v1/airflow/root-cause")
+    def airflow_root_cause(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_read("airflow_pipeline_root_cause", {**demo_project_args(), **payload.args})
+
+    @app.post("/api/v1/airflow/backfill/plan")
+    def airflow_backfill_plan(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_read("airflow_backfill_plan", {**demo_project_args(), **payload.args})
+
+    @app.get("/api/v1/airflow/capacity")
+    def airflow_capacity() -> dict[str, Any]:
+        return invoke_read("airflow_capacity_plan", demo_project_args())
+
+    @app.get("/api/v1/airflow/upgrade")
+    def airflow_upgrade() -> dict[str, Any]:
+        return invoke_read("airflow_upgrade_analysis", demo_project_args())
+
+    @app.get("/api/v1/airflow/security")
+    def airflow_security() -> dict[str, Any]:
+        return invoke_read("airflow_secret_risk", demo_project_args())
+
+    @app.get("/api/v1/airflow/xcom")
+    def airflow_xcom() -> dict[str, Any]:
+        return invoke_read("airflow_xcom_analysis", demo_project_args())
+
+    @app.get("/api/v1/airflow/bundles")
+    def airflow_bundles() -> dict[str, Any]:
+        return invoke_read("airflow_bundle_inventory", demo_project_args())
+
     @app.get("/api/v1/quality/summary")
     def quality_summary() -> dict[str, Any]:
         return invoke_read("quality_summary", quality_args())
