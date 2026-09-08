@@ -141,3 +141,17 @@ final-audit:
 	PYTHONPATH=src $(PYTHON) scripts/final_acceptance_audit.py
 	PYTHONPATH=src $(PYTHON) -m pytest -q -p no:cacheprovider tests/test_final_acceptance_audit.py
 
+
+
+.PHONY: snowflake-live-e2e airflow-live-e2e agent-live-e2e live-e2e
+
+snowflake-live-e2e:
+	PYTHONPATH=src $(PYTHON) scripts/live_snowflake_e2e.py
+
+airflow-live-e2e:
+	PYTHONPATH=src $(PYTHON) scripts/live_airflow_e2e.py
+
+agent-live-e2e:
+	PYTHONPATH=src $(PYTHON) scripts/live_agent_e2e.py
+
+live-e2e: snowflake-live-e2e airflow-live-e2e agent-live-e2e

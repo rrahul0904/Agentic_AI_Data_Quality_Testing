@@ -1,0 +1,54 @@
+name: live-agentic-e2e
+
+on:
+  workflow_dispatch:
+
+jobs:
+  live-snowflake-e2e:
+    runs-on: ubuntu-latest
+    env:
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+      SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+      SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+      SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: PYTHONPATH=src python scripts/live_snowflake_e2e.py
+
+  live-agent-e2e:
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ADE_LIVE_AGENT_PROVIDER: openai
+      ADE_LIVE_AGENT_MODEL: ${{ secrets.ADE_LIVE_AGENT_MODEL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: PYTHONPATH=src python scripts/live_agent_e2e.py
+
+  live-airflow-e2e:
+    runs-on: ubuntu-latest
+    env:
+      ADE_AIRFLOW_BASE_URL: ${{ secrets.ADE_AIRFLOW_BASE_URL }}
+      ADE_AIRFLOW_VERSION: ${{ secrets.ADE_AIRFLOW_VERSION }}
+      ADE_AIRFLOW_TOKEN: ${{ secrets.ADE_AIRFLOW_TOKEN }}
+      ADE_AIRFLOW_USERNAME: ${{ secrets.ADE_AIRFLOW_USERNAME }}
+      ADE_AIRFLOW_PASSWORD: ${{ secrets.ADE_AIRFLOW_PASSWORD }}
+      ADE_AIRFLOW_LIVE_MUTATION_APPROVED: ${{ secrets.ADE_AIRFLOW_LIVE_MUTATION_APPROVED }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: PYTHONPATH=src python scripts/live_airflow_e2e.py

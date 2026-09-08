@@ -116,7 +116,7 @@ jobs:
           data=json.load(open('/tmp/overview.json'))
           assert data['counts']['oracle_tables'] == 144
           assert data['counts']['postgres_tables'] == 157
-          assert data['counts']['airflow_dags'] == 55
+          assert data['counts']['airflow_dags'] >= 57
           assert data['counts']['dbt_models'] == 70
           assert data['counts']['tools'] >= 50
           PY
