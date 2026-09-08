@@ -74,6 +74,8 @@ def agent_config(
         "max_steps": max(2, min(int(os.getenv("ADE_AGENT_MAX_STEPS", "8")), 20)),
         "context_tokens": max(8000, min(int(os.getenv("ADE_AGENT_CONTEXT_TOKENS", "32000")), 200000)),
         "reserve_tokens": max(2000, min(int(os.getenv("ADE_AGENT_RESERVE_TOKENS", "4000")), 32000)),
+        "max_output_tokens": max(256, min(int(os.getenv("ADE_AGENT_MAX_OUTPUT_TOKENS", "1600")), 16000)),
+        "reasoning_effort": os.getenv("ADE_OPENAI_REASONING_EFFORT", "low"),
     }
 
 
@@ -205,6 +207,8 @@ def run_project_agent(
         context_sources=sources,
         max_steps=int(config["max_steps"]),
         repeated_tool_limit=2,
+        max_output_tokens=int(config["max_output_tokens"]),
+        provider_metadata={"reasoning_effort": config["reasoning_effort"]},
     )
     result = runtime.run(
         session_id,
