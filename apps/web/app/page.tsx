@@ -3,6 +3,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { API, getJson, postJson } from "../lib/api";
+import InvestigationConsole from "./InvestigationConsole";
 
 type Status = "PASS" | "FAIL" | "WARN" | "SKIP" | "PARTIAL" | string;
 type RecordValue = Record<string, unknown>;
@@ -207,7 +208,7 @@ type SqlProposal = {
 };
 
 const NAV = [
-  "Overview", "Agent", "Assets", "Lineage", "SQL Intelligence", "dbt", "Airflow",
+  "Overview", "Investigations", "Agent", "Assets", "Lineage", "SQL Intelligence", "dbt", "Airflow",
   "Data Quality", "Reconciliation", "Warehouses", "Connections", "Metadata", "Data Diff",
   "Migration", "Cost / FinOps", "Governance / PII", "PR Reviews", "Skills", "Training",
   "Providers", "MCP", "Jobs", "Traces", "Runs / Evidence", "Settings / Doctor",
@@ -451,6 +452,7 @@ export default function OperatorConsole() {
             {active === "Traces" && <DomainView title="Traces" eyebrow="REPLAYABLE EXECUTION EVIDENCE" endpoint="/api/v1/traces" />}
             {active === "Settings / Doctor" && <DomainView title="Settings / Doctor" eyebrow="PLATFORM READINESS" endpoint="/api/v1/platform/health" />}
             {active === "Runs / Evidence" && overview && <EvidenceView overview={overview} quality={quality} />}
+            {active === "Investigations" && <InvestigationConsole />}
             {active === "Agent" && <AgentView question={agentQuestion} setQuestion={setAgentQuestion} ask={askAgent} busy={agentBusy} answer={agentAnswer} />}
           </>
         )}
