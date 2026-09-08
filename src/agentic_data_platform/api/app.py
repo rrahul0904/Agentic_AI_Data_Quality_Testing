@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -18,6 +18,15 @@ from agentic_data_platform.persistence.sqlite import SQLiteControlPlaneRepositor
 from agentic_data_platform.sql.parser import parse_sql
 from agentic_data_platform.tools.builtin import build_tool_registry
 from agentic_data_platform.tools.registry import ToolInvocation
+from agentic_data_platform.runtime.local_agent import (
+    index_project_knowledge,
+    ingest_document,
+    knowledge_search,
+    knowledge_status,
+    provider_configured,
+    run_project_agent,
+    training_store,
+)
 
 
 class ProjectInput(BaseModel):
@@ -72,7 +81,10 @@ class ReconcileRowCountInput(BaseModel):
 
 
 class AgentQueryInput(BaseModel):
-    question: str = Field(min_length=1, max_length=1000)
+    question: str = Field(min_length=1, max_length=4000)
+    provider: str | None = None
+    model: str | None = None
+    mode: str = Field(default="auto", pattern="^(auto|live|deterministic)$")
 
 
 class InvestigationApprovalInput(BaseModel):
@@ -627,6 +639,35 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     @app.post("/api/v1/agent/query")
     def agent_query(payload: AgentQueryInput) -> dict[str, Any]:
         question = payload.question.strip()
+        if payload.mode in {"auto", "live"}:
+            configured = provider_configured(payload.provider)
+            if configured:
+                try:
+                    return run_project_agent(
+                        registry,
+                        _project_root(),
+                        question,
+                        provider=payload.provider,
+                        model=payload.model,
+                    )
+                except (KeyError, ValueError, FileNotFoundError) as exc:
+                    raise HTTPException(400, safe_error(exc)) from exc
+                except Exception as exc:
+                    raise HTTPException(502, safe_error(exc)) from exc
+            if payload.mode == "live":
+                return {
+                    "status": "BLOCKED_EXTERNAL",
+                    "question": question,
+                    "provider": payload.provider or os.getenv("ADE_AGENT_PROVIDER", "openai"),
+                    "model": payload.model or os.getenv("ADE_AGENT_MODEL", "gpt-5.6-luna"),
+                    "error": "LLM provider is not configured; set the provider API key locally",
+                    "evidence": {
+                        "tools_used": [],
+                        "data_sources": [],
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "mode": "BLOCKED_EXTERNAL",
+                    },
+                }
         lowered = question.casefold()
         tools_used: list[str] = []
         result: Any
@@ -937,6 +978,41 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             runtime_args(),
             actor_mode=ActorMode.BUILDER,
         )
+
+
+    @app.get("/api/v1/knowledge/status")
+    def project_knowledge_status() -> dict[str, Any]:
+        return knowledge_status(_project_root())
+
+    @app.get("/api/v1/knowledge/search")
+    def project_knowledge_search(query: str, limit: int = 10) -> dict[str, Any]:
+        return knowledge_search(_project_root(), query, limit=limit)
+
+    @app.post("/api/v1/knowledge/index-project")
+    def project_knowledge_index() -> dict[str, Any]:
+        return index_project_knowledge(_project_root())
+
+    @app.post("/api/v1/knowledge/ingest-text")
+    def project_knowledge_ingest_text(payload: TrainingTextInput) -> dict[str, Any]:
+        return training_store(_project_root()).ingest_text(
+            payload.source,
+            payload.text,
+            source_type=payload.source_type,
+            metadata=payload.metadata,
+        )
+
+    @app.post("/api/v1/knowledge/upload")
+    async def project_knowledge_upload(file: UploadFile = File(...)) -> dict[str, Any]:
+        try:
+            content = await file.read()
+            return ingest_document(
+                _project_root(),
+                file.filename or "document",
+                content,
+                content_type=file.content_type,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, safe_error(exc)) from exc
 
     @app.get("/api/v1/skills/catalog")
     def skill_catalog() -> dict[str, Any]:
