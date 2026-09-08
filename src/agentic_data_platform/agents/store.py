@@ -83,6 +83,15 @@ CREATE TABLE IF NOT EXISTS remediation_plans (
   approved_by TEXT,
   approved_at TEXT
 );
+CREATE TABLE IF NOT EXISTS incident_mappings (
+  mapping_id TEXT PRIMARY KEY,
+  incident_id TEXT NOT NULL,
+  source_asset TEXT NOT NULL,
+  target_asset TEXT NOT NULL,
+  mapping_type TEXT NOT NULL,
+  expression_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_incident_transition_incident ON incident_transitions(incident_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_incident_evidence_incident ON incident_evidence(incident_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_incident_agent_run_incident ON incident_agent_runs(incident_id, created_at);
@@ -217,6 +226,41 @@ class InvestigationStore:
                 (result.result_id, incident_id, result.role.value, result.status, json.dumps(payload, default=str, sort_keys=True), result.created_at),
             )
             self.connection.commit()
+
+    def save_mappings(self, incident_id: str, mappings: list[dict[str, Any]]) -> None:
+        now = utc_now()
+        with self.lock:
+            for mapping in mappings:
+                self.connection.execute(
+                    "INSERT INTO incident_mappings VALUES (?,?,?,?,?,?,?)",
+                    (
+                        new_id("mapping"),
+                        incident_id,
+                        str(mapping["source"]),
+                        str(mapping["target"]),
+                        str(mapping.get("mapping_type") or "lineage"),
+                        json.dumps(mapping.get("expression") or {}, default=str, sort_keys=True),
+                        now,
+                    ),
+                )
+            self.connection.commit()
+
+    def mappings(self, incident_id: str) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "SELECT * FROM incident_mappings WHERE incident_id=? ORDER BY rowid",
+            (incident_id,),
+        ).fetchall()
+        return [
+            {
+                "mapping_id": row["mapping_id"],
+                "source": row["source_asset"],
+                "target": row["target_asset"],
+                "mapping_type": row["mapping_type"],
+                "expression": json.loads(row["expression_json"]),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
 
     def save_hypothesis(self, incident_id: str, item: AgentHypothesis) -> None:
         with self.lock:

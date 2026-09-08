@@ -239,21 +239,57 @@ class TransformationAgent(BaseSpecialistAgent):
             })
         if signals.get("compile_error"):
             findings.append({"kind": "compile", "error": signals["compile_error"]})
+
+        dbt_assets = [
+            item.rsplit(".", 1)[-1]
+            for item in context.scenario.pipeline_path
+            if item.rsplit(".", 1)[-1].startswith(("stg_", "int_", "fact_", "dim_", "mart_"))
+        ]
+        observations: dict[str, Any] = {"findings": findings, "dbt_assets": dbt_assets}
         tools: list[str] = []
+
         try:
-            context.tool(self.role, "dbt_incremental_analysis", {"project": str(context.project)})
+            compiled = context.tool(
+                self.role,
+                "dbt_compiled_sql_review",
+                {"project": str(context.project), "limit": 500},
+            )
+            tools.append("dbt_compiled_sql_review")
+            by_name = {
+                str(item.get("name")): item
+                for item in compiled.get("models", [])
+                if item.get("name")
+            }
+            observations["compiled_sql_review"] = [
+                by_name[name] for name in dbt_assets if name in by_name
+            ]
+        except (KeyError, ValueError, FileNotFoundError) as exc:
+            observations["compiled_sql_review_error"] = str(exc)
+
+        try:
+            incremental = context.tool(
+                self.role,
+                "dbt_incremental_analysis",
+                {"project": str(context.project)},
+            )
             tools.append("dbt_incremental_analysis")
-        except (KeyError, ValueError, FileNotFoundError):
-            pass
+            observations["incremental_models"] = [
+                item for item in incremental.get("models", [])
+                if item.get("name") in dbt_assets
+            ]
+        except (KeyError, ValueError, FileNotFoundError) as exc:
+            observations["incremental_analysis_error"] = str(exc)
+
         return self.result(
             status="WARN" if findings else "PASS",
-            claim="Transformation-specific failure modes evaluated for filters, joins, compilation, and incremental predicates.",
-            confidence=0.94 if findings else 0.85,
+            claim="Transformation-specific failure modes evaluated against compiled dbt artifacts plus incident evidence.",
+            confidence=0.95 if findings else 0.86,
             context=context,
-            reasoning="Transformation analysis is invoked only when evidence indicates the divergence is at or downstream of dbt.",
+            reasoning="SQL transformation evidence is read from dbt artifacts when available; scenario signals only identify which risk to test.",
             next_action="Feed transformation findings into RCA hypothesis evaluation.",
-            observations={"findings": findings},
+            observations=observations,
             tools=tuple(tools),
+            assets=tuple(dbt_assets) or (context.scenario.affected_asset,),
         )
 
 
@@ -263,7 +299,21 @@ class MappingAgent(BaseSpecialistAgent):
 
     def run(self, context: AgentContext) -> AgentResult:
         path = list(context.scenario.pipeline_path)
-        mappings = [{"source": path[index], "target": path[index + 1]} for index in range(max(0, len(path) - 1))]
+        mappings = [
+            {
+                "source": path[index],
+                "target": path[index + 1],
+                "mapping_type": (
+                    "source_to_raw"
+                    if index == 0
+                    else "transformation"
+                    if path[index + 1].rsplit(".", 1)[-1].startswith(("stg_", "int_", "fact_", "dim_", "mart_"))
+                    else "pipeline"
+                ),
+                "expression": {"relationship": "depends_on"},
+            }
+            for index in range(max(0, len(path) - 1))
+        ]
         return self.result(
             status="PASS",
             claim="Source-to-target mapping chain materialized for deterministic reconciliation.",

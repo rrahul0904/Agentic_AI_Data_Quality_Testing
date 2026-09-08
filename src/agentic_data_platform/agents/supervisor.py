@@ -215,6 +215,10 @@ class SupervisorAgent:
         self._save(incident_id, lineage_result, results)
         mapping_result = self._timed(AgentRole.MAPPING, lambda: self.mapping.run(context))
         self._save(incident_id, mapping_result, results)
+        self.store.save_mappings(
+            incident_id,
+            list(mapping_result.observations.get("mappings", [])),
+        )
 
         self.store.transition(incident_id, IncidentState.EVIDENCE_COLLECTION, "Technical and business context resolved; collect bounded evidence.")
         planner_result = self._timed(AgentRole.EXECUTION_PLANNING, lambda: self.planner.run(context))
@@ -408,4 +412,5 @@ class SupervisorAgent:
         report["evidence"] = self.store.evidence(incident_id)
         report["hypotheses"] = self.store.hypotheses(incident_id)
         report["remediation"] = self.store.remediation(incident_id)
+        report["mappings"] = self.store.mappings(incident_id)
         return report
