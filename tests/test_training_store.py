@@ -63,3 +63,16 @@ def test_training_clear_removes_all_context(tmp_path):
     result = store.clear()
     assert result["documents"] == 0
     assert store.search("dbt") == []
+
+
+def test_training_ingest_redacts_secret_values(tmp_path):
+    store = TrainingStore(tmp_path / "training.db")
+    store.ingest_text(
+        "docs/private-runbook.md",
+        "Bearer abcdefghijklmnopqrstuvwxyz123456\nreservation pipeline",
+    )
+    results = store.search("reservation")
+    assert results
+    content = "\n".join(str(item["content"]) for item in results)
+    assert "abcdefghijklmnopqrstuvwxyz123456" not in content
+    assert "[REDACTED]" in content
