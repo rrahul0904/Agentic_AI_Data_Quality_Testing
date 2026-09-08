@@ -11,6 +11,8 @@ from .engine import (
 )
 
 __all__ = [
+    "format_bytes",
+    "truncate_query",
     "cost_summary",
     "expensive_queries",
     "full_finops_report",

@@ -6,7 +6,7 @@ import html
 import json
 import sqlite3
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Mapping
 
 from agentic_data_platform.connections.store import redact
 from agentic_data_platform.models import new_id, utc_now

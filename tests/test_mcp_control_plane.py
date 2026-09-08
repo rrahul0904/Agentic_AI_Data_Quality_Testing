@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from urllib.parse import parse_qs, urlparse
 
 from agentic_data_platform.mcp import (

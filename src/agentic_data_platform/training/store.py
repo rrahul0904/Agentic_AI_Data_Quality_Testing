@@ -8,7 +8,7 @@ import mimetypes
 import re
 import sqlite3
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Sequence
 
 from agentic_data_platform.models import utc_now
 

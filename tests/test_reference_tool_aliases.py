@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sqlite3
-from pathlib import Path
 
 from agentic_data_platform.metadata.service import MetadataService
 from agentic_data_platform.models import ActorMode, Environment, ToolRequest

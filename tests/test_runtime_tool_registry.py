@@ -240,3 +240,11 @@ def test_background_jobs_accept_read_only_tools_and_refuse_mutations(tmp_path):
                 "args": {"content": "should not run"},
             },
         )
+
+
+def test_overflow_registered_tool_executes_for_analyst():
+    registry = build_tool_registry()
+    result = invoke(registry, "session_overflow", {"messages": [{"role": "user", "content": "hello"}]},
+                    actor=ActorMode.ANALYST)
+    assert result["status"] == "PASS"
+    assert result["overflow"] is False

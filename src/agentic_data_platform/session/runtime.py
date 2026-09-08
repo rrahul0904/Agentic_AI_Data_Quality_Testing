@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import json
-import math
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from agentic_data_platform.observability import TraceStore
 from agentic_data_platform.providers import (
     ModelRecord,
     Provider,
     ProviderRequest,
-    ProviderResponse,
     normalize_messages,
     output_token_budget,
 )

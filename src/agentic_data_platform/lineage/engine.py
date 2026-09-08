@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Mapping, Sequence
 
 import sqlglot
-from sqlglot import exp
+from sqlglot import MappingSchema, exp
 from sqlglot.lineage import lineage as sqlglot_lineage
 from sqlglot.optimizer.scope import Scope, traverse_scope
 
@@ -106,6 +106,14 @@ def analyze_column_lineage(
         duplicate_names = sorted(
             name for name in set(output_names) if name and output_names.count(name) > 1
         )
+        # MappingSchema handles qualified table names; a flat dict with dotted
+        # keys is not equivalent to SQLGlot's nested schema representation.
+        metadata = MappingSchema(dialect=dialect_name(dialect))
+        for table_name, definition in (schema or {}).items():
+            columns = definition if isinstance(definition, Mapping) else {
+                column: "UNKNOWN" for column in _schema_columns(schema, str(table_name))
+            }
+            metadata.add_table(str(table_name), columns, match_depth=False)
         nodes: dict[str, Any] = {}
         for output_name in output_names:
             if not output_name or output_name in nodes:
@@ -113,7 +121,7 @@ def analyze_column_lineage(
             nodes[output_name] = sqlglot_lineage(
                 output_name,
                 tree,
-                schema=dict(schema or {}),
+                schema=metadata,
                 sources=dict(sources or {}),
                 dialect=dialect_name(dialect),
             )
@@ -122,7 +130,6 @@ def analyze_column_lineage(
         for output_name, node in nodes.items():
             leaves: set[ColumnRef] = set()
             unresolved: list[str] = []
-            ambiguous_terminals: list[str] = []
             for item in node.walk():
                 expression = item.expression
                 if isinstance(expression, exp.Table):
@@ -130,50 +137,19 @@ def analyze_column_lineage(
                     column = item.name.rsplit(".", 1)[-1].strip(chr(34) + chr(96))
                     if column == "*":
                         unresolved.append(f"{output_name}: wildcard requires schema metadata")
-                    else:
-                        leaves.add(ColumnRef(table, column))
-
-                if not item.downstream:
-                    terminal = str(item.name or "").strip(chr(34) + chr(96))
-                    parts = [
-                        part.strip(chr(34) + chr(96))
-                        for part in terminal.split(".")
-                        if part
-                    ]
-                    if len(parts) >= 2 and parts[-1] != "*":
-                        table = ".".join(parts[:-1])
-                        column = parts[-1]
-                        known_tables = {str(name).casefold() for name in (schema or {})}
-                        known_simple = {
-                            name.split(".")[-1].casefold() for name in known_tables
-                        }
-                        if (
-                            not known_tables
-                            or table.casefold() in known_tables
-                            or table.split(".")[-1].casefold() in known_simple
-                        ):
-                            leaves.add(ColumnRef(table, column))
-                    elif len(parts) == 1 and parts[0] != "*" and schema:
-                        column = parts[0]
-                        candidates = [
-                            str(table_name)
-                            for table_name in schema
-                            if column.casefold()
-                            in {
-                                candidate.casefold()
-                                for candidate in _schema_columns(schema, str(table_name))
-                            }
-                        ]
+                        continue
+                    # Preserve metadata spelling without guessing a terminal
+                    # alias or CTE name is a physical relation.
+                    matches = [name for name in (schema or {}) if str(name).casefold() == table.casefold()]
+                    if len(matches) == 1:
+                        table = str(matches[0])
+                        candidates = [name for name in _schema_columns(schema, table)
+                                      if name.casefold() == column.casefold()]
                         if len(candidates) == 1:
-                            leaves.add(ColumnRef(candidates[0], column))
-                        elif len(candidates) > 1:
-                            ambiguous_terminals.append(
-                                f"{output_name}: terminal column {column} is ambiguous across "
-                                + ",".join(sorted(candidates))
-                            )
-
-            if not leaves:
-                unresolved.extend(ambiguous_terminals)
+                            column = candidates[0]
+                    leaves.add(ColumnRef(table, column))
+                elif isinstance(expression, exp.Placeholder):
+                    unresolved.append(f"{output_name}: unresolved source {item.name}")
 
             for message in ambiguity:
                 column_name = message.split(":", 1)[0]
@@ -188,7 +164,7 @@ def analyze_column_lineage(
             if output_name == "*" and not leaves:
                 unresolved.append("*: wildcard expansion unresolved")
 
-            resolved = not unresolved and bool(leaves or not list(node.expression.find_all(exp.Column)))
+            resolved = not unresolved
             confidence = "high" if resolved else "low" if unresolved else "medium"
             mappings.append(
                 ColumnMapping(

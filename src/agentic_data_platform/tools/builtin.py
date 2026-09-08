@@ -62,7 +62,7 @@ from agentic_data_platform.remediation.proposals import (
 from agentic_data_platform.quality.store import SQLiteQualityStore
 from agentic_data_platform.quality.warehouse_diff import WarehouseDiffEngine
 from agentic_data_platform.sql.intelligence import (
-    column_downstream, column_lineage, column_upstream, review_sql, sql_lineage,
+    review_sql, sql_lineage,
 )
 from agentic_data_platform.sql.core_wrappers import (
     classify_schema_pii as core_classify_schema_pii,
@@ -120,6 +120,7 @@ from agentic_data_platform.session import (
     SessionStore,
     cap_tool_result as session_cap_tool_result,
     retry_plan as session_retry_plan,
+    session_overflow,
 )
 from agentic_data_platform.memory import MemoryStore
 from agentic_data_platform.tracing import TraceStore

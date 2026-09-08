@@ -143,3 +143,21 @@ def test_project_graph_is_serializable():
     payload = graph.graph()
     assert json.loads(json.dumps(payload))["summary"]["edges"] == 5
     assert len(graph.fingerprint()) == 64
+
+
+def test_physical_lineage_never_includes_cte_or_table_aliases():
+    result = analyze_column_lineage("WITH x AS (SELECT a.id FROM actual a) SELECT id FROM x")
+    assert result["mappings"][0]["sources"] == [{"table": "actual", "column": "id"}]
+
+
+def test_constant_cte_is_resolved_without_inventing_a_source():
+    result = analyze_column_lineage("WITH x AS (SELECT 1 AS id) SELECT id FROM x")
+    assert result["status"] == "PASS"
+    assert result["mappings"][0]["sources"] == []
+
+
+def test_unresolved_terminal_is_not_promoted_to_a_source():
+    result = analyze_column_lineage("SELECT mystery.id")
+    assert result["status"] == "PARTIAL"
+    assert result["mappings"][0]["sources"] == []
+    assert result["unresolved_references"]
