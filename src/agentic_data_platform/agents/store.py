@@ -208,15 +208,21 @@ class InvestigationStore:
 
     def save_evidence(self, incident_id: str, evidence: EvidenceRecord) -> None:
         with self.lock:
-            self.connection.execute(
-                "INSERT OR REPLACE INTO incident_evidence VALUES (?,?,?,?,?,?,?,?,?)",
-                (
-                    evidence.evidence_id, incident_id, int(evidence.tier), evidence.kind, evidence.source,
-                    evidence.summary, json.dumps(evidence.payload, default=str, sort_keys=True),
-                    json.dumps(evidence.correlation, default=str, sort_keys=True), evidence.created_at,
-                ),
-            )
-            self.connection.commit()
+            try:
+                self.connection.execute(
+                    "INSERT INTO incident_evidence VALUES (?,?,?,?,?,?,?,?,?)",
+                    (
+                        evidence.evidence_id, incident_id, int(evidence.tier), evidence.kind, evidence.source,
+                        evidence.summary, json.dumps(evidence.payload, default=str, sort_keys=True),
+                        json.dumps(evidence.correlation, default=str, sort_keys=True), evidence.created_at,
+                    ),
+                )
+                self.connection.commit()
+            except sqlite3.IntegrityError as exc:
+                self.connection.rollback()
+                raise ValueError(
+                    f"immutable evidence already exists: {evidence.evidence_id}"
+                ) from exc
 
     def save_agent_result(self, incident_id: str, result: AgentResult) -> None:
         payload = result.public()

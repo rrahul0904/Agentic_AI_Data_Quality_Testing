@@ -328,7 +328,22 @@ class MappingAgent(BaseSpecialistAgent):
 
 class QualityAgent(BaseSpecialistAgent):
     role = AgentRole.QUALITY
-    policy = AgentPolicy(("reconcile_row_count", "reconcile_aggregate", "reconcile_freshness", "quality_anomaly_detect"))
+    policy = AgentPolicy((
+        "reconcile_row_count",
+        "reconcile_aggregate",
+        "reconcile_freshness",
+        "quality_anomaly_detect",
+        "propose_quality_rule",
+    ))
+
+    def _candidate_checks(self, context: AgentContext) -> list[str]:
+        checks = ["row_count", "freshness"]
+        concept = context.scenario.business_concept
+        if concept in {"payment", "reservation", "booking"}:
+            checks.extend(["not_null", "unique"])
+        if concept in {"reservation", "booking"}:
+            checks.append("referential_integrity")
+        return list(dict.fromkeys(checks))
 
     def run(self, context: AgentContext) -> AgentResult:
         deterministic = detect_pipeline_anomalies(context.scenario.signals)
@@ -344,6 +359,25 @@ class QualityAgent(BaseSpecialistAgent):
             for item in failed
         )
         anomalies = [item for item in signals if item.get("status") == "ANOMALY"]
+
+        proposed_tests = []
+        tools = ["quality_anomaly_detect"]
+        for check_type in self._candidate_checks(context):
+            try:
+                proposal = context.tool(
+                    self.role,
+                    "propose_quality_rule",
+                    {
+                        "asset": context.scenario.affected_asset,
+                        "check_type": check_type,
+                        "severity": "ERROR",
+                    },
+                )
+                proposed_tests.append(proposal)
+                tools.append("propose_quality_rule")
+            except (KeyError, ValueError):
+                continue
+
         context.shared["anomaly"] = {
             "detected": bool(anomalies),
             "signals": signals,
@@ -356,10 +390,13 @@ class QualityAgent(BaseSpecialistAgent):
             claim="Business/data anomaly detected independently of orchestration status." if anomalies else "No quality anomaly detected.",
             confidence=0.99 if anomalies else 0.9,
             context=context,
-            reasoning="Deterministic anomaly thresholds and boundary reconciliations drive the incident signal; no LLM determines PASS/FAIL.",
+            reasoning="The agent proposes context-aware checks, but deterministic engines alone compute anomaly and reconciliation PASS/FAIL.",
             next_action="Open or continue an incident and collect bounded evidence." if anomalies else "Continue normal certification.",
-            observations=context.shared["anomaly"],
-            tools=("quality_anomaly_detect",),
+            observations={
+                **context.shared["anomaly"],
+                "proposed_tests": proposed_tests,
+            },
+            tools=tuple(tools),
         )
 
 
