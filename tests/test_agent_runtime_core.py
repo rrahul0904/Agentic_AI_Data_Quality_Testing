@@ -39,3 +39,28 @@ def test_context_compacts():
     compacted,meta=manager.compact(messages)
     assert meta["compacted"] is True
     assert len(compacted)<=3
+
+
+def test_runtime_scopes_model_tool_calls_to_active_project(tmp_path):
+    store = RuntimeStore(tmp_path / "runtime.db")
+    traces = TraceStore(tmp_path / "trace.db")
+    session = store.create_session()
+    provider = ScriptedProvider([
+        ProviderResponse(tool_calls=(ToolCall(
+            "sql_classify",
+            {"sql": "SELECT 1", "project": "/tmp/model-selected-project"},
+            "c1",
+        ),)),
+        ProviderResponse(content="scoped", finish_reason="stop"),
+    ])
+    result = AgentRuntime(build_tool_registry(), store, traces).run(
+        session,
+        "inspect this project",
+        provider,
+        "test",
+        project_root=tmp_path,
+    )
+    assert result["response"] == "scoped"
+    calls = store.tool_calls(session)
+    assert calls[0]["args"]["project"] == str(tmp_path.resolve())
+    assert calls[0]["args"]["project"] != "/tmp/model-selected-project"
