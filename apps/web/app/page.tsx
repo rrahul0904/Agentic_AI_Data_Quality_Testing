@@ -751,6 +751,3 @@ function DomainView({ title, eyebrow, endpoint, selectKey }: { title: string; ey
   </Panel>;
 }
 
-function RoadmapView({ title, description }: { title: string; description: string }) {
-  return <Panel title={title} eyebrow="PARTIAL / NEXT WAVE"><div className="roadmap"><StatusBadge status="PARTIAL" /><h3>Backend foundation exists; deep operational intelligence is not complete.</h3><p>{description}</p><div className="roadmap-grid"><span>Real metadata only</span><span>No fake live state</span><span>Analyst-safe</span><span>Tracked in parity matrix</span></div></div></Panel>;
-}

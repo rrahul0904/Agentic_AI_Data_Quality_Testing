@@ -113,7 +113,17 @@ parity:
 
 airflow-parity:
 	PYTHONPATH=src $(PYTHON) scripts/check_parity_gate.py --ledger airflow
+	PYTHONPATH=src $(PYTHON) scripts/check_airflow_gate.py
 
-verify: lint test-unit test-integration test-airflow test-dbt test-providers parity airflow-parity benchmark-lineage benchmark-airflow
+verify: lint typecheck test-unit test-integration test-airflow test-dbt test-providers test-hospitality shiftforge-test parity airflow-parity benchmark-lineage benchmark-airflow demo-smoke test-ui
 
-ci: verify test-ui
+ci: verify
+
+.PHONY: test-hospitality demo-smoke
+
+test-hospitality:
+	cd $(HOSPITALITY) && $(abspath $(PYTHON)) -m pytest -q -p no:cacheprovider
+
+demo-smoke:
+	bash scripts/demo-full-platform.sh
+
