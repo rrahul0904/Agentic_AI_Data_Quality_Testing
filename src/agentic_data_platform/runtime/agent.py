@@ -31,6 +31,8 @@ class AgentRuntime:
         plugins: PluginManager | None = None,
         max_steps: int = 12,
         repeated_tool_limit: int = 3,
+        max_output_tokens: int | None = None,
+        provider_metadata: dict[str, Any] | None = None,
     ) -> None:
         self.registry = registry
         self.store = store
@@ -40,6 +42,8 @@ class AgentRuntime:
         self.plugins = plugins or PluginManager()
         self.max_steps = max_steps
         self.repeated_tool_limit = repeated_tool_limit
+        self.max_output_tokens = max_output_tokens
+        self.provider_metadata = dict(provider_metadata or {})
 
     def _tool_specs(self) -> list[dict[str, Any]]:
         return [
@@ -171,10 +175,12 @@ class AgentRuntime:
                         model=model,
                         messages=compacted,
                         tools=self._tool_specs(),
+                        max_output_tokens=self.max_output_tokens,
                         metadata={
                             "session_id": session_id,
                             "step": step,
                             "context_sources": selected_meta,
+                            **self.provider_metadata,
                         },
                     )
                 )
