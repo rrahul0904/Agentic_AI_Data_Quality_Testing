@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from time import perf_counter
+from typing import Any, Callable, TypeVar
 
 from agentic_data_platform.agents.contracts import (
     AgentHypothesis,
     AgentResult,
     AgentRole,
+    AgentTelemetry,
     EvidenceRecord,
     IncidentState,
     InvestigationReport,
@@ -31,6 +34,9 @@ from agentic_data_platform.agents.scenarios import FailureScenario, get_scenario
 from agentic_data_platform.agents.store import InvestigationStore
 from agentic_data_platform.models import ActorMode, Environment, ToolRequest
 from agentic_data_platform.tools.registry import ToolInvocation, ToolRegistry
+
+
+T = TypeVar("T")
 
 
 class SupervisorAgent:
@@ -93,6 +99,35 @@ class SupervisorAgent:
         results.append(result)
         self.store.save_agent_result(incident_id, result)
 
+    def _timed(self, role: AgentRole, operation: Callable[[], T]) -> T:
+        started = perf_counter()
+        value = operation()
+        duration_ms = round((perf_counter() - started) * 1000, 3)
+
+        def decorate(result: AgentResult) -> AgentResult:
+            return replace(
+                result,
+                telemetry=AgentTelemetry(
+                    provider="deterministic",
+                    model="domain-service",
+                    prompt_version="deterministic-v1",
+                    input_tokens=0,
+                    output_tokens=0,
+                    tool_call_count=len(result.tools_used),
+                    duration_ms=duration_ms,
+                    retries=0,
+                    cost_usd=0.0,
+                    evidence_generated=len(result.supporting_evidence_ids),
+                    handoffs=(role.value,),
+                ),
+            )
+
+        if isinstance(value, AgentResult):
+            return decorate(value)  # type: ignore[return-value]
+        if isinstance(value, tuple) and value and isinstance(value[0], AgentResult):
+            return (decorate(value[0]), *value[1:])  # type: ignore[return-value]
+        return value
+
     def _supervisor_result(
         self,
         context: AgentContext,
@@ -142,26 +177,26 @@ class SupervisorAgent:
             "The Supervisor starts with deterministic quality signals before choosing expensive or transformation-specific work.",
             "Run Quality and Business Context agents.",
         )
-        quality_result = self.quality.run(context)
+        quality_result = self._timed(AgentRole.QUALITY, lambda: self.quality.run(context))
         self._save(incident_id, quality_result, results)
-        business_result = self.business.run(context)
+        business_result = self._timed(AgentRole.BUSINESS_CONTEXT, lambda: self.business.run(context))
         self._save(incident_id, business_result, results)
         if quality_result.status == "PASS":
             self.store.transition(incident_id, IncidentState.FAILED, "No anomaly was proven; incident should not have been created.")
             return self._report(incident_id, scenario, results, evidence, [], None)
 
         self.store.transition(incident_id, IncidentState.INVESTIGATING, "Deterministic anomaly criteria were met.")
-        metadata_result = self.metadata.run(context)
+        metadata_result = self._timed(AgentRole.METADATA, lambda: self.metadata.run(context))
         self._save(incident_id, metadata_result, results)
-        lineage_result = self.lineage.run(context)
+        lineage_result = self._timed(AgentRole.LINEAGE, lambda: self.lineage.run(context))
         self._save(incident_id, lineage_result, results)
-        mapping_result = self.mapping.run(context)
+        mapping_result = self._timed(AgentRole.MAPPING, lambda: self.mapping.run(context))
         self._save(incident_id, mapping_result, results)
 
         self.store.transition(incident_id, IncidentState.EVIDENCE_COLLECTION, "Technical and business context resolved; collect bounded evidence.")
-        planner_result = self.planner.run(context)
+        planner_result = self._timed(AgentRole.EXECUTION_PLANNING, lambda: self.planner.run(context))
         self._save(incident_id, planner_result, results)
-        evidence_result, collected = self.evidence_agent.run(context)
+        evidence_result, collected = self._timed(AgentRole.EVIDENCE, lambda: self.evidence_agent.run(context))
         for item in collected:
             self.store.save_evidence(incident_id, item)
         self._save(incident_id, evidence_result, results)
@@ -176,7 +211,7 @@ class SupervisorAgent:
             and any(token in first for token in ("staging", "intermediate", "core", "mart", "dbt"))
         ) or any(key in scenario.signals for key in ("filter_expression", "join_cardinality", "late_arriving_rows", "compile_error", "dbt_test_name"))
         if dbt_specific:
-            transform_result = self.transformation.run(context)
+            transform_result = self._timed(AgentRole.TRANSFORMATION, lambda: self.transformation.run(context))
             self._save(incident_id, transform_result, results)
         else:
             self._supervisor_result(
@@ -188,7 +223,7 @@ class SupervisorAgent:
             )
 
         self.store.transition(incident_id, IncidentState.RCA, "Direct evidence bundle is ready for competing-hypothesis evaluation.")
-        rca_result, hypotheses = self.rca.run(context)
+        rca_result, hypotheses = self._timed(AgentRole.RCA, lambda: self.rca.run(context))
         self._save(incident_id, rca_result, results)
         for item in hypotheses:
             self.store.save_hypothesis(incident_id, item)
@@ -200,13 +235,13 @@ class SupervisorAgent:
         )
 
         self.store.transition(incident_id, IncidentState.IMPACT_ANALYSIS, "Root cause supported; calculate downstream business impact.")
-        impact_result = self.impact.run(context)
+        impact_result = self._timed(AgentRole.IMPACT, lambda: self.impact.run(context))
         self._save(incident_id, impact_result, results)
         blast = list(context.shared.get("blast_radius", []))
         self.store.update_outcome(incident_id, blast_radius=blast)
 
         self.store.transition(incident_id, IncidentState.REMEDIATION_PROPOSED, "Blast radius known; create minimum-risk recovery proposal.")
-        remediation_result, plan = self.remediation.run(context)
+        remediation_result, plan = self._timed(AgentRole.REMEDIATION, lambda: self.remediation.run(context))
         self._save(incident_id, remediation_result, results)
         self.store.save_remediation(incident_id, plan)
         self.store.transition(incident_id, IncidentState.AWAITING_APPROVAL, "Mutating remediation requires explicit human approval.")

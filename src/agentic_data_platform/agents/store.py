@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS incident_evidence (
   source TEXT NOT NULL,
   summary TEXT NOT NULL,
   payload_json TEXT NOT NULL,
+  correlation_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS incident_hypotheses (
@@ -191,10 +192,11 @@ class InvestigationStore:
     def save_evidence(self, incident_id: str, evidence: EvidenceRecord) -> None:
         with self.lock:
             self.connection.execute(
-                "INSERT OR REPLACE INTO incident_evidence VALUES (?,?,?,?,?,?,?,?)",
+                "INSERT OR REPLACE INTO incident_evidence VALUES (?,?,?,?,?,?,?,?,?)",
                 (
                     evidence.evidence_id, incident_id, int(evidence.tier), evidence.kind, evidence.source,
-                    evidence.summary, json.dumps(evidence.payload, default=str, sort_keys=True), evidence.created_at,
+                    evidence.summary, json.dumps(evidence.payload, default=str, sort_keys=True),
+                    json.dumps(evidence.correlation, default=str, sort_keys=True), evidence.created_at,
                 ),
             )
             self.connection.commit()
@@ -307,6 +309,7 @@ class InvestigationStore:
                 "source": row["source"],
                 "summary": row["summary"],
                 "payload": json.loads(row["payload_json"]),
+                "correlation": json.loads(row["correlation_json"] or "{}"),
                 "created_at": row["created_at"],
             }
             for row in rows

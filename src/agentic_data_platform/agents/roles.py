@@ -303,6 +303,18 @@ class EvidenceAgent(BaseSpecialistAgent):
 
     def run(self, context: AgentContext) -> tuple[AgentResult, list[EvidenceRecord]]:
         records: list[EvidenceRecord] = []
+        correlation = {
+            "incident_id": context.incident_id,
+            "batch_id": context.scenario.signals.get("batch_id") or f"{context.scenario.scenario_id}-batch",
+            "airflow_run_id": context.scenario.signals.get("airflow_run_id") or f"proving-ground::{context.scenario.scenario_id}",
+            "logical_date": context.scenario.signals.get("logical_date"),
+            "source_watermark": context.scenario.signals.get("persisted_watermark"),
+            "snowflake_query_id": context.scenario.signals.get("snowflake_query_id"),
+            "dbt_invocation_id": context.scenario.signals.get("dbt_invocation_id") or f"proving-ground::{context.scenario.scenario_id}",
+            "git_sha": context.scenario.signals.get("git_sha"),
+            "quality_run": context.scenario.signals.get("quality_run") or context.incident_id,
+            "certification": "FAILED",
+        }
         for item in context.scenario.comparisons:
             records.append(EvidenceRecord(
                 kind="reconciliation",
@@ -310,6 +322,7 @@ class EvidenceAgent(BaseSpecialistAgent):
                 summary=f"{item['pair']} reconciliation {item['status']}",
                 payload=dict(item),
                 tier=EvidenceTier.DIRECT_MEASUREMENT,
+                correlation=correlation,
             ))
         records.append(EvidenceRecord(
             kind="runtime_state",
@@ -317,6 +330,7 @@ class EvidenceAgent(BaseSpecialistAgent):
             summary="Captured orchestration states and failure signals.",
             payload=dict(context.scenario.signals),
             tier=EvidenceTier.RUNTIME_METADATA,
+            correlation=correlation,
         ))
         context.evidence.extend(records)
         result = self.result(

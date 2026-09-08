@@ -69,12 +69,29 @@ class AgentPolicy:
 
 
 @dataclass(frozen=True)
+class AgentTelemetry:
+    provider: str = "deterministic"
+    model: str = "domain-service"
+    prompt_version: str = "deterministic-v1"
+    input_tokens: int = 0
+    output_tokens: int = 0
+    tool_call_count: int = 0
+    duration_ms: float = 0.0
+    retries: int = 0
+    cost_usd: float = 0.0
+    evidence_generated: int = 0
+    handoffs: tuple[str, ...] = ()
+    invocation_id: str = field(default_factory=lambda: new_id("agent_invocation"))
+
+
+@dataclass(frozen=True)
 class EvidenceRecord:
     kind: str
     source: str
     summary: str
     payload: dict[str, Any]
     tier: EvidenceTier = EvidenceTier.DIRECT_MEASUREMENT
+    correlation: dict[str, Any] = field(default_factory=dict)
     evidence_id: str = field(default_factory=lambda: new_id("evidence"))
     created_at: str = field(default_factory=utc_now)
 
@@ -114,6 +131,7 @@ class AgentResult:
     next_recommended_action: str = ""
     observations: dict[str, Any] = field(default_factory=dict)
     tools_used: tuple[str, ...] = ()
+    telemetry: AgentTelemetry = field(default_factory=AgentTelemetry)
     result_id: str = field(default_factory=lambda: new_id("agent_result"))
     created_at: str = field(default_factory=utc_now)
 
