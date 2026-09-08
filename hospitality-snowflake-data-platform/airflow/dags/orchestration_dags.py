@@ -73,3 +73,71 @@ with DAG(
     ]
     for upstream, downstream in pairwise(sequence):
         upstream >> downstream
+
+
+# Business-domain dependency chains model real cross-DAG ordering rather than treating
+# the 40 ingestion DAGs as an unrelated fan-out.
+with DAG(
+    "hospitality_business_dependency_master",
+    start_date=START_DATE,
+    schedule=None,
+    catchup=False,
+    max_active_runs=1,
+    tags=["hospitality", "dependency", "business"],
+) as hospitality_business_dependency_master:
+    property_master = TriggerDagRunOperator(
+        task_id="property_master",
+        trigger_dag_id="01_oracle_property_master_ingest",
+        wait_for_completion=True,
+    )
+    room_inventory = TriggerDagRunOperator(
+        task_id="room_inventory",
+        trigger_dag_id="02_oracle_room_inventory_ingest",
+        wait_for_completion=True,
+    )
+    rate_calendar = TriggerDagRunOperator(
+        task_id="rate_calendar",
+        trigger_dag_id="04_oracle_rate_calendar_ingest",
+        wait_for_completion=True,
+    )
+
+    guest_profile = TriggerDagRunOperator(
+        task_id="guest_profile",
+        trigger_dag_id="05_oracle_guest_profile_ingest",
+        wait_for_completion=True,
+    )
+    reservation = TriggerDagRunOperator(
+        task_id="reservation",
+        trigger_dag_id="07_oracle_reservation_header_ingest",
+        wait_for_completion=True,
+    )
+    folio = TriggerDagRunOperator(
+        task_id="folio",
+        trigger_dag_id="11_oracle_folio_ingest",
+        wait_for_completion=True,
+    )
+    payment = TriggerDagRunOperator(
+        task_id="payment",
+        trigger_dag_id="28_postgres_payment_transaction_ingest",
+        wait_for_completion=True,
+    )
+    settlement = TriggerDagRunOperator(
+        task_id="settlement",
+        trigger_dag_id="39_file_payment_settlement_ingest",
+        wait_for_completion=True,
+    )
+
+    booking_attempt = TriggerDagRunOperator(
+        task_id="booking_attempt",
+        trigger_dag_id="26_postgres_booking_attempt_ingest",
+        wait_for_completion=True,
+    )
+    booking_confirmation = TriggerDagRunOperator(
+        task_id="booking_confirmation",
+        trigger_dag_id="27_postgres_booking_confirmation_ingest",
+        wait_for_completion=True,
+    )
+
+    property_master >> room_inventory >> rate_calendar
+    guest_profile >> reservation >> folio >> payment >> settlement
+    booking_attempt >> booking_confirmation >> payment

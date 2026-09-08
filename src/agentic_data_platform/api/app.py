@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from agentic_data_platform.agents.planner import PlannerAgent
+from agentic_data_platform.agents import InvestigationStore, SupervisorAgent
 from agentic_data_platform.models import ActorMode, ApprovalRecord, Environment, ProjectRecord, RunRecord, ToolRequest
 from agentic_data_platform.persistence.sqlite import SQLiteControlPlaneRepository
 from agentic_data_platform.sql.parser import parse_sql
@@ -71,6 +72,15 @@ class ReconcileRowCountInput(BaseModel):
 
 class AgentQueryInput(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
+
+
+class InvestigationApprovalInput(BaseModel):
+    approved_by: str = Field(min_length=1, max_length=200)
+
+
+class InvestigationRejectInput(BaseModel):
+    rejected_by: str = Field(min_length=1, max_length=200)
+    reason: str = Field(default="operator rejected remediation", min_length=1, max_length=1000)
 
 
 class ArgsInput(BaseModel):
@@ -159,6 +169,11 @@ def _quality_database() -> Path:
     return Path(configured).expanduser().resolve() if configured else _program_root() / ".ade" / "quality.db"
 
 
+def _investigation_database() -> Path:
+    configured = os.getenv("ADE_INVESTIGATION_DATABASE")
+    return Path(configured).expanduser().resolve() if configured else _program_root() / ".ade" / "agentic-investigations.db"
+
+
 def _shiftforge_fixture() -> Path:
     return _program_root() / "shiftforge" / "examples" / "revinate"
 
@@ -167,7 +182,9 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     repo = repository or SQLiteControlPlaneRepository(os.getenv("ADE_DATABASE_PATH", "ade.db"))
     repo.initialize()
     registry = build_tool_registry()
-    app = FastAPI(title="Agentic Data Engineering OS", version="0.4.0")
+    investigation_store = InvestigationStore(_investigation_database())
+    supervisor = SupervisorAgent(registry, investigation_store, _project_root())
+    app = FastAPI(title="Agentic Data Engineering OS", version="0.5.0")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=os.getenv("ADE_UI_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(","),
@@ -317,6 +334,60 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     @app.get("/api/v1/impact/{node}")
     def platform_impact(node: str, depth: int = 8) -> dict[str, Any]:
         return invoke_read("platform_impact", {**demo_project_args(), "node": node, "depth": depth})
+
+    @app.get("/api/v1/agents/roster")
+    def agent_roster() -> dict[str, Any]:
+        items = supervisor.roster()
+        return {"status": "PASS", "count": len(items), "agents": items}
+
+    @app.get("/api/v1/investigations/scenarios")
+    def investigation_scenarios() -> dict[str, Any]:
+        items = supervisor.scenarios()
+        return {"status": "PASS", "count": len(items), "scenarios": items}
+
+    @app.get("/api/v1/investigations")
+    def investigation_list(limit: int = 100) -> dict[str, Any]:
+        items = investigation_store.list_incidents(limit)
+        return {"status": "PASS", "count": len(items), "incidents": items}
+
+    @app.post("/api/v1/investigations/{scenario_id}/start")
+    def investigation_start(scenario_id: str) -> dict[str, Any]:
+        try:
+            report = supervisor.investigate(scenario_id)
+            return supervisor.public_report(report.incident_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.get("/api/v1/investigations/{incident_id}")
+    def investigation_detail(incident_id: str) -> dict[str, Any]:
+        try:
+            return supervisor.public_report(incident_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.post("/api/v1/investigations/{incident_id}/approve")
+    def investigation_approve(incident_id: str, payload: InvestigationApprovalInput) -> dict[str, Any]:
+        try:
+            return supervisor.approve(incident_id, approved_by=payload.approved_by)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/v1/investigations/{incident_id}/execute")
+    def investigation_execute(incident_id: str) -> dict[str, Any]:
+        try:
+            report = supervisor.execute_approved(incident_id)
+            return supervisor.public_report(report.incident_id)
+        except PermissionError as exc:
+            raise HTTPException(403, str(exc)) from exc
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/v1/investigations/{incident_id}/reject")
+    def investigation_reject(incident_id: str, payload: InvestigationRejectInput) -> dict[str, Any]:
+        try:
+            return supervisor.reject(incident_id, rejected_by=payload.rejected_by, reason=payload.reason)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @app.post("/api/v1/sql/review")
     def sql_review(payload: SqlWorkspaceInput) -> dict[str, Any]:

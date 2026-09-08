@@ -129,6 +129,39 @@ jobs:
           grep -q "Settings / Doctor" /tmp/console.html
 
 
+  agent-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: pytest -q tests/test_agentic_investigation.py
+      - run: ruff check src/agentic_data_platform/agents tests/test_agentic_investigation.py benchmarks/agentic scripts/demo-agentic-investigation.py
+
+  agent-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: python scripts/parse_dbt.py
+      - run: PYTHONPATH=src python scripts/demo-agentic-investigation.py
+
+  benchmark-agentic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: python scripts/parse_dbt.py
+      - run: PYTHONPATH=src python benchmarks/agentic/run.py
+
   airflow-static:
     runs-on: ubuntu-latest
     steps:

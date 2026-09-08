@@ -64,3 +64,34 @@ def test_reservation_alias_dags_are_declared() -> None:
         "postgres_payment_transaction_ingest", "postgres_refund_transaction_ingest", "hospitality_reservation_master",
     ):
         assert dag_id in text
+
+
+def test_hospitality_has_real_incremental_models() -> None:
+    project = Path(__file__).parents[1] / "dbt" / "models"
+    incremental = []
+    for path in project.rglob("*.sql"):
+        text = path.read_text(encoding="utf-8")
+        if "materialized='incremental'" in text and "is_incremental()" in text:
+            incremental.append(path.name)
+    assert "fact_reservation.sql" in incremental
+    assert "fact_payment.sql" in incremental
+    assert "mart_payment_reconciliation.sql" in incremental
+
+
+def test_business_dependency_master_models_cross_dag_ordering() -> None:
+    path = Path(__file__).parents[1] / "airflow" / "dags" / "orchestration_dags.py"
+    text = path.read_text(encoding="utf-8")
+    assert "hospitality_business_dependency_master" in text
+    for dag_id in (
+        "01_oracle_property_master_ingest",
+        "02_oracle_room_inventory_ingest",
+        "04_oracle_rate_calendar_ingest",
+        "05_oracle_guest_profile_ingest",
+        "07_oracle_reservation_header_ingest",
+        "11_oracle_folio_ingest",
+        "28_postgres_payment_transaction_ingest",
+        "39_file_payment_settlement_ingest",
+        "26_postgres_booking_attempt_ingest",
+        "27_postgres_booking_confirmation_ingest",
+    ):
+        assert dag_id in text

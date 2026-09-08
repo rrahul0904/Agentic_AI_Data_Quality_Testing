@@ -75,7 +75,7 @@ parity-summary:
 	-$(PYTHON) scripts/check_altimate_parity.py
 
 
-.PHONY: install typecheck test-unit test-integration test-airflow test-dbt test-providers test-ui benchmark-lineage benchmark-airflow demo-airflow parity airflow-parity final-audit verify ci
+.PHONY: install typecheck test-unit test-integration test-airflow test-dbt test-providers test-agentic test-ui benchmark-lineage benchmark-airflow benchmark-agentic demo-agentic demo-airflow parity airflow-parity final-audit verify ci
 
 install:
 	$(PYTHON) -m pip install -e '.[dev]'
@@ -95,6 +95,9 @@ test-dbt:
 test-providers:
 	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src $(PYTHON) -m pytest -q -p no:cacheprovider tests/test_providers.py tests/test_provider_control.py tests/test_provider_expanded.py
 
+test-agentic:
+	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src $(PYTHON) -m pytest -q -p no:cacheprovider tests/test_agentic_investigation.py
+
 test-ui:
 	cd $(WEB) && npm run typecheck && npm run build
 
@@ -103,6 +106,12 @@ benchmark-lineage:
 
 benchmark-airflow:
 	PYTHONPATH=src $(PYTHON) benchmarks/airflow/run.py
+
+benchmark-agentic:
+	PYTHONPATH=src $(PYTHON) benchmarks/agentic/run.py
+
+demo-agentic:
+	PYTHONPATH=src $(PYTHON) scripts/demo-agentic-investigation.py
 
 demo-airflow:
 	PYTHONPATH=src $(PYTHON) -m agentic_data_platform.cli airflow inventory --project $(HOSPITALITY)
@@ -115,7 +124,7 @@ airflow-parity:
 	PYTHONPATH=src $(PYTHON) scripts/check_parity_gate.py --ledger airflow
 	PYTHONPATH=src $(PYTHON) scripts/check_airflow_gate.py
 
-verify: lint typecheck test-unit test-integration test-airflow test-dbt test-providers test-hospitality shiftforge-test parity airflow-parity benchmark-lineage benchmark-airflow demo-smoke test-ui final-audit
+verify: lint typecheck test-unit test-integration test-airflow test-dbt test-providers test-agentic test-hospitality shiftforge-test parity airflow-parity benchmark-lineage benchmark-airflow benchmark-agentic demo-smoke test-ui final-audit
 
 ci: verify
 

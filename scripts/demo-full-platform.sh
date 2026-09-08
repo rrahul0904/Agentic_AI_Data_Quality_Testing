@@ -57,4 +57,6 @@ for label, method, path, body in checks:
 print("MASTER DEMO: PASS")
 PY
 
+PYTHONPATH="$ROOT/src" python scripts/demo-agentic-investigation.py
+
 bash scripts/demo-airflow.sh

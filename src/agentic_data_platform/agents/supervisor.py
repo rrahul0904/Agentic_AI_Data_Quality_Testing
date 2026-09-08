@@ -221,13 +221,25 @@ class SupervisorAgent:
         )
         return self._report(incident_id, scenario, results, evidence, hypotheses, plan)
 
-    def approve_and_execute(self, incident_id: str, *, approved_by: str) -> InvestigationReport:
+    def approve(self, incident_id: str, *, approved_by: str) -> dict[str, Any]:
+        """Record explicit human approval without executing the mutation."""
+        return self.store.approve(incident_id, approved_by=approved_by)
+
+    def reject(self, incident_id: str, *, rejected_by: str, reason: str = "operator rejected remediation") -> dict[str, Any]:
         incident = self.store.incident(incident_id)
-        scenario = get_scenario(incident["scenario_id"])
         if incident["state"] != IncidentState.AWAITING_APPROVAL.value:
             raise ValueError(f"incident is {incident['state']}, not AWAITING_APPROVAL")
-        self.store.approve(incident_id, approved_by=approved_by)
-        self.store.transition(incident_id, IncidentState.REMEDIATING, f"Remediation approved by {approved_by}.")
+        self.store.transition(incident_id, IncidentState.BLOCKED, f"{reason}; rejected by {rejected_by}.")
+        return {"incident_id": incident_id, "rejected": True, "rejected_by": rejected_by, "reason": reason}
+
+    def execute_approved(self, incident_id: str) -> InvestigationReport:
+        incident = self.store.incident(incident_id)
+        if incident["state"] != IncidentState.AWAITING_APPROVAL.value:
+            raise ValueError(f"incident is {incident['state']}, not AWAITING_APPROVAL")
+        if not incident["approved"]:
+            raise PermissionError("explicit human approval is required before remediation execution")
+        scenario = get_scenario(incident["scenario_id"])
+        self.store.transition(incident_id, IncidentState.REMEDIATING, "Approved remediation execution started.")
 
         remediation = self.store.remediation(incident_id)
         # Local proving-ground execution is explicit and never presented as live Snowflake/Airflow execution.
@@ -263,6 +275,11 @@ class SupervisorAgent:
         self.store.update_outcome(incident_id, certification="CERTIFIED")
         self.store.transition(incident_id, IncidentState.RESOLVED, "Affected assets independently re-certified.")
         return self.get_report(incident_id)
+
+    def approve_and_execute(self, incident_id: str, *, approved_by: str) -> InvestigationReport:
+        """Convenience method for CLI/demo flows; API keeps approval and execution separate."""
+        self.approve(incident_id, approved_by=approved_by)
+        return self.execute_approved(incident_id)
 
     def get_report(self, incident_id: str) -> InvestigationReport:
         incident = self.store.incident(incident_id)
