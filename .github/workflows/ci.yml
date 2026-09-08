@@ -25,6 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
       - uses: actions/setup-python@v5
         with:
@@ -43,6 +44,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
       - uses: actions/setup-python@v5
         with:
@@ -163,7 +165,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: release-readiness-${{ github.sha }}
+          name: release-readiness-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             artifacts/release-readiness.json
             artifacts/data-diff-benchmark-ci.json
