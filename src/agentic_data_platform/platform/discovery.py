@@ -197,11 +197,23 @@ class PlatformDiscovery:
         dbt_root = Path(base["project_dir"])
         project_file = dbt_root / "dbt_project.yml"
         project_yaml: dict[str, Any] = {}
+        diagnostics: list[dict[str, str]] = []
+        project_files = _find_files(self.root, "dbt_project.yml")
         if project_file.is_file():
             try:
                 project_yaml = yaml.safe_load(project_file.read_text(encoding="utf-8")) or {}
-            except (OSError, yaml.YAMLError):
-                project_yaml = {}
+            except OSError:
+                diagnostics.append({
+                    "code": "DBT_PROJECT_READ_ERROR",
+                    "path": str(project_file),
+                    "message": "dbt_project.yml could not be read",
+                })
+            except yaml.YAMLError:
+                diagnostics.append({
+                    "code": "DBT_PROJECT_YAML_INVALID",
+                    "path": str(project_file),
+                    "message": "dbt_project.yml is malformed YAML",
+                })
         profile_candidates = [dbt_root / "profiles.yml", Path.home() / ".dbt" / "profiles.yml"]
         profile_file = next((item for item in profile_candidates if item.is_file()), None)
         profile_name = project_yaml.get("profile")
@@ -214,8 +226,18 @@ class PlatformDiscovery:
                 target_name = profile.get("target")
                 target = (profile.get("outputs") or {}).get(target_name) or {}
                 adapter = target.get("type")
-            except (OSError, yaml.YAMLError, AttributeError):
-                pass
+            except OSError:
+                diagnostics.append({
+                    "code": "DBT_PROFILES_READ_ERROR",
+                    "path": str(profile_file),
+                    "message": "profiles.yml could not be read",
+                })
+            except (yaml.YAMLError, AttributeError):
+                diagnostics.append({
+                    "code": "DBT_PROFILES_YAML_INVALID",
+                    "path": str(profile_file),
+                    "message": "profiles.yml is malformed or has an invalid structure",
+                })
         files = {
             name: str(path) if path.exists() else None
             for name, path in {
@@ -241,6 +263,9 @@ class PlatformDiscovery:
             "target": target_name,
             "adapter": adapter,
             "files": files,
+            "project_count": len(project_files),
+            "projects": [str(item.parent) for item in project_files],
+            "diagnostics": diagnostics,
         }
 
     def _airflow_scan(self, project: Path) -> tuple[AirflowProject, list[Path]]:

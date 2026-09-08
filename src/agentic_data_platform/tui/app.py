@@ -14,6 +14,7 @@ from textual.widgets import Footer, Header, Input, ListItem, ListView, RichLog, 
 
 from agentic_data_platform.interface import AgenticService
 from agentic_data_platform.models import ActorMode
+from agentic_data_platform.security.redaction import redact, redact_string
 from agentic_data_platform.tui.commands import execute, help_text
 
 
@@ -21,6 +22,10 @@ NAVIGATION = (
     "Project", "SQL", "dbt", "Airflow", "Warehouses", "Lineage", "Quality",
     "Reconciliation", "Migration", "FinOps", "Governance", "Runs", "Traces", "Sessions",
 )
+
+
+def _format_user_error(exc: Exception) -> str:
+    return f"{type(exc).__name__}: {redact_string(str(exc))}"
 
 
 class AgenticApp(App[None]):
@@ -69,10 +74,7 @@ class AgenticApp(App[None]):
         log = self.query_one("#agent-log", RichLog)
         log.write("[b]Agentic Data Engineering OS[/b]")
         log.write("Scanning project...")
-        try:
-            log.write(self.service.discover_text())
-        except Exception as exc:
-            log.write(f"[red]Discovery error:[/red] {type(exc).__name__}: {exc}")
+        self._write_discovery(log)
         log.write("\n" + help_text())
         self._refresh_status()
         self.query_one("#prompt", Input).focus()
@@ -86,9 +88,16 @@ class AgenticApp(App[None]):
             f"Session: {status['session_id']} | Tools: {status['tool_count']}"
         )
 
+    def _write_discovery(self, log: RichLog | None = None) -> None:
+        target = log or self.query_one("#agent-log", RichLog)
+        try:
+            target.write(self.service.discover_text())
+        except Exception as exc:
+            target.write(f"[red]Discovery error:[/red] {_format_user_error(exc)}")
+
     def _render_json(self, value: Any) -> None:
         self.query_one("#agent-log", RichLog).write(
-            json.dumps(value, indent=2, default=str)
+            json.dumps(redact(value), indent=2, default=str)
         )
 
     def _render_event(self, event: dict[str, Any]) -> None:
@@ -104,9 +113,9 @@ class AgenticApp(App[None]):
         elif name == "approval.required":
             log.write(f"[bold yellow]Approval required:[/bold yellow] {event.get('tool')}")
         elif name == "generation.finished" and event.get("content"):
-            log.write(str(event["content"]))
+            log.write(redact_string(str(event["content"])))
         elif name == "session.finished" and event.get("status") == "ERROR":
-            log.write(f"[red]Agent error:[/red] {event.get('message')}")
+            log.write(f"[red]Agent error:[/red] {redact_string(str(event.get('message') or ''))}")
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         value = event.value.strip()
@@ -114,7 +123,7 @@ class AgenticApp(App[None]):
         if not value:
             return
         log = self.query_one("#agent-log", RichLog)
-        log.write(f"[bold]> {value}[/bold]")
+        log.write(f"[bold]> {redact_string(value)}[/bold]")
         if value.startswith("/"):
             try:
                 result = execute(value, self.service)
@@ -124,7 +133,7 @@ class AgenticApp(App[None]):
                 self._render_json(result)
                 self._refresh_status()
             except Exception as exc:
-                log.write(f"[red]{type(exc).__name__}: {exc}[/red]")
+                log.write(f"[red]{_format_user_error(exc)}[/red]")
             return
 
         def callback(payload: dict[str, Any]) -> None:
@@ -139,7 +148,7 @@ class AgenticApp(App[None]):
             if result.get("status") != "PASS":
                 self._render_json(result)
         except Exception as exc:
-            log.write(f"[red]{type(exc).__name__}: {exc}[/red]")
+            log.write(f"[red]{_format_user_error(exc)}[/red]")
         self._refresh_status()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
@@ -147,7 +156,7 @@ class AgenticApp(App[None]):
         self.query_one("#agent-log", RichLog).write(f"[b]{label}[/b] selected")
 
     def action_discover(self) -> None:
-        self.query_one("#agent-log", RichLog).write(self.service.discover_text())
+        self._write_discovery()
 
     def action_traces(self) -> None:
         self._render_json({"traces": self.service.traces(limit=25)})

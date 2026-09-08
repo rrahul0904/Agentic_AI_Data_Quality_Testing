@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime
 from numbers import Number
@@ -288,7 +289,8 @@ def _key_range(
     where: str | None,
 ) -> dict[str, Any]:
     result = connector.execute_read(
-        f"SELECT COUNT(*) AS __count, MIN({key}) AS __min, MAX({key}) AS __max "
+        f"SELECT COUNT(*) AS __count, MIN({key}) AS __min, MAX({key}) AS __max, "
+        f"SUM(CASE WHEN {key} IS NULL THEN 1 ELSE 0 END) AS __null_count "
         f"FROM {_safe_ref(table)}" + _where_clause(where)
     )
     row = result.rows[0]
@@ -296,6 +298,7 @@ def _key_range(
         "count": int(_value(row, "__count", 0) or 0),
         "min": _value(row, "__min"),
         "max": _value(row, "__max"),
+        "null_count": int(_value(row, "__null_count", 0) or 0),
     }
 
 
@@ -523,14 +526,16 @@ def hash_diff(
         right_rows = _hash_rows(target, target_table, keys, compare, part_where_target, max_partition_rows)
         query_count += 2
         hash_rows_retrieved += len(left_rows) + len(right_rows)
-        left_map = {
-            tuple(_value(row, item) for item in keys): str(_value(row, "__row_hash")).casefold()
-            for row in left_rows
-        }
-        right_map = {
-            tuple(_value(row, item) for item in keys): str(_value(row, "__row_hash")).casefold()
-            for row in right_rows
-        }
+        left_map: dict[tuple[Any, ...], Counter[str]] = {}
+        right_map: dict[tuple[Any, ...], Counter[str]] = {}
+        for row in left_rows:
+            item = tuple(_value(row, name) for name in keys)
+            digest = str(_value(row, "__row_hash")).casefold()
+            left_map.setdefault(item, Counter())[digest] += 1
+        for row in right_rows:
+            item = tuple(_value(row, name) for name in keys)
+            digest = str(_value(row, "__row_hash")).casefold()
+            right_map.setdefault(item, Counter())[digest] += 1
         left_keys, right_keys = set(left_map), set(right_map)
         missing.extend(sorted(left_keys - right_keys, key=str))
         extra.extend(sorted(right_keys - left_keys, key=str))
@@ -564,10 +569,26 @@ def hash_diff(
                 "query_count": query_count,
             }
 
+        if left_range["null_count"] or right_range["null_count"]:
+            partitions += 1
+            null_where = _and_where(where, f"{key} IS NULL")
+            left_sig, right_sig = signatures(null_where, null_where)
+            if left_sig["signature"] is not None and left_sig == right_sig:
+                eliminated_partitions += 1
+            else:
+                largest = max(left_sig["count"], right_sig["count"])
+                if largest > max_partition_rows:
+                    raise RuntimeError(
+                        f"HASH_DIFF cannot bound NULL-key partition below {largest} rows; "
+                        "use a non-null unique key or increase max_partition_rows"
+                    )
+                compare_bounded(null_where, null_where)
+
         minima = [value for value in (left_range["min"], right_range["min"]) if value is not None]
         maxima = [value for value in (left_range["max"], right_range["max"]) if value is not None]
-        lower, upper = min(minima), max(maxima)
-        stack: list[tuple[Any, Any, int, bool]] = [(lower, upper, 0, True)]
+        stack: list[tuple[Any, Any, int, bool]] = []
+        if minima and maxima:
+            stack.append((min(minima), max(maxima), 0, True))
         temporal = strategy == "TIMESTAMP_RANGE"
 
         while stack:
@@ -641,6 +662,9 @@ def hash_diff(
                 )
             stack.extend((prefix + char, depth + 1) for char in reversed(_HEX))
 
+    changed = sorted(set(changed), key=str)
+    missing = sorted(set(missing), key=str)
+    extra = sorted(set(extra), key=str)
     detail_keys = [*changed, *missing, *extra][:detail_limit]
     return {
         "algorithm": "HASH_DIFF",
@@ -709,20 +733,23 @@ def join_diff(
     columns = [*keys, *compare]
 
     if source is target:
-        join = " AND ".join(f"s.{key} = t.{key}" for key in keys)
+        join = " AND ".join(
+            f"(s.{key} = t.{key} OR (s.{key} IS NULL AND t.{key} IS NULL))"
+            for key in keys
+        )
         mismatch_terms = []
         for column in compare:
             mismatch_terms.append(
                 f"(s.{column} <> t.{column} OR (s.{column} IS NULL AND t.{column} IS NOT NULL) "
                 f"OR (s.{column} IS NOT NULL AND t.{column} IS NULL))"
             )
-        missing_test = f"t.{keys[0]} IS NULL"
-        extra_test = f"s.{keys[0]} IS NULL"
+        missing_test = "t.__target_present IS NULL"
+        extra_test = "s.__source_present IS NULL"
         changed_test = " OR ".join(mismatch_terms) if mismatch_terms else "FALSE"
         source_where = _where_clause(where)
         target_where = _where_clause(where)
-        source_query = f"(SELECT * FROM {_safe_ref(source_table)}{source_where})"
-        target_query = f"(SELECT * FROM {_safe_ref(target_table)}{target_where})"
+        source_query = f"(SELECT *, 1 AS __source_present FROM {_safe_ref(source_table)}{source_where})"
+        target_query = f"(SELECT *, 1 AS __target_present FROM {_safe_ref(target_table)}{target_where})"
         selected_keys = ", ".join(f"COALESCE(s.{key}, t.{key}) AS {key}" for key in keys)
         sql = (
             f"SELECT {selected_keys}, CASE WHEN {missing_test} THEN 'MISSING' "

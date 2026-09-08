@@ -90,3 +90,33 @@ def test_discovery_handles_broken_dbt_configuration_without_crashing(tmp_path: P
     assert result["dbt"]["found"] is True
     assert result["dbt"]["project_name"] is None
     assert result["dbt"]["models"] == 1
+    codes = {item["code"] for item in result["dbt"]["diagnostics"]}
+    assert "DBT_PROJECT_YAML_INVALID" in codes
+    assert "DBT_PROFILES_YAML_INVALID" in codes
+
+
+def test_discovery_reports_multiple_nested_dbt_projects(tmp_path: Path):
+    for name in ("analytics/core", "analytics/finance"):
+        root = tmp_path / name
+        (root / "models").mkdir(parents=True)
+        (root / "dbt_project.yml").write_text(
+            f"name: {name.replace('/', '_')}\nprofile: analytics\n"
+        )
+        (root / "models" / "model.sql").write_text("select 1 as id")
+    result = PlatformDiscovery(tmp_path).discover()
+    assert result["dbt"]["found"] is True
+    assert result["dbt"]["project_count"] == 2
+    assert len(result["dbt"]["projects"]) == 2
+
+
+def test_discovery_ignores_dependency_and_cache_directories(tmp_path: Path):
+    ignored = tmp_path / "node_modules" / "vendor"
+    ignored.mkdir(parents=True)
+    (ignored / "dbt_project.yml").write_text("name: ignored\n")
+    usable = tmp_path / "analytics"
+    (usable / "models").mkdir(parents=True)
+    (usable / "dbt_project.yml").write_text("name: usable\nprofile: usable\n")
+    (usable / "models" / "model.sql").write_text("select 1")
+    result = PlatformDiscovery(tmp_path).discover()
+    assert result["dbt"]["project_count"] == 1
+    assert result["dbt"]["project_name"] == "usable"
