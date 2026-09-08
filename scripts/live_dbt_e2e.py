@@ -223,6 +223,7 @@ models:
                 "incremental_materialization": "PASS",
                 "selective_selector": "fact_payment",
                 "selective_rerun": "PASS",
+                "selective_command_exit_code": selective["exit_code"],
                 "selected_nodes": selected_nodes,
                 "raw_seed_rows": 4,
                 "fact_rows": int(count),
