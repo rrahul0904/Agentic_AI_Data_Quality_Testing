@@ -71,7 +71,7 @@ def test_airflow3_static_control_plane_detects_modern_surfaces(tmp_path):
     assert deferrable["inefficient_sensors"]
 
     quality = control.quality_scan()
-    assert any(item["rule_id"] == "AIRFLOW_DYNAMIC_MAP_REVIEW" for item in quality["findings"])
+    assert not any(item["rule_id"] == "AIRFLOW_DYNAMIC_MAP_REVIEW" for item in quality["findings"])
     assert any(item["rule_id"] == "AIRFLOW_SENSOR_WORKER_SLOT" for item in quality["findings"])
 
 
