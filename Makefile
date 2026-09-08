@@ -93,10 +93,10 @@ test-dbt:
 	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src $(PYTHON) -m pytest -q -p no:cacheprovider tests/test_dbt_runtime.py tests/test_dbt_validators.py tests/test_dbt_test_generation.py
 
 test-providers:
-	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src $(PYTHON) -m pytest -q -p no:cacheprovider tests/test_providers.py tests/test_provider_control.py tests/test_provider_expanded.py
+	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src $(PYTHON) -m pytest -q -p no:cacheprovider tests/test_providers.py tests/test_provider_control.py tests/test_provider_expanded.py tests/test_provider_tool_messages.py
 
 test-agentic:
-	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src $(PYTHON) -m pytest -q -p no:cacheprovider tests/test_agentic_investigation.py
+	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src $(PYTHON) -m pytest -q -p no:cacheprovider tests/test_agent*.py tests/test_ground_truth_isolation.py tests/test_proactive_agentic_monitoring.py tests/test_quality_agentic_primitives.py tests/test_selective_recovery.py tests/test_asset_certification.py tests/test_cross_system_impact_graph.py tests/test_mapping_transformation_agents.py
 
 test-ui:
 	cd $(WEB) && npm run typecheck && npm run build
