@@ -537,9 +537,24 @@ class RCAAgent(BaseSpecialistAgent):
         ("BUSINESS_COMPLETENESS_ANOMALY", "Business completeness degraded while orchestration remained green."),
     )
 
-    def _supported_name(self, context: AgentContext) -> str:
-        s = context.scenario.signals
-        failed_pair = first_divergence(context.scenario.comparisons) or ""
+    @staticmethod
+    def _evidence_inputs(context: AgentContext) -> tuple[dict[str, Any], tuple[dict[str, Any], ...]]:
+        signals: dict[str, Any] = {}
+        comparisons: list[dict[str, Any]] = []
+        for item in context.evidence:
+            if item.kind == "runtime_state":
+                signals.update(item.payload)
+            elif item.kind == "reconciliation":
+                comparisons.append(dict(item.payload))
+        return signals, tuple(comparisons)
+
+    @staticmethod
+    def _supported_name(
+        signals: dict[str, Any],
+        comparisons: tuple[dict[str, Any], ...],
+    ) -> str:
+        s = signals
+        failed_pair = first_divergence(comparisons) or ""
         if s.get("warehouse_error") and "privilege" in str(s["warehouse_error"]).casefold():
             return "SNOWFLAKE_PERMISSION_DENIED"
         if s.get("compile_error"):
@@ -572,7 +587,11 @@ class RCAAgent(BaseSpecialistAgent):
             return "DBT_TEST_FAILURE"
         if s.get("revenue_variance", 0):
             return "REVENUE_TRANSFORMATION_MISMATCH"
-        if s.get("persisted_watermark") and s.get("extracted_max_timestamp") and s["persisted_watermark"] > s["extracted_max_timestamp"]:
+        if (
+            s.get("persisted_watermark")
+            and s.get("extracted_max_timestamp")
+            and s["persisted_watermark"] > s["extracted_max_timestamp"]
+        ):
             return "WATERMARK_ADVANCED_BEYOND_EXTRACT"
         if (
             s.get("airflow_state") == "SUCCESS"
@@ -585,7 +604,8 @@ class RCAAgent(BaseSpecialistAgent):
         return "INSUFFICIENT_EVIDENCE"
 
     def run(self, context: AgentContext) -> tuple[AgentResult, list[AgentHypothesis]]:
-        supported_name = self._supported_name(context)
+        signals, comparisons = self._evidence_inputs(context)
+        supported_name = self._supported_name(signals, comparisons)
         evidence_ids = tuple(item.evidence_id for item in context.evidence)
         hypotheses: list[AgentHypothesis] = []
         for name, statement in self._HYPOTHESES:
@@ -599,19 +619,20 @@ class RCAAgent(BaseSpecialistAgent):
                 () if status is HypothesisStatus.SUPPORTED else evidence_ids[:1],
             ))
         context.shared["root_cause"] = supported_name
-        context.shared["first_divergence"] = first_divergence(context.scenario.comparisons)
+        context.shared["first_divergence"] = first_divergence(comparisons)
         result = self.result(
             status="DIAGNOSED" if supported_name != "INSUFFICIENT_EVIDENCE" else "UNVERIFIED",
             claim=supported_name,
             confidence=0.96 if supported_name != "INSUFFICIENT_EVIDENCE" else 0.0,
             context=context,
-            reasoning="Competing hypotheses are evaluated against direct reconciliation and runtime signals; rejected candidates remain auditable.",
+            reasoning="Competing hypotheses are evaluated only from persisted reconciliation and runtime evidence; rejected candidates remain auditable.",
             next_action="Calculate downstream blast radius before proposing any mutation.",
             evidence_ids=evidence_ids,
             observations={
                 "first_divergence": context.shared["first_divergence"],
                 "supported_hypothesis": supported_name,
                 "hypothesis_count": len(hypotheses),
+                "evidence_input_count": len(context.evidence),
             },
         )
         return result, hypotheses
