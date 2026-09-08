@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - altimate-full-parity
+      - main
 
 jobs:
   github-review:
