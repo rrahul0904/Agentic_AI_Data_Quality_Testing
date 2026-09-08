@@ -18,6 +18,18 @@ jobs:
       - run: PYTHONPATH=src pytest -q tests/quality/test_data_diff_benchmark.py
       - run: PYTHONPATH=src python benchmarks/data_diff/run.py --sizes 10000,100000 --output artifacts/data-diff-benchmark-ci.json
 
+  local-full:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'bench: run full data diff scale suite'
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: PYTHONPATH=src python benchmarks/data_diff/run.py --output artifacts/data-diff-benchmark-full.json
+
   external-100m:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
