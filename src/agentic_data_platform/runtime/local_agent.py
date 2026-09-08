@@ -9,6 +9,7 @@ from typing import Any
 from agentic_data_platform.knowledge import extract_document
 from agentic_data_platform.models import ActorMode
 from agentic_data_platform.providers import ProviderRegistry
+from agentic_data_platform.security.redaction import redact_string
 from agentic_data_platform.runtime.agent import AgentRuntime
 from agentic_data_platform.runtime.context import ContextManager
 from agentic_data_platform.runtime.context_sources import ContextSourceManager
@@ -110,16 +111,21 @@ def ingest_document(
         content_type=content_type,
         max_bytes=int(os.getenv("ADE_KNOWLEDGE_UPLOAD_MAX_BYTES", "20000000")),
     )
+    safe_text = redact_string(extracted.text)
+    metadata = {
+        **extracted.metadata,
+        "secrets_redacted": safe_text != extracted.text,
+    }
     result = training_store(root).ingest_text(
         extracted.source,
-        extracted.text,
+        safe_text,
         source_type=extracted.source_type,
-        metadata=extracted.metadata,
+        metadata=metadata,
     )
     return {
         **result,
         "source_type": extracted.source_type,
-        "metadata": extracted.metadata,
+        "metadata": metadata,
     }
 
 
