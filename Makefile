@@ -73,3 +73,47 @@ altimate-parity:
 
 parity-summary:
 	-$(PYTHON) scripts/check_altimate_parity.py
+
+
+.PHONY: install typecheck test-unit test-integration test-airflow test-dbt test-providers test-ui benchmark-lineage benchmark-airflow demo-airflow parity airflow-parity verify ci
+
+install:
+	$(PYTHON) -m pip install -e '.[dev]'
+
+typecheck: frontend-typecheck
+
+test-unit: unit-test
+
+test-integration: integration-test
+
+test-airflow:
+	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src $(PYTHON) -m pytest -q -p no:cacheprovider tests/test_airflow_control_plane.py tests/integration/test_airflow_full_surface.py
+
+test-dbt:
+	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src $(PYTHON) -m pytest -q -p no:cacheprovider tests/test_dbt_runtime.py tests/test_dbt_validators.py tests/test_dbt_test_generation.py
+
+test-providers:
+	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src $(PYTHON) -m pytest -q -p no:cacheprovider tests/test_providers.py tests/test_provider_control.py tests/test_provider_expanded.py
+
+test-ui:
+	cd $(WEB) && npm run typecheck && npm run build
+
+benchmark-lineage:
+	PYTHONPATH=src $(PYTHON) benchmarks/lineage/run.py
+
+benchmark-airflow:
+	PYTHONPATH=src $(PYTHON) benchmarks/airflow/run.py
+
+demo-airflow:
+	PYTHONPATH=src $(PYTHON) -m agentic_data_platform.cli airflow inventory --project $(HOSPITALITY)
+
+parity:
+	PYTHONPATH=src $(PYTHON) scripts/check_parity_gate.py --ledger altimate
+	PYTHONPATH=src $(PYTHON) scripts/altimate_parity_evidence.py
+
+airflow-parity:
+	PYTHONPATH=src $(PYTHON) scripts/check_parity_gate.py --ledger airflow
+
+verify: lint test-unit test-integration test-airflow test-dbt test-providers parity airflow-parity benchmark-lineage benchmark-airflow
+
+ci: verify test-ui

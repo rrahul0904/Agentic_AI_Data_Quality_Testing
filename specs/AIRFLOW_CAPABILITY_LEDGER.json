@@ -1,0 +1,2058 @@
+{
+  "schema_version": 1,
+  "target_branch": "altimate-full-parity",
+  "target_airflow": "3.x semantics with 2.x compatibility",
+  "status_counts": {
+    "DONE": 82,
+    "PARTIAL": 0,
+    "MISSING": 0,
+    "SKIP_EXTERNAL": 15,
+    "NOT_APPLICABLE": 0
+  },
+  "allowed_statuses": [
+    "DONE",
+    "PARTIAL",
+    "MISSING",
+    "SKIP_EXTERNAL",
+    "NOT_APPLICABLE"
+  ],
+  "entries": [
+    {
+      "capability": "airflow_asset_consumers",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_asset_consumers",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_asset_dependencies",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_asset_dependencies",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_asset_events",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_asset_events",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_asset_inventory",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_asset_inventory",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_asset_lineage",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_asset_lineage",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_asset_partition_analysis",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_asset_partition_analysis",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_asset_producers",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_asset_producers",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_asset_watchers",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_asset_watchers",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_backfill_analysis",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_backfill_analysis",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_backfill_dry_run",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_backfill_dry_run",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_backfill_execute",
+      "status": "SKIP_EXTERNAL",
+      "our_path": "src/agentic_data_platform/airflow_compat/runtime.py",
+      "our_symbol": "ToolRegistry:airflow_backfill_execute",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": "Live Airflow API endpoint/credentials are not available in repository CI"
+    },
+    {
+      "capability": "airflow_backfill_plan",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_backfill_plan",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_backfill_risk",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_backfill_risk",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_bundle_drift",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_bundle_drift",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_bundle_inventory",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_bundle_inventory",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_bundle_security",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_bundle_security",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_bundle_versions",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_bundle_versions",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_capacity_plan",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_capacity_plan",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_clear",
+      "status": "SKIP_EXTERNAL",
+      "our_path": "src/agentic_data_platform/airflow_compat/runtime.py",
+      "our_symbol": "ToolRegistry:airflow_clear",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": "Live Airflow API endpoint/credentials are not available in repository CI"
+    },
+    {
+      "capability": "airflow_concurrency_analysis",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_concurrency_analysis",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_connection_analysis",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_connection_analysis",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_connection_impact",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_connection_impact",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_connections_used",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_connections_used",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_cross_system_lineage",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_cross_system_lineage",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_dag_details",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_dag_details",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_dag_lineage",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_dag_lineage",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_dag_processor_health",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_dag_processor_health",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_deadline_analysis",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_deadline_analysis",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_deadline_health",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_deadline_health",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_deferrable_analysis",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_deferrable_analysis",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_dependencies",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_dependencies",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_deployment_readiness",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_deployment_readiness",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_doctor",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_doctor",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_duplicate_dags",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_duplicate_dags",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_duration_analysis",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_duration_analysis",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_dynamic_mapping_analysis",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_dynamic_mapping_analysis",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_event_schedule_analysis",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_event_schedule_analysis",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_event_stalls",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_event_stalls",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_executor_analysis",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_executor_analysis",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_failed_dags",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_failed_dags",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_failed_tasks",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_failed_tasks",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_failure_lab",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_failure_lab",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_failure_summary",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_failure_summary",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_graph",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_graph",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_health",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_health",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_import_errors",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_import_errors",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_inventory",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_inventory",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_log_errors",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_log_errors",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_log_root_cause",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_log_root_cause",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_log_summary",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_log_summary",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_mapping_cardinality",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_mapping_cardinality",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_mapping_risk",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_mapping_risk",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_openlineage_events",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_openlineage_events",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_openlineage_graph",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_openlineage_graph",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_openlineage_status",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_openlineage_status",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_parse_health",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_parse_health",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_parse_performance",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_parse_performance",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_pause",
+      "status": "SKIP_EXTERNAL",
+      "our_path": "src/agentic_data_platform/airflow_compat/runtime.py",
+      "our_symbol": "ToolRegistry:airflow_pause",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": "Live Airflow API endpoint/credentials are not available in repository CI"
+    },
+    {
+      "capability": "airflow_pipeline_health",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_pipeline_health",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_pipeline_root_cause",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_pipeline_root_cause",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_pool_analysis",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_pool_analysis",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_pool_health",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_pool_health",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_quality_scan",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_quality_scan",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_queue_analysis",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_queue_analysis",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_queue_health",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_queue_health",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_retry_analysis",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_retry_analysis",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_retry_policy_analysis",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_retry_policy_analysis",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_retry_storms",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_retry_storms",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_root_cause",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_root_cause",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_runtime_assets",
+      "status": "SKIP_EXTERNAL",
+      "our_path": "src/agentic_data_platform/airflow_compat/runtime.py",
+      "our_symbol": "ToolRegistry:airflow_runtime_assets",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": "Live Airflow API endpoint/credentials are not available in repository CI"
+    },
+    {
+      "capability": "airflow_runtime_dag_runs",
+      "status": "SKIP_EXTERNAL",
+      "our_path": "src/agentic_data_platform/airflow_compat/runtime.py",
+      "our_symbol": "ToolRegistry:airflow_runtime_dag_runs",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": "Live Airflow API endpoint/credentials are not available in repository CI"
+    },
+    {
+      "capability": "airflow_runtime_dags",
+      "status": "SKIP_EXTERNAL",
+      "our_path": "src/agentic_data_platform/airflow_compat/runtime.py",
+      "our_symbol": "ToolRegistry:airflow_runtime_dags",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": "Live Airflow API endpoint/credentials are not available in repository CI"
+    },
+    {
+      "capability": "airflow_runtime_import_errors",
+      "status": "SKIP_EXTERNAL",
+      "our_path": "src/agentic_data_platform/airflow_compat/runtime.py",
+      "our_symbol": "ToolRegistry:airflow_runtime_import_errors",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": "Live Airflow API endpoint/credentials are not available in repository CI"
+    },
+    {
+      "capability": "airflow_runtime_logs",
+      "status": "SKIP_EXTERNAL",
+      "our_path": "src/agentic_data_platform/airflow_compat/runtime.py",
+      "our_symbol": "ToolRegistry:airflow_runtime_logs",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": "Live Airflow API endpoint/credentials are not available in repository CI"
+    },
+    {
+      "capability": "airflow_runtime_readiness",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/runtime.py",
+      "our_symbol": "ToolRegistry:airflow_runtime_readiness",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_runtime_task_instances",
+      "status": "SKIP_EXTERNAL",
+      "our_path": "src/agentic_data_platform/airflow_compat/runtime.py",
+      "our_symbol": "ToolRegistry:airflow_runtime_task_instances",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": "Live Airflow API endpoint/credentials are not available in repository CI"
+    },
+    {
+      "capability": "airflow_schedule_analysis",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_schedule_analysis",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_scheduler_health",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_scheduler_health",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_sdk_compatibility",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_sdk_compatibility",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_secret_risk",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_secret_risk",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_sensor_efficiency",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_sensor_efficiency",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_task_graph",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_task_graph",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_task_lineage",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_task_lineage",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_task_root_cause",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_task_root_cause",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_trigger",
+      "status": "SKIP_EXTERNAL",
+      "our_path": "src/agentic_data_platform/airflow_compat/runtime.py",
+      "our_symbol": "ToolRegistry:airflow_trigger",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": "Live Airflow API endpoint/credentials are not available in repository CI"
+    },
+    {
+      "capability": "airflow_triggerer_health",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_triggerer_health",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_unpause",
+      "status": "SKIP_EXTERNAL",
+      "our_path": "src/agentic_data_platform/airflow_compat/runtime.py",
+      "our_symbol": "ToolRegistry:airflow_unpause",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": "Live Airflow API endpoint/credentials are not available in repository CI"
+    },
+    {
+      "capability": "airflow_upgrade_analysis",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_upgrade_analysis",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_upgrade_findings",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_upgrade_findings",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_variables_used",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_variables_used",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_worker_health",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_worker_health",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_xcom_analysis",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_xcom_analysis",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_xcom_risk",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_xcom_risk",
+      "api_surface": "/api/v1/airflow/* and /tools/{tool_name}",
+      "cli_surface": "agentic-data-platform airflow ... or tool ...",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "registered through ToolRegistry",
+        "dependency-free static fixtures or injectable mocked REST transport",
+        "permission checks cover mutating runtime tools"
+      ],
+      "external_dependency": null
+    },
+    {
+      "capability": "airflow_deployment_mwaa",
+      "status": "SKIP_EXTERNAL",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "AirflowControlPlane deployment/openlineage readiness",
+      "api_surface": "/api/v1/airflow/operations",
+      "cli_surface": "agentic-data-platform airflow doctor",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "configuration/readiness implementation exists",
+        "local deterministic tests exist",
+        "live connectivity is the only skipped portion"
+      ],
+      "external_dependency": "AWS MWAA account/credentials"
+    },
+    {
+      "capability": "airflow_deployment_composer",
+      "status": "SKIP_EXTERNAL",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "AirflowControlPlane deployment/openlineage readiness",
+      "api_surface": "/api/v1/airflow/operations",
+      "cli_surface": "agentic-data-platform airflow doctor",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "configuration/readiness implementation exists",
+        "local deterministic tests exist",
+        "live connectivity is the only skipped portion"
+      ],
+      "external_dependency": "Google Cloud Composer project/credentials"
+    },
+    {
+      "capability": "airflow_deployment_astronomer",
+      "status": "SKIP_EXTERNAL",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "AirflowControlPlane deployment/openlineage readiness",
+      "api_surface": "/api/v1/airflow/operations",
+      "cli_surface": "agentic-data-platform airflow doctor",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "configuration/readiness implementation exists",
+        "local deterministic tests exist",
+        "live connectivity is the only skipped portion"
+      ],
+      "external_dependency": "Astronomer workspace/credentials"
+    },
+    {
+      "capability": "airflow_runtime_openlineage",
+      "status": "SKIP_EXTERNAL",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "AirflowControlPlane deployment/openlineage readiness",
+      "api_surface": "/api/v1/airflow/operations",
+      "cli_surface": "agentic-data-platform airflow doctor",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "configuration/readiness implementation exists",
+        "local deterministic tests exist",
+        "live connectivity is the only skipped portion"
+      ],
+      "external_dependency": "OpenLineage backend/runtime"
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "repository": "AltimateAI/altimate-code",
+  "branch": "main",
+  "commit": "ec475f46ba0a4ce6bcfbed33cebacf31ad45a455",
+  "refreshed_at": "2026-09-08T00:33:00Z",
+  "source": "GitHub Git tree API",
+  "counts": {
+    "skills": 21,
+    "tools": 79,
+    "native": 35,
+    "session": 32,
+    "provider": 12,
+    "mcp": 8,
+    "validators": 7
+  },
+  "key_paths": [
+    "packages/opencode/src/altimate/tools/",
+    "packages/opencode/src/altimate/native/",
+    "packages/opencode/src/session/",
+    "packages/opencode/src/provider/",
+    "packages/opencode/src/mcp/",
+    ".opencode/skills/"
+  ]
+}

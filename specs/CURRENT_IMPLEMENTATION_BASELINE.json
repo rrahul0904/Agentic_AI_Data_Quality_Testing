@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "branch": "altimate-full-parity",
+  "commit": "94dc6ef55907bcb089845c9678d82aeb35571871",
+  "captured_before_this_implementation": true,
+  "upstream_altimate_sha": "ec475f46ba0a4ce6bcfbed33cebacf31ad45a455",
+  "runtimes": {
+    "python": [
+      "3.11",
+      "3.12"
+    ],
+    "node": "22",
+    "dbt": "dbt-snowflake >=1.9,<2 (dev)",
+    "airflow": "optional; static analysis does not require Airflow import"
+  },
+  "package_version": "0.3.0",
+  "counts": {
+    "tracked_paths": 713,
+    "tool_registry": 285,
+    "test_files": 46,
+    "api_routes": 117,
+    "provider_adapters": 17,
+    "builtin_skills": 21,
+    "warehouse_targets": 12,
+    "airflow_dags_hospitality": 55,
+    "dbt_models_hospitality": 70
+  },
+  "external_integration_state": "Credential-dependent live systems are optional and must report SKIP_EXTERNAL rather than fabricated success."
+}
