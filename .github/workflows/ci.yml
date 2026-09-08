@@ -8,100 +8,102 @@ on:
     branches:
       - main
 
-# Do not let superseded commits consume the entire Actions queue.
-# A new push/PR update cancels the older run for the same ref.
+permissions:
+  contents: read
+
+# Latest commit wins. The previous matrix requested ~28 hosted runners per push
+# and created a large stale queue during rapid release hardening.
 concurrency:
   group: integrated-platform-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  python:
-    name: python-${{ matrix.python-version }}
+  python-3-11:
+    name: Python 3.11 compatibility
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.12"]
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.11"
+          cache: pip
       - run: python -m pip install -e '.[dev]'
       - run: python scripts/parse_dbt.py
       - run: pytest -q tests integration/e2e-tests
-      - run: ruff check src tests integration/e2e-tests
+      - run: ruff check src tests integration/e2e-tests scripts
 
-  frontend:
+  release-3-12:
+    name: Python 3.12 release certification
+    needs: python-3-11
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
-      - run: npm ci
-        working-directory: apps/web
-      - run: npm run typecheck
-        working-directory: apps/web
-      - run: npm run build
+
+      - name: Install Python projects
+        run: |
+          python -m pip install -e '.[dev]'
+          python -m pip install -e './shiftforge[dev]'
+          python -m pip install -e './hospitality-snowflake-data-platform[dev]'
+
+      - name: Install operator console
+        run: npm ci
         working-directory: apps/web
 
-  node:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - run: npm test
+      - name: Parse dbt artifacts
+        run: python scripts/parse_dbt.py
+
+      - name: Run canonical release verification
+        run: make verify
+
+      - name: Verify Node deterministic harness
         working-directory: local-data-harness
-      - run: npm run quality
-        working-directory: local-data-harness
+        run: |
+          npm test
+          npm run quality
 
-  hospitality:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-        working-directory: hospitality-snowflake-data-platform
-      - run: pytest -q
-        working-directory: hospitality-snowflake-data-platform
+      - name: Verify Airflow 3 contract explicitly
+        env:
+          ADE_AIRFLOW_VERSION: "3.3.0"
+        run: |
+          pytest -q tests/test_airflow_control_plane.py tests/integration/test_airflow_full_surface.py
+          bash scripts/demo-airflow.sh
 
-  shiftforge:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-        working-directory: shiftforge
-      - run: pytest -q
-        working-directory: shiftforge
+      - name: Run bounded Data Diff scale smoke
+        run: |
+          PYTHONPATH=src pytest -q tests/quality/test_data_diff_benchmark.py tests/quality/test_live_data_diff_100m.py
+          PYTHONPATH=src python benchmarks/data_diff/run.py \
+            --sizes 10000,100000 \
+            --output artifacts/data-diff-benchmark-ci.json
 
-  demo-smoke:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - run: python -m pip install -e '.[dev]'
-      - run: python -m pip install -e './shiftforge[dev]'
-      - run: npm ci
-        working-directory: apps/web
-      - run: python scripts/parse_dbt.py
-      - run: PYTHONPATH=src ADE_QUALITY_DATABASE="$PWD/.ade/quality.db" python scripts/init_demo_evidence.py
-      - run: npm run build
-        working-directory: apps/web
-      - name: Run operator-console smoke test
+      - name: Verify wheel outside repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/wheel
+          python -m pip wheel . --no-deps -w artifacts/wheel
+          python -m pip install --force-reinstall --no-deps artifacts/wheel/*.whl
+          (
+            cd /tmp
+            python -c "import agentic_data_platform; print(agentic_data_platform.__file__)"
+            agentic-data-platform --help
+          )
+
+      - name: Run operator-console smoke
         shell: bash
         run: |
           set -euo pipefail
@@ -110,26 +112,44 @@ jobs:
           export ADE_DEMO_PROJECT="$PWD/hospitality-snowflake-data-platform"
           export ADE_QUALITY_DATABASE="$PWD/.ade/quality.db"
           export ADE_DATABASE_PATH="$PWD/.ade/control-plane.db"
+
+          PYTHONPATH=src ADE_QUALITY_DATABASE="$ADE_QUALITY_DATABASE" python scripts/init_demo_evidence.py
           python -m uvicorn agentic_data_platform.api.app:app --host 127.0.0.1 --port 8001 > /tmp/ade-api.log 2>&1 &
           API_PID=$!
-          (cd apps/web && NEXT_PUBLIC_ADE_API_URL=http://127.0.0.1:8001 npm run start -- --hostname 127.0.0.1 --port 3000 > /tmp/ade-web.log 2>&1) &
+          (
+            cd apps/web
+            NEXT_PUBLIC_ADE_API_URL=http://127.0.0.1:8001 npm run start -- --hostname 127.0.0.1 --port 3000 > /tmp/ade-web.log 2>&1
+          ) &
           WEB_PID=$!
           trap 'kill $API_PID $WEB_PID 2>/dev/null || true' EXIT
-          for i in $(seq 1 40); do
-            if curl -fsS http://127.0.0.1:8001/api/v1/overview > /tmp/overview.json && curl -fsS http://127.0.0.1:3000 > /tmp/console.html; then
+
+          ready=false
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8001/api/v1/overview > /tmp/overview.json \
+              && curl -fsS http://127.0.0.1:3000 > /tmp/console.html; then
+              ready=true
               break
             fi
             sleep 0.5
           done
+          if [ "$ready" != "true" ]; then
+            echo "API log:"
+            cat /tmp/ade-api.log || true
+            echo "Web log:"
+            cat /tmp/ade-web.log || true
+            exit 1
+          fi
+
           python - <<'PY'
           import json
-          data=json.load(open('/tmp/overview.json'))
-          assert data['counts']['oracle_tables'] == 144
-          assert data['counts']['postgres_tables'] == 157
-          assert data['counts']['airflow_dags'] >= 57
-          assert data['counts']['dbt_models'] == 70
-          assert data['counts']['tools'] >= 50
+          data = json.load(open("/tmp/overview.json"))
+          assert data["counts"]["oracle_tables"] == 144
+          assert data["counts"]["postgres_tables"] == 157
+          assert data["counts"]["airflow_dags"] >= 57
+          assert data["counts"]["dbt_models"] == 70
+          assert data["counts"]["tools"] >= 50
           PY
+
           curl -fsS http://127.0.0.1:8001/api/v1/airflow/assets >/dev/null
           curl -fsS http://127.0.0.1:8001/api/v1/providers >/dev/null
           curl -fsS http://127.0.0.1:8001/api/v1/skills/catalog >/dev/null
@@ -138,290 +158,14 @@ jobs:
           grep -q "Providers" /tmp/console.html
           grep -q "Settings / Doctor" /tmp/console.html
 
+      - name: Generate exact-head release evidence
+        run: PYTHONPATH=src python scripts/generate_release_evidence.py --ci-status PASS_CI
 
-  agent-unit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-      - run: python scripts/parse_dbt.py
-      - run: pytest -q tests/test_agent*.py tests/test_ground_truth_isolation.py tests/test_proactive_agentic_monitoring.py tests/test_quality_agentic_primitives.py tests/test_selective_recovery.py tests/test_asset_certification.py tests/test_cross_system_impact_graph.py tests/test_mapping_transformation_agents.py tests/test_rca_evidence_grounding.py
-      - run: ruff check src/agentic_data_platform/agents tests/test_agent*.py tests/test_ground_truth_isolation.py tests/test_proactive_agentic_monitoring.py tests/test_quality_agentic_primitives.py tests/test_selective_recovery.py tests/test_asset_certification.py tests/test_cross_system_impact_graph.py tests/test_mapping_transformation_agents.py tests/test_rca_evidence_grounding.py benchmarks/agentic scripts/demo-agentic-investigation.py
-
-  agent-e2e:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-      - run: python scripts/parse_dbt.py
-      - run: PYTHONPATH=src python scripts/demo-agentic-investigation.py
-
-  benchmark-agentic:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-      - run: python scripts/parse_dbt.py
-      - run: PYTHONPATH=src python benchmarks/agentic/run.py
-
-  airflow-static:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-      - run: pytest -q tests/test_airflow_control_plane.py tests/integration/test_airflow_full_surface.py
-      - run: PYTHONPATH=src python benchmarks/airflow/run.py
-
-  parity-ledger:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-      - run: PYTHONPATH=src python scripts/check_parity_gate.py --ledger all
-      - run: PYTHONPATH=src python scripts/altimate_parity_evidence.py
-
-  benchmark-lineage:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-      - run: PYTHONPATH=src python benchmarks/lineage/run.py
-
-  benchmark-airflow:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-      - run: PYTHONPATH=src python benchmarks/airflow/run.py
-
-  fresh-clone:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-      - run: agentic-data-platform --help
-      - run: python scripts/parse_dbt.py
-      - run: pytest -q tests/integration/test_fresh_clone.py tests/integration/test_full_parity.py
-      - run: bash scripts/demo-full-platform.sh
-
-
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-      - run: ruff check src tests integration/e2e-tests scripts
-
-  dbt:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-      - run: python scripts/parse_dbt.py
-      - run: pytest -q tests/test_dbt_runtime.py tests/test_dbt_validators.py tests/test_dbt_test_generation.py tests/test_dbt_pr_review.py
-
-  airflow-3:
-    runs-on: ubuntu-latest
-    env:
-      ADE_AIRFLOW_VERSION: "3.3.0"
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-      - run: pytest -q tests/test_airflow_control_plane.py tests/integration/test_airflow_full_surface.py
-      - run: bash scripts/demo-airflow.sh
-
-  providers:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-      - run: pytest -q tests/test_providers.py tests/test_provider_control.py tests/test_provider_expanded.py tests/test_provider_tool_messages.py
-
-  integration:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-      - run: python scripts/parse_dbt.py
-      - run: pytest -q tests/integration integration/e2e-tests
-
-  airflow-ledger:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-      - run: PYTHONPATH=src python scripts/check_parity_gate.py --ledger airflow
-      - run: PYTHONPATH=src python scripts/check_airflow_gate.py
-
-
-
-  conformance:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-      - run: python scripts/parse_dbt.py
-      - run: PYTHONPATH=src python scripts/run_conformance.py
-      - run: PYTHONPATH=src python scripts/generate_parity_ledger_v2.py
-      - run: pytest -q tests/conformance
-
-  certification:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-      - run: PYTHONPATH=src python scripts/run_certification.py
-      - run: pytest -q tests/certification
-
-  final-audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-      - run: python scripts/final_acceptance_audit.py
-      - run: pytest -q tests/test_final_acceptance_audit.py
-
-
-  security:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-      - run: pytest -q tests/tracing tests/tui/test_service.py
-      - run: python scripts/final_acceptance_audit.py
-      - run: ruff check src/agentic_data_platform/security src/agentic_data_platform/tracing src/agentic_data_platform/tui tests/tracing tests/tui
-
-  review:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-      - run: python scripts/parse_dbt.py
-      - run: pytest -q tests/review tests/test_dbt_pr_review.py
-
-  tui:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-      - run: pytest -q tests/tui
-      - run: python -c "from agentic_data_platform.tui.app import build_parser; assert build_parser().parse_args(['--project','.']).project == '.'"
-
-  packaging:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev]'
-      - run: python -m pip wheel . --no-deps -w /tmp/ade-wheel
-      - run: python -m pip install --force-reinstall --no-deps /tmp/ade-wheel/*.whl
-      - run: cd /tmp && python -c "import agentic_data_platform; print(agentic_data_platform.__file__)"
-      - run: cd /tmp && agentic-data-platform --help
-
-  release-closure:
-    needs:
-      - python
-      - frontend
-      - node
-      - hospitality
-      - shiftforge
-      - demo-smoke
-      - agent-unit
-      - agent-e2e
-      - benchmark-agentic
-      - airflow-static
-      - parity-ledger
-      - benchmark-lineage
-      - benchmark-airflow
-      - fresh-clone
-      - lint
-      - dbt
-      - airflow-3
-      - providers
-      - integration
-      - airflow-ledger
-      - conformance
-      - certification
-      - final-audit
-      - security
-      - review
-      - tui
-      - packaging
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: PYTHONPATH=src python scripts/generate_release_evidence.py --ci-status PASS_CI
       - uses: actions/upload-artifact@v4
         with:
           name: release-readiness-${{ github.sha }}
-          path: artifacts/release-readiness.json
+          path: |
+            artifacts/release-readiness.json
+            artifacts/data-diff-benchmark-ci.json
+            artifacts/wheel/*
           if-no-files-found: error

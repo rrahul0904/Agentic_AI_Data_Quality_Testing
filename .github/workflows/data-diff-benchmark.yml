@@ -2,9 +2,20 @@ name: data-diff-benchmark
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
+    inputs:
+      run_full_local:
+        description: Run the complete local 10K through 10M benchmark
+        required: true
+        type: boolean
+        default: true
+      run_external_100m:
+        description: Run the configured external 100M+ certification
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
 
 concurrency:
   group: data-diff-benchmark-${{ github.ref }}
@@ -19,13 +30,15 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e '.[dev]'
-      - run: PYTHONPATH=src pytest -q tests/quality/test_data_diff_benchmark.py
+      - run: PYTHONPATH=src pytest -q tests/quality/test_data_diff_benchmark.py tests/quality/test_live_data_diff_100m.py
       - run: PYTHONPATH=src python benchmarks/data_diff/run.py --sizes 10000,100000 --output artifacts/data-diff-benchmark-ci.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: data-diff-smoke-${{ github.sha }}
+          path: artifacts/data-diff-benchmark-ci.json
 
   local-full:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      startsWith(github.event.head_commit.message, 'bench: run full data diff scale suite')
+    if: inputs.run_full_local
     timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
@@ -35,9 +48,14 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -e '.[dev]'
       - run: PYTHONPATH=src python benchmarks/data_diff/run.py --output artifacts/data-diff-benchmark-full.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: data-diff-full-${{ github.sha }}
+          path: artifacts/data-diff-benchmark-full.json
 
   external-100m:
-    if: github.event_name == 'workflow_dispatch'
+    if: inputs.run_external_100m
+    timeout-minutes: 90
     runs-on: ubuntu-latest
     env:
       ADE_DATA_DIFF_SOURCE_PLATFORM: ${{ vars.ADE_DATA_DIFF_SOURCE_PLATFORM }}

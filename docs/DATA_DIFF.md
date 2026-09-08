@@ -38,10 +38,10 @@ Peak process RSS was approximately 158 MB for that recorded local run. Runtime/R
 PYTHONPATH=src python benchmarks/data_diff/run.py
 ```
 
-Push CI intentionally runs only 10K/100K. A release benchmark commit or workflow dispatch activates full 10K→10M.
+Automatic release CI runs 10K/100K as a bounded scale smoke on the exact candidate SHA. The separate `data-diff-benchmark` workflow is manual and can run the complete 10K→10M suite without creating a runner on every push.
 
 ## 100M+ harness
 
-`scripts/live_data_diff_100m.py` is a read-only external harness. It requires both sides to have at least 100,000,000 rows and records row counts, runtime, partition strategy, partition/query counts, rows transferred, and diff status.
+`scripts/live_data_diff_100m.py` is a read-only external harness. It requires both sides to have at least 100,000,000 rows, explicit expected changed/missing/extra counts, warehouse pushdown, zero raw-row transfer, and successful bounded execution before it can report `LIVE_VERIFIED_100M_PLUS`.
 
-Without configured qualifying external targets its truthful state is `SKIP_EXTERNAL` / `NOT_RUN`. A runnable harness is not a passed certification.
+The external 100M+ job is opt-in through the manually dispatched Data Diff workflow. Without configured qualifying external targets and expectations its truthful state is `SKIP_EXTERNAL` / `NOT_RUN`; a runnable harness is not a passed certification.
