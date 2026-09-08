@@ -2,9 +2,12 @@ name: live-review-e2e
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
+
+# Live review delivery mutates an external Git provider. It is intentionally
+# opt-in rather than consuming runners on every repository push.
+concurrency:
+  group: live-review-e2e-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   github-review:
