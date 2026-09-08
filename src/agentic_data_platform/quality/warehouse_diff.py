@@ -5,8 +5,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
-from itertools import product
+from datetime import date, datetime
 from numbers import Number
 from typing import Any, Iterable, Sequence
 

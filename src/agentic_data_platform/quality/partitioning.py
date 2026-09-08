@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, Sequence
 
-from agentic_data_platform.connectors.models import ColumnMetadata
 
 
 @dataclass(frozen=True)
