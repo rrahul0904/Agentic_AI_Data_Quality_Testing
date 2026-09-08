@@ -323,3 +323,95 @@ jobs:
       - run: python -m pip install -e '.[dev]'
       - run: python scripts/final_acceptance_audit.py
       - run: pytest -q tests/test_final_acceptance_audit.py
+
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: pytest -q tests/tracing tests/tui/test_service.py
+      - run: python scripts/final_acceptance_audit.py
+      - run: ruff check src/agentic_data_platform/security src/agentic_data_platform/tracing src/agentic_data_platform/tui tests/tracing tests/tui
+
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: python scripts/parse_dbt.py
+      - run: pytest -q tests/review tests/test_dbt_pr_review.py
+
+  tui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: pytest -q tests/tui
+      - run: python -c "from agentic_data_platform.tui.app import build_parser; assert build_parser().parse_args(['--project','.']).project == '.'"
+
+  packaging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m pip wheel . --no-deps -w /tmp/ade-wheel
+      - run: python -m pip install --force-reinstall --no-deps /tmp/ade-wheel/*.whl
+      - run: cd /tmp && python -c "import agentic_data_platform; print(agentic_data_platform.__file__)"
+      - run: cd /tmp && agentic-data-platform --help
+
+  release-closure:
+    needs:
+      - python
+      - frontend
+      - node
+      - hospitality
+      - shiftforge
+      - demo-smoke
+      - agent-unit
+      - agent-e2e
+      - benchmark-agentic
+      - airflow-static
+      - parity-ledger
+      - benchmark-lineage
+      - benchmark-airflow
+      - fresh-clone
+      - lint
+      - dbt
+      - airflow-3
+      - providers
+      - integration
+      - airflow-ledger
+      - conformance
+      - certification
+      - final-audit
+      - security
+      - review
+      - tui
+      - packaging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: PYTHONPATH=src python scripts/generate_release_evidence.py --ci-status PASS_CI
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-readiness-${{ github.sha }}
+          path: artifacts/release-readiness.json
+          if-no-files-found: error
