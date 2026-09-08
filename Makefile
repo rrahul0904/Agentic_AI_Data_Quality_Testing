@@ -125,7 +125,7 @@ airflow-parity:
 	PYTHONPATH=src $(PYTHON) scripts/check_parity_gate.py --ledger airflow
 	PYTHONPATH=src $(PYTHON) scripts/check_airflow_gate.py
 
-verify: lint typecheck test-unit test-integration test-airflow test-dbt test-providers test-agentic test-hospitality shiftforge-test parity airflow-parity benchmark-lineage benchmark-airflow benchmark-agentic demo-smoke test-ui final-audit
+verify: lint typecheck test-unit test-integration test-airflow test-dbt test-providers test-agentic test-hospitality shiftforge-test parity airflow-parity parity-v2 certification-local benchmark-lineage benchmark-airflow benchmark-agentic demo-smoke test-ui final-audit
 
 ci: verify
 
