@@ -47,6 +47,21 @@ type Transition = {
   created_at: string;
 };
 
+type Mapping = {
+  mapping_id: string;
+  source: string;
+  target: string;
+  mapping_type: string;
+};
+
+type Certification = {
+  certification_id: string;
+  asset: string;
+  status: string;
+  reason: string;
+  evidence_ids: string[];
+};
+
 type Investigation = {
   incident_id: string;
   scenario_id: string;
@@ -70,7 +85,26 @@ type Investigation = {
     requires_approval: boolean;
     status?: string;
     approved_by?: string | null;
+    arguments?: {
+      selective_recovery?: {
+        airflow_actions?: Array<{
+          system: string;
+          operation: string;
+          target: string;
+          arguments: Record<string, unknown>;
+          risk: string;
+          requires_approval: boolean;
+        }>;
+        dbt_selector?: string | null;
+        dbt_command?: string | null;
+        quality_rechecks?: string[];
+        certification_targets?: string[];
+        bounded?: boolean;
+      };
+    };
   };
+  mappings: Mapping[];
+  certifications: Certification[];
   verification_result: Record<string, unknown>;
 };
 
@@ -316,6 +350,48 @@ export default function InvestigationConsole() {
             </section>
           </div>
 
+          <div className="agentic-grid">
+            <section className="panel">
+              <header className="panel-head">
+                <div>
+                  <p className="eyebrow">SOURCE → TARGET</p>
+                  <h2>Persisted mappings</h2>
+                </div>
+              </header>
+              <div className="agentic-mappings">
+                {report.mappings.length > 0 ? report.mappings.map((item) => (
+                  <article key={item.mapping_id}>
+                    <span>{item.mapping_type.replaceAll("_", " ")}</span>
+                    <strong>{item.source}</strong>
+                    <b>→</b>
+                    <strong>{item.target}</strong>
+                  </article>
+                )) : <p>No persisted mappings.</p>}
+              </div>
+            </section>
+
+            <section className="panel">
+              <header className="panel-head">
+                <div>
+                  <p className="eyebrow">DATA PRODUCT TRUST</p>
+                  <h2>Asset certification</h2>
+                </div>
+              </header>
+              <div className="agentic-certifications">
+                {report.certifications.length > 0 ? report.certifications.map((item) => (
+                  <article key={item.certification_id}>
+                    <div>
+                      <strong>{item.asset}</strong>
+                      <span className={statusClass(item.status)}>{item.status}</span>
+                    </div>
+                    <p>{item.reason}</p>
+                    <small>{item.evidence_ids.length} evidence records</small>
+                  </article>
+                )) : <p>No certification records yet.</p>}
+              </div>
+            </section>
+          </div>
+
           <section className="panel agentic-remediation">
             <header className="panel-head">
               <div>
@@ -354,6 +430,33 @@ export default function InvestigationConsole() {
                   <span>Rollback</span>
                   <p>{report.remediation.rollback}</p>
                 </div>
+                {report.remediation.arguments?.selective_recovery && (
+                  <div className="wide agentic-recovery-plan">
+                    <span>Selective recovery plan</span>
+                    <div className="agentic-recovery-grid">
+                      <div>
+                        <small>dbt selector</small>
+                        <code>{report.remediation.arguments.selective_recovery.dbt_selector ?? "—"}</code>
+                      </div>
+                      <div>
+                        <small>dbt command</small>
+                        <code>{report.remediation.arguments.selective_recovery.dbt_command ?? "—"}</code>
+                      </div>
+                    </div>
+                    {(report.remediation.arguments.selective_recovery.airflow_actions ?? []).map((action, index) => (
+                      <div className="agentic-recovery-action" key={action.target + "-" + index}>
+                        <strong>{action.operation}</strong>
+                        <span>{action.target}</span>
+                        <small>{action.risk} · approval {action.requires_approval ? "required" : "not required"}</small>
+                      </div>
+                    ))}
+                    <div className="chip-list">
+                      {(report.remediation.arguments.selective_recovery.quality_rechecks ?? []).map((item) => (
+                        <span key={item}>{item}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             ) : <p>No remediation proposed.</p>}
           </section>

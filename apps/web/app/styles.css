@@ -123,3 +123,24 @@ h1{font-size:30px;letter-spacing:-1px;margin:5px 0 0}h2{font-size:17px;letter-sp
 .agentic-mode-note{font-size:9px;color:#7c8983;padding:0 2px 15px}
 @media(max-width:1100px){.agentic-roster{grid-template-columns:repeat(4,1fr)}.agentic-kpis{grid-template-columns:repeat(3,1fr)}.agentic-grid{grid-template-columns:1fr}.agentic-hero{display:block}.agentic-runner{margin-top:14px;min-width:0}}
 @media(max-width:760px){.agentic-roster{grid-template-columns:repeat(2,1fr)}.agentic-kpis{grid-template-columns:repeat(2,1fr)}.agentic-runner{display:grid}.agentic-plan{grid-template-columns:1fr}.agentic-plan .wide{grid-column:auto}.agentic-transitions>div{grid-template-columns:1fr auto 1fr}.agentic-transitions small{grid-column:1/-1}}
+
+.agentic-mappings,.agentic-certifications{display:grid;gap:7px}
+.agentic-mappings article{display:grid;grid-template-columns:110px 1fr 18px 1fr;gap:8px;align-items:center;border-bottom:1px solid #edf1ef;padding:8px 0}
+.agentic-mappings article>span{font-size:8px;text-transform:uppercase;color:#7f8b85}
+.agentic-mappings article>strong{font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.agentic-mappings article>b{text-align:center;color:#6f7d76}
+.agentic-certifications article{border:1px solid #e3e9e5;border-radius:7px;padding:9px}
+.agentic-certifications article>div{display:flex;justify-content:space-between;gap:8px}
+.agentic-certifications strong{font-size:9px}
+.agentic-certifications span{font-size:8px;font-weight:800}
+.agentic-certifications p{font-size:9px;margin:4px 0;color:#617069;line-height:1.45}
+.agentic-certifications small{font-size:8px;color:#8b9691}
+.agentic-recovery-plan{background:#f7faf8}
+.agentic-recovery-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}
+.agentic-recovery-grid>div{display:grid;gap:4px}
+.agentic-recovery-grid code{font-size:9px;white-space:normal;overflow-wrap:anywhere}
+.agentic-recovery-action{display:grid;grid-template-columns:150px 1fr auto;gap:8px;align-items:center;border-top:1px solid #e2e9e5;padding:7px 0}
+.agentic-recovery-action strong{font-size:9px}
+.agentic-recovery-action>span{font-size:9px;text-transform:none;color:#35453e}
+.agentic-recovery-action small{font-size:8px;color:#7c8882}
+@media(max-width:760px){.agentic-mappings article{grid-template-columns:1fr}.agentic-mappings article>b{display:none}.agentic-recovery-grid{grid-template-columns:1fr}.agentic-recovery-action{grid-template-columns:1fr}}
