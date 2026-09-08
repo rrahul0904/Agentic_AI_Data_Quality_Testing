@@ -16,9 +16,10 @@ from agentic_data_platform.platform.discovery import PlatformDiscovery
 from agentic_data_platform.platform.doctor import run_doctor
 from agentic_data_platform.platform.graph import PlatformAssetGraph
 from agentic_data_platform.quality.reconciliation import (
-    reconcile_aggregate, reconcile_duplicates, reconcile_freshness, reconcile_nulls,
-    reconcile_primary_keys, reconcile_row_count,
+    reconcile_aggregate, reconcile_bucket_hash, reconcile_duplicates, reconcile_freshness,
+    reconcile_hash, reconcile_nulls, reconcile_primary_keys, reconcile_row_count,
 )
+from agentic_data_platform.quality.anomaly import detect_pipeline_anomalies
 from agentic_data_platform.quality.data_diff import (
     aggregate_diff as data_diff_aggregate_impl,
     data_diff_report as data_diff_report_impl,
@@ -954,6 +955,9 @@ def build_tool_registry() -> ToolRegistry:
     add("reconcile_nulls", Capability.VERIFY, lambda a: reconcile_nulls(a["source_nulls"], a["target_nulls"], absolute_tolerance=a.get("absolute_tolerance", 0), percentage_tolerance=a.get("percentage_tolerance", 0)), "Compare null counts.")
     add("reconcile_freshness", Capability.VERIFY, lambda a: reconcile_freshness(a["source_timestamp"], a["target_timestamp"], tolerance_seconds=a.get("tolerance_seconds", 0)), "Compare source and target freshness.")
     add("reconcile_aggregate", Capability.VERIFY, lambda a: reconcile_aggregate(a["source_value"], a["target_value"], aggregate=a.get("aggregate", "sum"), absolute_tolerance=a.get("absolute_tolerance", 0), percentage_tolerance=a.get("percentage_tolerance", 0)), "Compare aggregate values.")
+    add("reconcile_hash", Capability.VERIFY, lambda a: reconcile_hash(a["source_rows"], a["target_rows"], columns=a.get("columns")), "Compare deterministic canonical dataset hashes.")
+    add("reconcile_bucket_hash", Capability.VERIFY, lambda a: reconcile_bucket_hash(a["source_rows"], a["target_rows"], key_column=a["key_column"], bucket_count=int(a.get("bucket_count", 64)), columns=a.get("columns")), "Compare deterministic key buckets and return mismatched buckets for bounded drill-down.")
+    add("quality_anomaly_detect", Capability.VERIFY, lambda a: detect_pipeline_anomalies(a.get("signals", a)), "Detect proactive deterministic quality anomalies even when Airflow/dbt are green.", platforms=frozenset({Platform.LOCAL}))
 
     add("quality_summary", Capability.VERIFY, lambda a: _quality(a).summary(), "Summarize persisted local quality and reconciliation evidence.", platforms=frozenset({Platform.LOCAL}))
     add("quality_recent", Capability.VERIFY, lambda a: {"items": _quality(a).recent_results(int(a.get("limit", 50)))}, "Return recent local data-quality evidence.", platforms=frozenset({Platform.LOCAL}))
