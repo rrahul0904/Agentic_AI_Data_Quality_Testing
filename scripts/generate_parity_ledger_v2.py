@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +30,7 @@ def conformance_index(path: Path) -> dict[str, list[str]]:
 
 def transform(ledger: dict[str, Any], behavioral: dict[str, list[str]]) -> dict[str, Any]:
     entries = []
-    for item in ledger.get("entries", ()):
+    for index, item in enumerate(ledger.get("entries", ()), 1):
         legacy = str(item.get("status") or "")
         implemented = legacy not in {"MISSING", "NOT_APPLICABLE"}
         unit_verified = bool(item.get("tests"))
@@ -47,7 +48,17 @@ def transform(ledger: dict[str, Any], behavioral: dict[str, list[str]]) -> dict[
         })
         external = item.get("external_dependency")
         live_verified: bool | None = None if not external else False
+        if not implemented:
+            status = "FAIL"
+        elif external:
+            status = "SKIP_EXTERNAL"
+        elif unit_verified and behavioral_ids:
+            status = "PASS_LOCAL"
+        else:
+            status = "PARTIAL"
+        capability_id = item.get("capability_id") or item.get("id") or f"PARITY-{index:04d}"
         entries.append({
+            "capability_id": capability_id,
             "feature": item.get("reference_tool_name") or item.get("reference_symbol") or item.get("reference_path"),
             "reference_area": item.get("reference_category"),
             "reference_path": item.get("reference_path"),
@@ -62,6 +73,16 @@ def transform(ledger: dict[str, Any], behavioral: dict[str, list[str]]) -> dict[
             "behavioral_test_ids": behavioral_ids,
             "external_requirements": [external] if external else [],
             "legacy_status": legacy,
+            "status": status,
+            "expected_behavior": item.get("expected_behavior") or item.get("reference_tool_name") or item.get("reference_symbol") or item.get("reference_path"),
+            "evidence": {
+                "implementation": item.get("our_path"),
+                "tests": list(item.get("tests") or ()),
+                "behavioral_tests": behavioral_ids,
+            },
+            "external_dependency": external,
+            "last_certified_sha": os.getenv("ADE_LAST_CERTIFIED_SHA"),
+            "evidence_sha": os.getenv("GITHUB_SHA"),
         })
     return {
         "schema_version": 3,
@@ -99,16 +120,18 @@ def write_markdown(result: dict[str, Any], path: Path) -> None:
     )
     lines.extend([
         "",
-        "| Feature | I | U | B | L |",
-        "|---|:---:|:---:|:---:|:---:|",
+        "| Capability | Feature | Status | Implemented | Unit | Behavioral | Live | External |",
+        "|---|---|---|:---:|:---:|:---:|:---:|---|",
     ])
     for item in result["entries"]:
-        live = "N/A" if item["live_verified"] is None else ("✅" if item["live_verified"] else "⏭")
+        live = "N/A" if item["live_verified"] is None else ("YES" if item["live_verified"] else "NO")
         feature = str(item["feature"]).replace("|", "/")
+        external = str(item.get("external_dependency") or "").replace("|", "/")
         lines.append(
-            f"| {feature} | {'✅' if item['implemented'] else '❌'} | "
-            f"{'✅' if item['unit_verified'] else '⚠️'} | "
-            f"{'✅' if item['behaviorally_verified'] else '⚠️'} | {live} |"
+            f"| {item['capability_id']} | {feature} | {item['status']} | "
+            f"{'YES' if item['implemented'] else 'NO'} | "
+            f"{'YES' if item['unit_verified'] else 'NO'} | "
+            f"{'YES' if item['behaviorally_verified'] else 'NO'} | {live} | {external} |"
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
