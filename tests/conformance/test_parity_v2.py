@@ -46,3 +46,37 @@ def test_external_requirement_does_not_become_live_verified():
     item = _module().transform(source, {})["entries"][0]
     assert item["implemented"] is True
     assert item["live_verified"] is False
+
+
+def test_parity_v2_exposes_explicit_status_and_evidence_fields():
+    source = {
+        "entries": [{
+            "id": "CAP-1",
+            "reference_tool_name": "discover",
+            "our_path": "src/discovery.py",
+            "tests": ["tests/test_discovery.py"],
+            "status": "DONE",
+            "external_dependency": None,
+        }]
+    }
+    item = _module().transform(source, {"discover": ["DISCOVER-1"]})["entries"][0]
+    assert item["capability_id"] == "CAP-1"
+    assert item["status"] == "PASS_LOCAL"
+    assert item["evidence"]["implementation"] == "src/discovery.py"
+    assert item["evidence"]["behavioral_tests"] == ["DISCOVER-1"]
+
+
+def test_parity_v2_external_capability_is_never_plain_pass_without_live_evidence():
+    source = {
+        "entries": [{
+            "id": "CAP-LIVE",
+            "reference_symbol": "github_review",
+            "our_path": "src/review.py",
+            "tests": ["tests/test_review.py"],
+            "status": "DONE",
+            "external_dependency": "ADE_REVIEW_GITHUB_TOKEN",
+        }]
+    }
+    item = _module().transform(source, {"github_review": ["REVIEW-1"]})["entries"][0]
+    assert item["status"] == "SKIP_EXTERNAL"
+    assert item["live_verified"] is False
