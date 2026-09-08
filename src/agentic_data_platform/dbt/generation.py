@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections import Counter
+import importlib.metadata
+import re
 from typing import Any, Mapping, Sequence
 
 import sqlglot
@@ -175,14 +177,137 @@ def _logic_categories(sql: str, dialect: str) -> list[str]:
     return list(dict.fromkeys(categories)) or ["baseline"]
 
 
+def _version_tuple(value: str) -> tuple[int, int, int]:
+    parts = [int(item) for item in re.findall(r"\d+", value)[:3]]
+    return tuple((parts + [0, 0, 0])[:3])
+
+
+def _dbt_version(manifest: Mapping[str, Any]) -> str:
+    value = str((manifest.get("metadata") or {}).get("dbt_version") or "")
+    if value:
+        return value
+    try:
+        return importlib.metadata.version("dbt-core")
+    except importlib.metadata.PackageNotFoundError:
+        return "0.0.0"
+
+
+def _incremental_analysis(node: Mapping[str, Any], sql: str) -> dict[str, Any]:
+    config = dict(node.get("config") or {})
+    materialized = str(config.get("materialized") or "")
+    raw = str(node.get("raw_code") or node.get("raw_sql") or sql)
+    unique_key = config.get("unique_key")
+    keys = [unique_key] if isinstance(unique_key, str) else list(unique_key or ())
+    strategy = str(config.get("incremental_strategy") or "default")
+    predicates = list(config.get("incremental_predicates") or ())
+    is_incremental = materialized == "incremental" or bool(
+        re.search(r"\bis_incremental\s*\(\s*\)", raw)
+    )
+    return {
+        "is_incremental": is_incremental,
+        "materialized": materialized,
+        "uses_is_incremental_macro": bool(re.search(r"\bis_incremental\s*\(\s*\)", raw)),
+        "unique_key": keys,
+        "incremental_strategy": strategy,
+        "merge": strategy in {"default", "merge"},
+        "delete_insert": strategy in {"delete+insert", "delete_insert"},
+        "insert_overwrite": strategy == "insert_overwrite",
+        "microbatch": strategy == "microbatch",
+        "incremental_predicates": predicates,
+        "on_schema_change": config.get("on_schema_change"),
+    }
+
+
+_INCREMENTAL_SCENARIOS = (
+    "new_records",
+    "existing_unchanged_records",
+    "updated_records",
+    "late_arriving_records",
+    "duplicate_unique_keys",
+    "null_unique_keys",
+    "incremental_cutoff_boundary",
+    "outside_incremental_predicate",
+    "schema_change",
+)
+
+
+def _set_key(row: dict[str, Any], key: str | None, value: Any) -> dict[str, Any]:
+    result = dict(row)
+    if key and key in result:
+        result[key] = value
+    return result
+
+
+def _incremental_test(
+    node: Mapping[str, Any],
+    dependency_ids: Sequence[str],
+    nodes: Mapping[str, Mapping[str, Any]],
+    output_columns: Mapping[str, Mapping[str, Any]],
+    scenario: str,
+    index: int,
+    unique_key: str | None,
+) -> dict[str, Any]:
+    existing = {
+        name: _type_value(metadata.get("data_type"), 1 + position)
+        for position, (name, metadata) in enumerate(output_columns.items())
+    }
+    existing = _set_key(existing, unique_key, 1)
+    incoming_id = 2 if scenario == "new_records" else 1
+    given = [{"input": "this", "rows": [existing]}]
+
+    for dependency_id in dependency_ids:
+        dependency = nodes[dependency_id]
+        row = {
+            name: _type_value(metadata.get("data_type"), index + position + 2)
+            for position, (name, metadata) in enumerate(_columns(dependency).items())
+        }
+        row = _set_key(row, unique_key, incoming_id)
+        if scenario == "null_unique_keys":
+            row = _set_key(row, unique_key, None)
+        given.append({"input": _ref_for(dependency_id, dependency), "rows": [row]})
+
+    expected = {
+        name: _type_value(metadata.get("data_type"), index + position + 2)
+        for position, (name, metadata) in enumerate(output_columns.items())
+    }
+    expected = _set_key(expected, unique_key, incoming_id)
+    if scenario == "null_unique_keys":
+        expected = _set_key(expected, unique_key, None)
+
+    notes = {
+        "new_records": "Exercise a key absent from the existing target.",
+        "existing_unchanged_records": "Exercise an existing key whose business values are unchanged.",
+        "updated_records": "Exercise an existing unique key with changed incoming values.",
+        "late_arriving_records": "Exercise a record arriving behind the normal ingestion watermark.",
+        "duplicate_unique_keys": "Exercise repeated incoming unique keys; materialization-level deduplication still requires integration verification.",
+        "null_unique_keys": "Exercise NULL unique-key behavior explicitly.",
+        "incremental_cutoff_boundary": "Exercise a record exactly on the incremental cutoff boundary.",
+        "outside_incremental_predicate": "Exercise a record outside configured incremental predicates.",
+        "schema_change": "Exercise schema-change assumptions; adapter on_schema_change behavior requires dbt build verification.",
+    }
+    if scenario == "duplicate_unique_keys" and len(given) > 1:
+        given[1]["rows"].append(dict(given[1]["rows"][0]))
+    return {
+        "name": f"{node.get('name')}_incremental_{scenario}",
+        "model": str(node.get("name")),
+        "description": notes[scenario],
+        "overrides": {"macros": {"is_incremental": True}},
+        "given": given,
+        "expect": {"rows": [expected]},
+    }
+
+
 def generate_unit_tests(
     manifest: Mapping[str, Any],
     model: str,
     *,
     dialect: str = "snowflake",
-    max_scenarios: int = 3,
+    max_scenarios: int = 12,
 ) -> dict[str, Any]:
     model_id, node = _resolve_model(manifest, model)
+    version = _dbt_version(manifest)
+    if _version_tuple(version) < (1, 8, 0):
+        raise ValueError(f"dbt unit tests require dbt >= 1.8; detected {version}")
     sql = str(node.get("compiled_code") or node.get("compiled_sql") or "")
     if not sql:
         raise ValueError(f"compiled SQL unavailable for {model}")
@@ -197,6 +322,7 @@ def generate_unit_tests(
 
     categories = _logic_categories(sql, dialect)[: max(1, max_scenarios)]
     output_columns = _columns(node)
+    incremental = _incremental_analysis(node, sql)
     lineage_schema = {
         str(dep.get("relation_name") or dep.get("name")): {
             column: str(meta.get("data_type") or "UNKNOWN")
@@ -238,6 +364,25 @@ def generate_unit_tests(
             "expect": {"rows": [expected_row]},
         })
 
+    incremental_tests: list[dict[str, Any]] = []
+    if incremental["is_incremental"]:
+        unique_key = incremental["unique_key"][0] if incremental["unique_key"] else None
+        remaining = max(0, max_scenarios - len(tests))
+        selected = _INCREMENTAL_SCENARIOS[:remaining or len(_INCREMENTAL_SCENARIOS)]
+        incremental_tests = [
+            _incremental_test(
+                node,
+                dependency_ids,
+                nodes,
+                output_columns,
+                scenario,
+                index,
+                unique_key,
+            )
+            for index, scenario in enumerate(selected, 1)
+        ]
+        tests.extend(incremental_tests)
+
     payload = {"unit_tests": tests}
     anti_patterns = []
     category_counts = Counter(categories)
@@ -252,7 +397,13 @@ def generate_unit_tests(
         "success": True,
         "model_name": str(node.get("name")),
         "model_unique_id": model_id,
+        "dbt_version": version,
         "materialized": (node.get("config") or {}).get("materialized"),
+        "incremental_analysis": incremental,
+        "incremental_scenarios": [
+            item["name"].split("_incremental_", 1)[-1]
+            for item in incremental_tests
+        ],
         "dependency_count": len(dependency_ids),
         "tests": tests,
         "test_count": len(tests),
@@ -260,7 +411,14 @@ def generate_unit_tests(
         "anti_patterns": anti_patterns,
         "column_lineage": lineage,
         "warnings": [
-            "Expected outputs are type-correct deterministic placeholders; validate by running dbt unit tests before applying."
+            "Expected outputs are type-correct deterministic placeholders; validate by running dbt unit tests before applying.",
+            *(
+                [
+                    "Incremental unit tests exercise model SQL with is_incremental=true; adapter-level MERGE/delete+insert/insert_overwrite/microbatch materialization semantics require dbt build/live verification."
+                ]
+                if incremental["is_incremental"]
+                else []
+            ),
         ],
         "yaml": yaml.safe_dump(payload, sort_keys=False),
         "applied": False,

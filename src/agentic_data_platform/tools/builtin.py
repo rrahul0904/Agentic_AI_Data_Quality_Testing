@@ -811,7 +811,7 @@ def build_tool_registry() -> ToolRegistry:
             _dbt(a).artifacts.manifest,
             a["model"],
             dialect=a.get("dialect", "snowflake"),
-            max_scenarios=int(a.get("max_scenarios", 3)),
+            max_scenarios=int(a.get("max_scenarios", 12)),
         ),
         "Generate dbt 1.8+ unit-test YAML from compiled SQL, dependencies, types and lineage.",
     )
