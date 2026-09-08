@@ -31,3 +31,16 @@ def test_secret_patterns_are_high_signal_and_redacted():
     assert module.HIGH_SIGNAL_SECRET_PATTERNS["aws_access_key"].search("AKIA1234567890ABCDEF")
     assert module.HIGH_SIGNAL_SECRET_PATTERNS["credential_url"].search("postgres://user:pass@example.test/db")
     assert "value" not in {"rule_id": "secret", "file": "x", "line": 1}
+
+
+def test_audit_safe_fixture_marker_is_line_scoped():
+    module = _module()
+    text = (
+        "safe = 'postgres://user:pass@example.test/db'  # audit-safe-fixture\n"
+        "unsafe = 'postgres://user:pass@example.test/db'\n"
+    )
+    pattern = module.HIGH_SIGNAL_SECRET_PATTERNS["credential_url"]
+    matches = list(pattern.finditer(text))
+    assert len(matches) == 2
+    assert module._match_is_audit_safe_fixture(text, matches[0].start()) is True
+    assert module._match_is_audit_safe_fixture(text, matches[1].start()) is False

@@ -172,5 +172,6 @@ def test_api_v1_jobs_reject_mutating_underlying_tools(tmp_path, monkeypatch):
         "/api/v1/jobs",
         json={"tool": "memory_save", "args": {"content": "nope"}},
     )
-    assert denied.status_code == 400
+    assert denied.status_code == 403
     assert "refuse mutating tool" in denied.text
+    assert denied.json()["detail"]["error_type"] == "PERMISSION_FAILURE"

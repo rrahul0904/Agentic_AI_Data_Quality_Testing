@@ -22,7 +22,7 @@ def test_natural_chat_fails_closed_without_provider(tmp_path: Path):
 
 def test_tui_expected_error_text_redacts_credentials():
     rendered = _format_user_error(
-        RuntimeError("connection failed token=secret-token-value at postgresql://u:password@db.example/x")
+        RuntimeError("connection failed token=secret-token-value at postgresql://u:password@db.example/x")  # audit-safe-fixture
     )
     assert "secret-token-value" not in rendered
     assert "password" not in rendered

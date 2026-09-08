@@ -14,7 +14,7 @@ def test_error_model_distinguishes_expected_categories():
 
 def test_error_model_redacts_secret_bearing_messages():
     error = safe_error(
-        ValueError("token=super-secret-token postgresql://alice:password@db.example/warehouse")
+        ValueError("token=super-secret-token postgresql://alice:password@db.example/warehouse")  # audit-safe-fixture
     )
     assert error["error_type"] == "USER_CONFIGURATION_ERROR"
     assert "super-secret-token" not in error["message"]

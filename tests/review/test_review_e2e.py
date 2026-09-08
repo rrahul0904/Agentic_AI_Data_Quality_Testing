@@ -173,7 +173,7 @@ def test_self_hosted_review_url_rejects_embedded_credentials(monkeypatch):
             "team/analytics",
             3,
             token_env="TEST_GITLAB_TOKEN",
-            api_url="https://user:password@gitlab.internal.example/api/v4",
+            api_url="https://user:password@gitlab.internal.example/api/v4",  # audit-safe-fixture
             transport=lambda *args: {"http_status": 200, "body": {}},
         )
 

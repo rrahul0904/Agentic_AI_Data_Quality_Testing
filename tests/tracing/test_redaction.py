@@ -24,11 +24,11 @@ def test_common_provider_git_cloud_and_query_secrets_are_redacted():
     samples = [
         "Authorization: Bearer abcdefghijklmnopqrstuvwxyz123",
         "Authorization: Basic dXNlcjpwYXNzd29yZDEyMzQ1Ng==",
-        "github=ghp_abcdefghijklmnopqrstuvwxyz123456",
+        "github=ghp_abcdefghijklmnopqrstuvwxyz123456",  # audit-safe-fixture
         "gitlab=glpat-abcdefghijklmnop",
-        "aws=AKIAABCDEFGHIJKLMNOP",
+        "aws=AKIAABCDEFGHIJKLMNOP",  # audit-safe-fixture
         "jwt=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature12345",
-        "postgresql://alice:database-password@db.example/warehouse",
+        "postgresql://alice:database-password@db.example/warehouse",  # audit-safe-fixture
         "https://example.test/callback?token=query-secret-value&safe=yes",
         "client_secret=provider-secret-value",
     ]
@@ -36,7 +36,7 @@ def test_common_provider_git_cloud_and_query_secrets_are_redacted():
     for secret in (
         "abcdefghijklmnopqrstuvwxyz123456",
         "abcdefghijklmnop",
-        "AKIAABCDEFGHIJKLMNOP",
+        "AKIAABCDEFGHIJKLMNOP",  # audit-safe-fixture
         "database-password",
         "query-secret-value",
         "provider-secret-value",
@@ -59,10 +59,12 @@ def test_trace_replay_cannot_reconstruct_database_url_or_jwt_from_metadata():
         "tool",
         "connection_test",
         payload={
-            "url": "postgresql://alice:database-password@db.example/warehouse",
-            "metadata": {
-                "token": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature12345",
-                "host": "db.example",
+            "args": {
+                "url": "postgresql://alice:database-password@db.example/warehouse",  # audit-safe-fixture
+                "metadata": {
+                    "token": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature12345",
+                    "host": "db.example",
+                },
             },
         },
     )
