@@ -149,7 +149,7 @@
       "cli_surface": "agentic-data-platform",
       "ui_surface": "operator console where applicable",
       "tests": [
-        "tests/test_full_parity_surface.py"
+        "tests/integration/test_full_parity.py"
       ],
       "integration_tests": [
         "tests/integration/test_full_parity.py"
@@ -159,7 +159,7 @@
       "evidence": [
         "source inventory count: 464",
         "implementation: src/agentic_data_platform/tools/builtin.py",
-        "test: tests/test_full_parity_surface.py"
+        "test: tests/integration/test_full_parity.py"
       ],
       "notes": "Feature-compatible implementation may use different package boundaries.",
       "external_dependency": null
@@ -229,7 +229,7 @@
       "reference_symbol": "github_domain",
       "reference_tool_name": null,
       "reference_behavior": "GitHub CI/review integration; pinned source inventory count=5.",
-      "our_path": "src/agentic_data_platform/reviews/deterministic.py",
+      "our_path": "src/agentic_data_platform/review/dbt.py",
       "our_symbol": "deterministic review",
       "our_tool_name": null,
       "api_surface": "/api/v1",
@@ -245,7 +245,7 @@
       "status": "DONE",
       "evidence": [
         "source inventory count: 5",
-        "implementation: src/agentic_data_platform/reviews/deterministic.py",
+        "implementation: src/agentic_data_platform/review/dbt.py",
         "test: tests/test_dbt_pr_review.py"
       ],
       "notes": "Feature-compatible implementation may use different package boundaries.",
