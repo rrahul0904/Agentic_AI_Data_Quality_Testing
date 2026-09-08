@@ -159,3 +159,19 @@ dbt-live-e2e:
 	PYTHONPATH=src $(PYTHON) scripts/live_dbt_e2e.py
 
 live-e2e: snowflake-live-e2e airflow-live-e2e agent-live-e2e dbt-live-e2e
+
+
+.PHONY: conformance certification-local certification-live parity-v2
+
+conformance:
+	$(PYTHON) scripts/parse_dbt.py
+	PYTHONPATH=src $(PYTHON) scripts/run_conformance.py
+
+certification-local:
+	PYTHONPATH=src $(PYTHON) scripts/run_certification.py
+
+certification-live:
+	PYTHONPATH=src $(PYTHON) scripts/run_certification.py --live
+
+parity-v2: conformance
+	PYTHONPATH=src $(PYTHON) scripts/generate_parity_ledger_v2.py

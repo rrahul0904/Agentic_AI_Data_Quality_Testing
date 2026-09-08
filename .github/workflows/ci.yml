@@ -288,6 +288,31 @@ jobs:
       - run: PYTHONPATH=src python scripts/check_airflow_gate.py
 
 
+
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: python scripts/parse_dbt.py
+      - run: PYTHONPATH=src python scripts/run_conformance.py
+      - run: PYTHONPATH=src python scripts/generate_parity_ledger_v2.py
+      - run: pytest -q tests/conformance
+
+  certification:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: PYTHONPATH=src python scripts/run_certification.py
+      - run: pytest -q tests/certification
+
   final-audit:
     runs-on: ubuntu-latest
     steps:
