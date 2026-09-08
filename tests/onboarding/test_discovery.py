@@ -59,15 +59,16 @@ def test_discovery_handles_dbt_airflow_monorepo(tmp_path: Path):
 
 
 def test_discovery_reports_multiple_warehouse_hints_without_values(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("ADE_SNOWFLAKE_ACCOUNT", "secret-account")
-    monkeypatch.setenv("ADE_POSTGRES_DSN", "postgresql://user:password@example/db")
-    monkeypatch.setenv("ADE_DATABRICKS_HOST", "https://workspace.example")
+    monkeypatch.setenv("ADE_SNOWFLAKE_ACCOUNT", "configured-snowflake-account")
+    monkeypatch.setenv("ADE_POSTGRES_DSN", "configured-postgres-dsn")
+    monkeypatch.setenv("ADE_DATABRICKS_HOST", "configured-databricks-host")
     result = PlatformDiscovery(tmp_path).discover()
     detected = {item["warehouse"] for item in result["warehouses"] if item["configuration_detected"]}
     assert {"snowflake", "postgres", "databricks"}.issubset(detected)
     rendered = render_discovery(result)
-    assert "secret-account" not in rendered
-    assert "password@example" not in rendered
+    assert "configured-snowflake-account" not in rendered
+    assert "configured-postgres-dsn" not in rendered
+    assert "configured-databricks-host" not in rendered
     assert all(item["credential_values_exposed"] is False for item in result["warehouses"])
 
 
