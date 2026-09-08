@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +8,6 @@ from agentic_data_platform.agents.contracts import (
     AgentResult,
     AgentRole,
     EvidenceRecord,
-    EvidenceTier,
     IncidentState,
     InvestigationReport,
     RemediationPlan,

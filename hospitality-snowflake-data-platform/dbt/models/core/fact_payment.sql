@@ -20,5 +20,5 @@ select
   loaded_at
 from {{ ref('int_payment_lifecycle') }}
 {% if is_incremental() %}
-qualify loaded_at >= dateadd(hour, -72, (select coalesce(max(loaded_at), '1900-01-01'::timestamp) from {{ this }}))
+where loaded_at >= dateadd(hour, -72, (select coalesce(max(loaded_at), '1900-01-01'::timestamp) from {{ this }}))
 {% endif %}

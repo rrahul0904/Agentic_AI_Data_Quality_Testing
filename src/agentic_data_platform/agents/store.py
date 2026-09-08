@@ -161,7 +161,7 @@ class InvestigationStore:
         item = InvestigationTransition(incident_id, current, target, reason)
         with self.lock:
             self.connection.execute(
-                "INSERT INTO incident_transitions VALUES (?,?,?,?,?)",
+                "INSERT INTO incident_transitions VALUES (?,?,?,?,?,?)",
                 (item.transition_id, incident_id, current.value, target.value, reason, item.created_at),
             )
             self.connection.execute(
