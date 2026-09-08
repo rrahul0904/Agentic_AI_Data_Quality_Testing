@@ -258,7 +258,10 @@ class AgentRuntime:
 
                 for call in response.tool_calls:
                     definition = self.registry.describe(call.name)
-                    signature = f"{call.name}:{json.dumps(call.args, sort_keys=True, default=str)}"
+                    call_args = dict(call.args)
+                    if project_root is not None:
+                        call_args["project"] = str(Path(project_root).expanduser().resolve())
+                    signature = f"{call.name}:{json.dumps(call_args, sort_keys=True, default=str)}"
                     signatures[signature] = signatures.get(signature, 0) + 1
                     if signatures[signature] > self.repeated_tool_limit:
                         raise AgentLoopError(f"repeated tool loop detected: {call.name}")
@@ -268,7 +271,7 @@ class AgentRuntime:
                         "trace_id": trace_id,
                         "generation_id": generation_id,
                         "tool": call.name,
-                        "args": call.args,
+                        "args": call_args,
                         "risk": definition.risk.value,
                     })
                     permission_hooks = self._emit("permission.before", {
@@ -287,7 +290,7 @@ class AgentRuntime:
                         session_id=session_id,
                         parent_id=generation_event,
                         payload={
-                            "args": call.args,
+                            "args": call_args,
                             "risk": definition.risk.value,
                             "plugins_before": before_tool_hooks,
                             "permission_plugins": permission_hooks,
@@ -297,7 +300,7 @@ class AgentRuntime:
                         session_id,
                         generation_id,
                         call.name,
-                        call.args,
+                        call_args,
                         call.call_id,
                     )
                     request = ToolRequest(
@@ -305,7 +308,7 @@ class AgentRuntime:
                         operation=call.name,
                         environment=environment,
                         risk=definition.risk,
-                        args=dict(call.args),
+                        args=call_args,
                     )
                     requires_approval = bool(
                         definition.requires_approval
@@ -318,7 +321,7 @@ class AgentRuntime:
                         "tool.started",
                         step=step,
                         tool=call.name,
-                        args=dict(call.args),
+                        args=call_args,
                         risk=definition.risk.value,
                         requires_approval=requires_approval,
                         approved=call.name in approved_tools,
