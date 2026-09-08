@@ -6,6 +6,7 @@ export PYTHONPATH="$ROOT/src"
 export ADE_DEMO_MODE=true
 export ADE_DEMO_PROJECT="$ROOT/hospitality-snowflake-data-platform"
 export ADE_DATABASE_PATH="$ROOT/.ade/demo-airflow.db"
+mkdir -p "$ROOT/.ade"
 echo "=== AIRFLOW CONTROL PLANE · LOCAL_SIMULATION ==="
 python - <<'PY'
 from fastapi.testclient import TestClient
