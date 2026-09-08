@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from agentic_data_platform.models import utc_now
+from agentic_data_platform.security.redaction import redact_string
 
 
 _DEFAULT_PATTERNS = (
@@ -130,6 +131,7 @@ class TrainingStore:
         metadata: dict[str, Any] | None = None,
         replace_source: bool = True,
     ) -> dict[str, Any]:
+        text = redact_string(text)
         raw = text.encode("utf-8")
         content_hash = hashlib.sha256(raw).hexdigest()
         document_id = hashlib.sha256(f"{source}:{content_hash}".encode()).hexdigest()
