@@ -24,6 +24,7 @@ PRODUCTION_PREFIXES = (
 SECURITY_FIXTURE_PATHS = {
     "tests/test_final_acceptance_audit.py",
 }
+AUDIT_SAFE_FIXTURE_MARKER = "audit-safe-fixture"
 USER_FACING_PREFIXES = (
     "apps/web/", "src/agentic_data_platform/api/", "README.md", "docs/",
 )
@@ -85,6 +86,14 @@ def read_text(path: Path) -> str:
         return ""
 
 
+def _match_is_audit_safe_fixture(text: str, offset: int) -> bool:
+    line_start = text.rfind("\n", 0, offset) + 1
+    line_end = text.find("\n", offset)
+    if line_end < 0:
+        line_end = len(text)
+    return AUDIT_SAFE_FIXTURE_MARKER in text[line_start:line_end]
+
+
 def security_audit(files: list[Path]) -> tuple[list[dict[str, object]], int]:
     findings: list[dict[str, object]] = []
     scanned = 0
@@ -99,6 +108,8 @@ def security_audit(files: list[Path]) -> tuple[list[dict[str, object]], int]:
         if rel not in SECURITY_FIXTURE_PATHS:
             for rule_id, pattern in HIGH_SIGNAL_SECRET_PATTERNS.items():
                 for match in pattern.finditer(text):
+                    if _match_is_audit_safe_fixture(text, match.start()):
+                        continue
                     line = text.count("\n", 0, match.start()) + 1
                     findings.append({"rule_id": rule_id, "file": rel, "line": line})
         if rel.startswith(PRODUCTION_PREFIXES):

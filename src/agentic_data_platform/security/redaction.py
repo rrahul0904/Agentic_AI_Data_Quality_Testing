@@ -6,8 +6,8 @@ import re
 from typing import Any, Mapping, Sequence
 
 _SENSITIVE_KEY = re.compile(
-    r"(?:password|passwd|secret|api[_-]?key|(?:access|refresh)?[_-]?token|oauth|authorization|cookie|"
-    r"private[_-]?key|credential|client[_-]?secret)",
+    r"(?:^|[_-])(?:password|passwd|secret|api[_-]?key|token|oauth|authorization|cookie|"
+    r"private[_-]?key|credentials?|client[_-]?secret)$",
     re.I,
 )
 _PATTERNS = (

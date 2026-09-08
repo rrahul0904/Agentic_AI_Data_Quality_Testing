@@ -219,13 +219,23 @@ class PlatformDiscovery:
         profile_name = project_yaml.get("profile")
         target_name = None
         adapter = None
-        if profile_file and profile_name:
+        if profile_file:
             try:
                 raw_profiles = yaml.safe_load(profile_file.read_text(encoding="utf-8")) or {}
-                profile = raw_profiles.get(profile_name) or {}
-                target_name = profile.get("target")
-                target = (profile.get("outputs") or {}).get(target_name) or {}
-                adapter = target.get("type")
+                if not isinstance(raw_profiles, dict):
+                    raise AttributeError("profiles.yml root must be a mapping")
+                if profile_name:
+                    profile = raw_profiles.get(profile_name) or {}
+                    if not isinstance(profile, dict):
+                        raise AttributeError("dbt profile must be a mapping")
+                    target_name = profile.get("target")
+                    outputs = profile.get("outputs") or {}
+                    if not isinstance(outputs, dict):
+                        raise AttributeError("dbt profile outputs must be a mapping")
+                    target = outputs.get(target_name) or {}
+                    if not isinstance(target, dict):
+                        raise AttributeError("dbt profile target must be a mapping")
+                    adapter = target.get("type")
             except OSError:
                 diagnostics.append({
                     "code": "DBT_PROFILES_READ_ERROR",

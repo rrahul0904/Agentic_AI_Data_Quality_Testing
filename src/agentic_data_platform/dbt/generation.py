@@ -220,7 +220,6 @@ def _incremental_analysis(node: Mapping[str, Any], sql: str) -> dict[str, Any]:
 
 _INCREMENTAL_SCENARIOS = (
     "new_records",
-    "existing_unchanged_records",
     "updated_records",
     "late_arriving_records",
     "duplicate_unique_keys",
@@ -228,6 +227,7 @@ _INCREMENTAL_SCENARIOS = (
     "incremental_cutoff_boundary",
     "outside_incremental_predicate",
     "schema_change",
+    "existing_unchanged_records",
 )
 
 
