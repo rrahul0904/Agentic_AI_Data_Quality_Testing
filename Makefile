@@ -75,7 +75,7 @@ parity-summary:
 	-$(PYTHON) scripts/check_altimate_parity.py
 
 
-.PHONY: install typecheck test-unit test-integration test-airflow test-dbt test-providers test-ui benchmark-lineage benchmark-airflow demo-airflow parity airflow-parity verify ci
+.PHONY: install typecheck test-unit test-integration test-airflow test-dbt test-providers test-ui benchmark-lineage benchmark-airflow demo-airflow parity airflow-parity final-audit verify ci
 
 install:
 	$(PYTHON) -m pip install -e '.[dev]'
@@ -115,7 +115,7 @@ airflow-parity:
 	PYTHONPATH=src $(PYTHON) scripts/check_parity_gate.py --ledger airflow
 	PYTHONPATH=src $(PYTHON) scripts/check_airflow_gate.py
 
-verify: lint typecheck test-unit test-integration test-airflow test-dbt test-providers test-hospitality shiftforge-test parity airflow-parity benchmark-lineage benchmark-airflow demo-smoke test-ui
+verify: lint typecheck test-unit test-integration test-airflow test-dbt test-providers test-hospitality shiftforge-test parity airflow-parity benchmark-lineage benchmark-airflow demo-smoke test-ui final-audit
 
 ci: verify
 
@@ -126,4 +126,9 @@ test-hospitality:
 
 demo-smoke:
 	bash scripts/demo-full-platform.sh
+
+
+final-audit:
+	PYTHONPATH=src $(PYTHON) scripts/final_acceptance_audit.py
+	PYTHONPATH=src $(PYTHON) -m pytest -q -p no:cacheprovider tests/test_final_acceptance_audit.py
 
