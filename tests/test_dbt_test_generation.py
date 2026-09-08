@@ -90,3 +90,45 @@ def test_unit_test_generator_detects_logic_and_emits_dbt_yaml():
     first_given = parsed["unit_tests"][0]["given"][0]
     assert "rows" in first_given
     assert isinstance(first_given["rows"][0]["order_id"], int)
+
+
+def test_incremental_unit_test_generation_is_deterministic_and_merge_aware():
+    manifest = manifest_fixture()
+    model = manifest["nodes"]["model.demo.fact_orders"]
+    model["config"] = {
+        "materialized": "incremental",
+        "unique_key": "order_id",
+        "incremental_strategy": "merge",
+        "incremental_predicates": ["DBT_INTERNAL_DEST.order_id >= 100"],
+        "on_schema_change": "append_new_columns",
+    }
+    model["raw_code"] = (
+        "{{ config(materialized='incremental', unique_key='order_id') }} "
+        "select * from {{ source('raw', 'orders') }} "
+        "{% if is_incremental() %} where order_id >= 100 {% endif %}"
+    )
+
+    first = generate_unit_tests(manifest, "fact_orders", dialect="snowflake", max_scenarios=14)
+    second = generate_unit_tests(manifest, "fact_orders", dialect="snowflake", max_scenarios=14)
+
+    assert first["yaml"] == second["yaml"]
+    assert first["incremental_analysis"]["is_incremental"] is True
+    assert first["incremental_analysis"]["uses_is_incremental_macro"] is True
+    assert first["incremental_analysis"]["unique_key"] == ["order_id"]
+    assert first["incremental_analysis"]["merge"] is True
+    assert first["incremental_analysis"]["incremental_predicates"]
+    assert {
+        "new_records",
+        "updated_records",
+        "duplicate_unique_keys",
+        "null_unique_keys",
+        "incremental_cutoff_boundary",
+        "outside_incremental_predicate",
+        "schema_change",
+    }.issubset(set(first["incremental_scenarios"]))
+    parsed = yaml.safe_load(first["yaml"])
+    names = [item["name"] for item in parsed["unit_tests"]]
+    assert len(names) == len(set(names))
+    incremental = [item for item in parsed["unit_tests"] if "_incremental_" in item["name"]]
+    assert incremental
+    assert all(item["overrides"]["macros"]["is_incremental"] is True for item in incremental)

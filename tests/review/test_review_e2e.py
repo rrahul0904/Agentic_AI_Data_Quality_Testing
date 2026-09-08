@@ -100,3 +100,106 @@ def test_missing_review_credentials_are_skip_external(monkeypatch):
     monkeypatch.delenv("NO_SUCH_GITHUB_TOKEN", raising=False)
     result = discover_github_pull("acme/analytics", 1, token_env="NO_SUCH_GITHUB_TOKEN")
     assert result == {"status": "SKIP_EXTERNAL", "provider": "github", "reason": "NO_SUCH_GITHUB_TOKEN is not configured"}
+
+
+def test_github_changed_file_discovery_paginates(monkeypatch):
+    monkeypatch.setenv("TEST_GITHUB_TOKEN", "not-a-real-token")
+    seen = []
+
+    def transport(method, url, headers, payload):
+        seen.append(url)
+        if "/files?" in url:
+            if "page=2" in url:
+                return {"http_status": 200, "body": [{"filename": "models/final.sql"}]}
+            return {
+                "http_status": 200,
+                "body": [{"filename": f"models/model_{index}.sql"} for index in range(100)],
+            }
+        return {
+            "http_status": 200,
+            "body": {"title": "large dbt change", "state": "open", "base": {"sha": "b"}, "head": {"sha": "h"}},
+        }
+
+    result = discover_github_pull(
+        "acme/analytics",
+        42,
+        token_env="TEST_GITHUB_TOKEN",
+        transport=transport,
+    )
+    assert result["status"] == "PASS"
+    assert len(result["changed_files"]) == 101
+    assert result["changed_files"][-1] == "models/final.sql"
+    assert any("page=2" in url for url in seen)
+
+
+def test_review_auth_failure_is_classified(monkeypatch):
+    monkeypatch.setenv("TEST_GITHUB_TOKEN", "not-a-real-token")
+
+    def transport(method, url, headers, payload):
+        return {"http_status": 401, "body": {"message": "Bad credentials"}}
+
+    result = discover_github_pull(
+        "acme/analytics",
+        1,
+        token_env="TEST_GITHUB_TOKEN",
+        transport=transport,
+    )
+    assert result["status"] == "FAIL"
+    assert result["error_type"] == "AUTHENTICATION_FAILURE"
+
+
+def test_review_provider_outage_is_classified(monkeypatch):
+    monkeypatch.setenv("TEST_GITLAB_TOKEN", "not-a-real-token")
+
+    def transport(method, url, headers, payload):
+        return {"http_status": 503, "body": {"message": "unavailable"}}
+
+    result = discover_gitlab_merge_request(
+        "team/analytics",
+        2,
+        token_env="TEST_GITLAB_TOKEN",
+        transport=transport,
+    )
+    assert result["status"] == "FAIL"
+    assert result["error_type"] == "PROVIDER_OUTAGE"
+
+
+def test_self_hosted_review_url_rejects_embedded_credentials(monkeypatch):
+    monkeypatch.setenv("TEST_GITLAB_TOKEN", "not-a-real-token")
+    import pytest
+
+    with pytest.raises(ValueError, match="embedded credentials"):
+        discover_gitlab_merge_request(
+            "team/analytics",
+            3,
+            token_env="TEST_GITLAB_TOKEN",
+            api_url="https://user:password@gitlab.internal.example/api/v4",
+            transport=lambda *args: {"http_status": 200, "body": {}},
+        )
+
+
+def test_gitlab_note_discovery_paginates(monkeypatch):
+    monkeypatch.setenv("TEST_GITLAB_TOKEN", "not-a-real-token")
+    seen = []
+
+    def transport(method, url, headers, payload):
+        seen.append((method, url))
+        if method == "GET":
+            if "page=2" in url:
+                return {"http_status": 200, "body": []}
+            return {
+                "http_status": 200,
+                "body": [{"id": index, "body": "human note"} for index in range(100)],
+            }
+        return {"http_status": 201, "body": {"id": 101}}
+
+    result = sync_gitlab_review_note(
+        REVIEW,
+        project="team/analytics",
+        merge_request_iid=9,
+        token_env="TEST_GITLAB_TOKEN",
+        transport=transport,
+    )
+    assert result["status"] == "PASS"
+    assert result["action"] == "CREATED"
+    assert any("page=2" in url for method, url in seen if method == "GET")
