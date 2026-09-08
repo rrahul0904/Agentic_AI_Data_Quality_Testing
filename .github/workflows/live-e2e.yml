@@ -2,9 +2,12 @@ name: live-agentic-e2e
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
+
+# External Snowflake/Airflow/LLM mutation probes are release certification
+# workflows and must be explicitly requested.
+concurrency:
+  group: live-agentic-e2e-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   preflight:
