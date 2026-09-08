@@ -5,6 +5,8 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
+from datetime import date, datetime, timedelta
+from itertools import product
 from numbers import Number
 from typing import Any, Iterable, Sequence
 
@@ -16,6 +18,8 @@ from agentic_data_platform.quality.data_diff import row_diff
 _REF = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*(?:\.[A-Za-z_][A-Za-z0-9_$]*){0,2}$")
 _COLUMN = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
 _NUMERIC = ("INT", "DECIMAL", "NUMERIC", "NUMBER", "REAL", "FLOAT", "DOUBLE")
+_TEMPORAL = ("DATE", "TIME", "TIMESTAMP", "DATETIME")
+_HEX = "0123456789abcdef"
 
 
 def _safe_ref(value: str) -> str:
@@ -60,6 +64,16 @@ def _literal(value: Any) -> str:
 def _is_numeric(column: ColumnMetadata) -> bool:
     upper = column.data_type.upper()
     return any(token in upper for token in _NUMERIC)
+
+
+def _is_temporal(column: ColumnMetadata) -> bool:
+    upper = column.data_type.upper()
+    return any(token in upper for token in _TEMPORAL)
+
+
+def _is_string(column: ColumnMetadata) -> bool:
+    upper = column.data_type.upper()
+    return any(token in upper for token in ("CHAR", "TEXT", "STRING", "VARCHAR"))
 
 
 def _metadata(connector: DataPlatformConnector, table: str) -> tuple[ColumnMetadata, ...]:
@@ -286,11 +300,139 @@ def _key_range(
     }
 
 
-def _range_where(base: str | None, key: str, lower: Number, upper: Number, inclusive_upper: bool) -> str:
+def _range_where(base: str | None, key: str, lower: Any, upper: Any, inclusive_upper: bool) -> str:
     parts = [base] if base else []
     operator = "<=" if inclusive_upper else "<"
     parts.append(f"{key} >= {_literal(lower)} AND {key} {operator} {_literal(upper)}")
     return " AND ".join(parts)
+
+
+def _and_where(base: str | None, predicate: str) -> str:
+    return " AND ".join(item for item in (base, predicate) if item)
+
+
+def _count_rows(connector: DataPlatformConnector, table: str, where: str | None) -> int:
+    result = connector.execute_read(
+        f"SELECT COUNT(*) AS __count FROM {_safe_ref(table)}" + _where_clause(where)
+    )
+    return int(_value(result.rows[0], "__count", 0) or 0)
+
+
+def _boundary(
+    connector: DataPlatformConnector,
+    table: str,
+    key: str,
+    where: str | None,
+    offset: int,
+) -> Any:
+    base = f"SELECT {key} AS __boundary FROM {_safe_ref(table)}" + _where_clause(where)
+    if connector.platform in {"sqlserver", "oracle"}:
+        sql = base + f" ORDER BY {key} OFFSET {max(0, offset)} ROWS FETCH NEXT 1 ROWS ONLY"
+    else:
+        sql = base + f" ORDER BY {key} LIMIT 1 OFFSET {max(0, offset)}"
+    rows = connector.execute_read(sql).rows
+    return _value(rows[0], "__boundary") if rows else None
+
+
+def _temporal_value(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time())
+    text = str(value).replace("Z", "+00:00")
+    return datetime.fromisoformat(text)
+
+
+def _midpoint(lower: Any, upper: Any, *, temporal: bool) -> Any:
+    if temporal:
+        left, right = _temporal_value(lower), _temporal_value(upper)
+        return left + (right - left) / 2
+    return (lower + upper) / 2
+
+
+def _numeric_hash_expression(platform: str, hash_expression: str, offset: int) -> str | None:
+    part = f"SUBSTR({hash_expression}, {offset}, 8)"
+    if platform == "bigquery":
+        return f"CAST(CONCAT('0x', {part}) AS INT64)"
+    if platform in {"mysql", "databricks"}:
+        return f"CAST(CONV({part}, 16, 10) AS DECIMAL(20,0))"
+    if platform == "trino":
+        return f"from_base({part}, 16)"
+    if platform in {"snowflake", "oracle"}:
+        return f"TO_NUMBER({part}, 'XXXXXXXX')"
+    if platform == "postgres":
+        return f"(('x' || {part})::bit(32)::bigint)"
+    if platform == "duckdb":
+        return f"CAST(('0x' || {part}) AS UBIGINT)"
+    return None
+
+
+def _partition_signature(
+    connector: DataPlatformConnector,
+    table: str,
+    key_columns: Sequence[str],
+    compare_columns: Sequence[str],
+    where: str | None,
+) -> dict[str, Any]:
+    columns = [*key_columns, *compare_columns]
+    hash_expression = _row_hash_expression(connector.platform, columns)
+    first = _numeric_hash_expression(connector.platform, hash_expression, 1)
+    second = _numeric_hash_expression(connector.platform, hash_expression, 9)
+    if first is None or second is None:
+        return {
+            "count": _count_rows(connector, table, where),
+            "signature": None,
+            "pushdown": False,
+        }
+    result = connector.execute_read(
+        "SELECT COUNT(*) AS __count, "
+        f"SUM({first}) AS __sum1, SUM({second}) AS __sum2 "
+        f"FROM {_safe_ref(table)}" + _where_clause(where)
+    )
+    row = result.rows[0]
+    return {
+        "count": int(_value(row, "__count", 0) or 0),
+        "signature": (
+            str(_value(row, "__sum1", 0) or 0),
+            str(_value(row, "__sum2", 0) or 0),
+        ),
+        "pushdown": True,
+    }
+
+
+def _hash_prefix_where(
+    connector: DataPlatformConnector,
+    keys: Sequence[str],
+    prefix: str,
+    base: str | None,
+) -> str:
+    expression = _row_hash_expression(connector.platform, keys)
+    predicate = f"LOWER(SUBSTR({expression}, 1, {len(prefix)})) = {_literal(prefix)}"
+    return _and_where(base, predicate)
+
+
+def _partition_strategy(
+    source_meta: Sequence[ColumnMetadata],
+    target_meta: Sequence[ColumnMetadata],
+    *,
+    same_platform: bool,
+    requested: str,
+) -> str:
+    requested = requested.upper()
+    if requested != "AUTO":
+        allowed = {"NUMERIC_RANGE", "TIMESTAMP_RANGE", "LEXICOGRAPHIC", "HASH_BUCKET", "COMPOUND_KEY"}
+        if requested not in allowed:
+            raise ValueError(f"unsupported partition strategy: {requested}")
+        return requested
+    if len(source_meta) > 1:
+        return "COMPOUND_KEY"
+    if _is_numeric(source_meta[0]) and _is_numeric(target_meta[0]):
+        return "NUMERIC_RANGE"
+    if _is_temporal(source_meta[0]) and _is_temporal(target_meta[0]):
+        return "TIMESTAMP_RANGE"
+    if _is_string(source_meta[0]) and _is_string(target_meta[0]) and same_platform:
+        return "LEXICOGRAPHIC"
+    return "HASH_BUCKET"
 
 
 def _hash_rows(
@@ -331,7 +473,16 @@ def hash_diff(
     max_partition_rows: int = 50000,
     max_depth: int = 24,
     detail_limit: int = 100,
+    partition_strategy: str = "AUTO",
 ) -> dict[str, Any]:
+    """Partitioned cross-warehouse hash diff with pushdown-first elimination.
+
+    Numeric/timestamp/string range predicates allow native pruning. Compound or
+    cross-platform string keys use deterministic MD5 prefix buckets. Matching
+    partitions are eliminated from aggregate signatures when the platform has a
+    safe numeric-hash aggregate; row hashes move only for bounded mismatches.
+    """
+
     keys, compare = _select_columns(
         source,
         target,
@@ -341,76 +492,47 @@ def hash_diff(
         compare_columns,
         exclude_columns,
     )
-    if len(keys) != 1:
-        raise ValueError("partitioned HASH_DIFF currently requires exactly one numeric key column")
-    key = keys[0]
-    source_meta = _column_map(source, source_table)[key.casefold()]
-    target_meta = _column_map(target, target_table)[key.casefold()]
-    if not (_is_numeric(source_meta) and _is_numeric(target_meta)):
-        raise ValueError("partitioned HASH_DIFF currently requires a numeric key")
+    source_columns = _column_map(source, source_table)
+    target_columns = _column_map(target, target_table)
+    source_meta = [source_columns[key.casefold()] for key in keys]
+    target_meta = [target_columns[key.casefold()] for key in keys]
+    strategy = _partition_strategy(
+        source_meta,
+        target_meta,
+        same_platform=source.platform == target.platform,
+        requested=partition_strategy,
+    )
 
-    left_range = _key_range(source, source_table, key, where)
-    right_range = _key_range(target, target_table, key, where)
-    if left_range["count"] == right_range["count"] == 0:
-        return {
-            "algorithm": "HASH_DIFF",
-            "status": "PASS",
-            "changed_keys": [],
-            "missing_keys": [],
-            "extra_keys": [],
-            "partitions": 0,
-            "raw_rows_retrieved": 0,
-        }
-
-    minima = [value for value in (left_range["min"], right_range["min"]) if value is not None]
-    maxima = [value for value in (left_range["max"], right_range["max"]) if value is not None]
-    lower = min(minima)
-    upper = max(maxima)
-    stack: list[tuple[Number, Number, int, bool]] = [(lower, upper, 0, True)]
     changed: list[Any] = []
     missing: list[Any] = []
     extra: list[Any] = []
     partitions = 0
+    eliminated_partitions = 0
+    hash_rows_retrieved = 0
+    query_count = 0
 
-    while stack:
-        part_lower, part_upper, depth, inclusive_upper = stack.pop()
-        partitions += 1
-        part_where = _range_where(where, key, part_lower, part_upper, inclusive_upper)
-        left_count = _key_range(source, source_table, key, part_where)["count"]
-        right_count = _key_range(target, target_table, key, part_where)["count"]
-        largest = max(left_count, right_count)
-        if largest > max_partition_rows:
-            if depth >= max_depth or part_lower == part_upper:
-                raise RuntimeError(
-                    f"HASH_DIFF cannot bound partition below {largest} rows at depth={depth}"
-                )
-            midpoint = (part_lower + part_upper) / 2
-            if midpoint == part_lower or midpoint == part_upper:
-                raise RuntimeError("HASH_DIFF partition midpoint stopped progressing")
-            stack.append((midpoint, part_upper, depth + 1, inclusive_upper))
-            stack.append((part_lower, midpoint, depth + 1, False))
-            continue
+    def signatures(part_where_source: str | None, part_where_target: str | None) -> tuple[dict[str, Any], dict[str, Any]]:
+        nonlocal query_count
+        left = _partition_signature(source, source_table, keys, compare, part_where_source)
+        right = _partition_signature(target, target_table, keys, compare, part_where_target)
+        query_count += 2
+        return left, right
 
-        left_rows = _hash_rows(
-            source,
-            source_table,
-            keys,
-            compare,
-            part_where,
-            max_partition_rows,
-        )
-        right_rows = _hash_rows(
-            target,
-            target_table,
-            keys,
-            compare,
-            part_where,
-            max_partition_rows,
-        )
-        left_map = {tuple(_value(row, item) for item in keys): _value(row, "__row_hash") for row in left_rows}
-        right_map = {tuple(_value(row, item) for item in keys): _value(row, "__row_hash") for row in right_rows}
-        left_keys = set(left_map)
-        right_keys = set(right_map)
+    def compare_bounded(part_where_source: str | None, part_where_target: str | None) -> None:
+        nonlocal hash_rows_retrieved, query_count
+        left_rows = _hash_rows(source, source_table, keys, compare, part_where_source, max_partition_rows)
+        right_rows = _hash_rows(target, target_table, keys, compare, part_where_target, max_partition_rows)
+        query_count += 2
+        hash_rows_retrieved += len(left_rows) + len(right_rows)
+        left_map = {
+            tuple(_value(row, item) for item in keys): str(_value(row, "__row_hash")).casefold()
+            for row in left_rows
+        }
+        right_map = {
+            tuple(_value(row, item) for item in keys): str(_value(row, "__row_hash")).casefold()
+            for row in right_rows
+        }
+        left_keys, right_keys = set(left_map), set(right_map)
         missing.extend(sorted(left_keys - right_keys, key=str))
         extra.extend(sorted(right_keys - left_keys, key=str))
         changed.extend(
@@ -420,10 +542,111 @@ def hash_diff(
             )
         )
 
+    if strategy in {"NUMERIC_RANGE", "TIMESTAMP_RANGE", "LEXICOGRAPHIC"}:
+        if len(keys) != 1:
+            raise ValueError(f"{strategy} requires exactly one key column")
+        key = keys[0]
+        left_range = _key_range(source, source_table, key, where)
+        right_range = _key_range(target, target_table, key, where)
+        query_count += 2
+        if left_range["count"] == right_range["count"] == 0:
+            return {
+                "algorithm": "HASH_DIFF",
+                "status": "PASS",
+                "partition_strategy": strategy,
+                "changed_keys": [],
+                "missing_keys": [],
+                "extra_keys": [],
+                "partitions": 0,
+                "eliminated_partitions": 0,
+                "raw_rows_retrieved": 0,
+                "hash_rows_retrieved": 0,
+                "rows_transferred": 0,
+                "query_count": query_count,
+            }
+
+        minima = [value for value in (left_range["min"], right_range["min"]) if value is not None]
+        maxima = [value for value in (left_range["max"], right_range["max"]) if value is not None]
+        lower, upper = min(minima), max(maxima)
+        stack: list[tuple[Any, Any, int, bool]] = [(lower, upper, 0, True)]
+        temporal = strategy == "TIMESTAMP_RANGE"
+
+        while stack:
+            part_lower, part_upper, depth, inclusive_upper = stack.pop()
+            partitions += 1
+            part_where = _range_where(where, key, part_lower, part_upper, inclusive_upper)
+            left_sig, right_sig = signatures(part_where, part_where)
+            if (
+                left_sig["signature"] is not None
+                and left_sig == right_sig
+            ):
+                eliminated_partitions += 1
+                continue
+            largest = max(left_sig["count"], right_sig["count"])
+            if largest <= max_partition_rows:
+                compare_bounded(part_where, part_where)
+                continue
+            if depth >= max_depth or part_lower == part_upper:
+                raise RuntimeError(
+                    f"HASH_DIFF cannot bound {strategy} partition below {largest} rows at depth={depth}"
+                )
+
+            if strategy == "LEXICOGRAPHIC":
+                chosen_connector = source if left_sig["count"] >= right_sig["count"] else target
+                chosen_table = source_table if chosen_connector is source else target_table
+                boundary = _boundary(
+                    chosen_connector,
+                    chosen_table,
+                    key,
+                    part_where,
+                    largest // 2,
+                )
+                query_count += 1
+                if boundary is None or boundary in {part_lower, part_upper}:
+                    raise RuntimeError(
+                        "LEXICOGRAPHIC partition could not find a progressing warehouse boundary; "
+                        "use HASH_BUCKET for highly duplicated/skewed string keys"
+                    )
+                midpoint = boundary
+            else:
+                midpoint = _midpoint(part_lower, part_upper, temporal=temporal)
+                if midpoint == part_lower or midpoint == part_upper:
+                    raise RuntimeError(f"{strategy} partition midpoint stopped progressing")
+
+            stack.append((midpoint, part_upper, depth + 1, inclusive_upper))
+            stack.append((part_lower, midpoint, depth + 1, False))
+    else:
+        stack: list[tuple[str, int]] = [("", 0)]
+        while stack:
+            prefix, depth = stack.pop()
+            partitions += 1
+            if prefix:
+                left_where = _hash_prefix_where(source, keys, prefix, where)
+                right_where = _hash_prefix_where(target, keys, prefix, where)
+            else:
+                left_where = right_where = where
+            left_sig, right_sig = signatures(left_where, right_where)
+            if (
+                left_sig["signature"] is not None
+                and left_sig == right_sig
+            ):
+                eliminated_partitions += 1
+                continue
+            largest = max(left_sig["count"], right_sig["count"])
+            if largest <= max_partition_rows:
+                compare_bounded(left_where, right_where)
+                continue
+            if depth >= min(max_depth, 6):
+                raise RuntimeError(
+                    f"HASH_BUCKET cannot bound a skewed partition below {largest} rows at prefix={prefix!r}"
+                )
+            stack.extend((prefix + char, depth + 1) for char in reversed(_HEX))
+
     detail_keys = [*changed, *missing, *extra][:detail_limit]
     return {
         "algorithm": "HASH_DIFF",
         "status": "PASS" if not (changed or missing or extra) else "FAIL",
+        "partition_strategy": strategy,
         "key_columns": keys,
         "compare_columns": compare,
         "changed_keys": [list(item) for item in changed],
@@ -432,9 +655,13 @@ def hash_diff(
         "detail_keys": [list(item) for item in detail_keys],
         "detail_truncated": len(changed) + len(missing) + len(extra) > detail_limit,
         "partitions": partitions,
+        "eliminated_partitions": eliminated_partitions,
         "max_partition_rows": max_partition_rows,
         "raw_rows_retrieved": 0,
-        "hash_rows_retrieved": left_range["count"] + right_range["count"],
+        "hash_rows_retrieved": hash_rows_retrieved,
+        "rows_transferred": hash_rows_retrieved,
+        "query_count": query_count,
+        "warehouse_pushdown": True,
     }
 
 
@@ -562,6 +789,16 @@ class WarehouseDiffEngine:
             exclude_columns,
         )
         algorithm = "JOIN_DIFF" if self.source is self.target else "CASCADE"
+        source_columns = _column_map(self.source, source_table)
+        target_columns = _column_map(self.target, target_table)
+        source_meta = [source_columns[key.casefold()] for key in keys]
+        target_meta = [target_columns[key.casefold()] for key in keys]
+        partition_strategy = _partition_strategy(
+            source_meta,
+            target_meta,
+            same_platform=self.source.platform == self.target.platform,
+            requested="AUTO",
+        )
         return {
             "algorithm": algorithm,
             "source_platform": self.source.platform,
@@ -570,6 +807,7 @@ class WarehouseDiffEngine:
             "target_table": _safe_ref(target_table),
             "key_columns": keys,
             "compare_columns": compare,
+            "partition_strategy": partition_strategy,
             "reason": (
                 "same connector can push FULL OUTER JOIN"
                 if algorithm == "JOIN_DIFF"
