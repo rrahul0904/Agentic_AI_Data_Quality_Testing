@@ -64,7 +64,8 @@ def test_airflow3_static_control_plane_detects_modern_surfaces(tmp_path):
 
     mapping = control.mapping_report()
     assert mapping["mapping_count"] >= 1
-    assert mapping["risk"] == "REVIEW"
+    assert mapping["risk"] == "LOW"
+    assert any(item["static_cardinality"] == 3 for item in mapping["mapping_calls"])
 
     deferrable = control.deferrable_report()
     assert deferrable["inefficient_sensors"]
