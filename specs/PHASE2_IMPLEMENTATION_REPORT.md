@@ -1,174 +1,138 @@
-# Final Implementation Report
+# Agentic Data Engineering OS — Release Completion Report
 
-Status: **FINAL RELEASE CANDIDATE — COMPLETE subject to the CI result of the commit containing this report**
+## Status
 
-Final branch: `altimate-full-parity`  
-Final commit SHA: **SELF — the commit containing this report; resolve with `git rev-parse HEAD` and require that exact SHA to be green before release**  
-Pre-report fully verified SHA: `f06e38e3c2ea2dbab36972501df79f26f22bbcc3`  
-Pinned Altimate SHA: `ec475f46ba0a4ce6bcfbed33cebacf31ad45a455`
+This report records the measured state after the multi-agent release-completion implementation. It intentionally distinguishes local/default-CI acceptance from live external acceptance.
 
-## Baseline → final
+**Release verdict: NOT COMPLETE — BLOCKED_EXTERNAL.**
 
-Baseline repository SHA: `94dc6ef55907bcb089845c9678d82aeb35571871`
+The product implementation is locally/default-CI green; the zero-blocker release contract also requires real Snowflake, dbt/Snowflake, Airflow, and LLM executions, and those jobs cannot run until credentials and explicit mutation approvals are configured.
 
-Final measured product inventory:
+## Verified implementation baseline
 
-- Registered deterministic tools: **364**
-- Stable/API routes: **135**
-- First-class provider configurations: **22**
-- Warehouse/database targets: **13**
-- Built-in skills: **32**
-- Hospitality Airflow DAGs scanned by benchmark: **55**
+- branch: `altimate-full-parity`
+- implementation SHA: `78fd101d4e6ef4932213b52fdec0e65c46401652`
+- integrated-platform run: `34181199850`
+- CI jobs: 22
+- passed: 22
+- failed: 0
+- cancelled: 0
+- skipped: 0
 
-## Altimate parity ledger
+This file is a later documentation change. The report-containing HEAD must be reverified after commit; the post-documentation CI run is the exact-head acceptance record.
 
-- DONE: **208**
-- PARTIAL: **0**
-- MISSING: **0**
-- SKIP_EXTERNAL: **0**
-- NOT_APPLICABLE: **0**
+## Test evidence
 
-Result: **PASS**
+| Surface | Measured result |
+|---|---|
+| Python 3.11 | 390 passed, 1 upstream Starlette/AnyIO warning |
+| Python 3.12 | 390 passed, 1 upstream Starlette/AnyIO warning |
+| Focused agent suite | 41 passed |
+| Providers | 17 passed |
+| Integration | 17 passed |
+| Hospitality | 9 passed |
+| dbt | 14 passed |
+| Airflow static | 7 passed |
+| Fresh-clone checks | 4 passed + demos |
+| Frontend | production build PASS |
+| Final security audit | PASS; 0 security findings; 0 blocking product debt |
 
-## Airflow capability ledger
+## Proving ground
 
-- DONE: **83**
-- PARTIAL: **0**
-- MISSING: **0**
-- SKIP_EXTERNAL: **15**
-- NOT_APPLICABLE: **0**
+- Oracle logical tables: 144
+- PostgreSQL logical tables: 157
+- file feeds: 18
+- metadata-driven ingestion jobs: 40
+- Airflow DAGs: 57
+- dbt models: 70
+- incremental examples: `fact_reservation`, `fact_payment`, `mart_payment_reconciliation`
+- deterministic failure scenarios: 18
 
-Result: **PASS**
+The Airflow benchmark reported 57 DAGs, zero findings, and correctness gate true.
 
-The Airflow implementation includes dependency-free AST/source analysis for Airflow 2.x/3.x semantics and does not import user DAG modules during static analysis. Mutating runtime operations remain governed by ToolRegistry actor/risk/approval/dry-run boundaries.
+## Agent system
 
-## Test totals and acceptance evidence
+The product has 12 explicit roles: Supervisor, Metadata, Business Context, Lineage, Transformation, Mapping, Quality/Test, Execution Planning, Evidence, RCA, Impact, and Remediation.
 
-Measured on the fully-green pre-report acceptance SHA `f06e38e3c2ea2dbab36972501df79f26f22bbcc3`:
+The runtime structurally excludes benchmark-only expected root-cause/divergence/fix fields from agent inputs. RCA consumes persisted T1/T2 incident evidence. Mutating remediation is separate from investigation and requires explicit human approval.
 
-- Python 3.11: **344 passed**, 2 warnings
-- Python 3.12: **344 passed**, 2 warnings
-- Integration job: **13 passed**
-- Dedicated Airflow 3/static control-plane suite: **7 passed** per Airflow acceptance job
-- Airflow deterministic failure lab: **25 fixtures**, expected diagnosis enforced in full suite
-- dbt acceptance job: **14 passed**, dbt parse executed with dbt 1.12.3
-- Provider acceptance job: **14 passed**
-- Hospitality proving ground: **7 passed**
-- ShiftForge: **6 passed**
-- Fresh-clone acceptance: **4 passed**
-- Final security/product-debt audit tests: **2 passed**
-- Node/local-data-harness test and quality jobs: **PASS**
+The flagship local flow demonstrates Airflow SUCCESS + dbt SUCCESS + bad payment completeness → deterministic anomaly → incident → dynamic multi-agent investigation → first divergence → evidence-grounded RCA → blast radius → bounded recovery proposal → approval → selective recovery → verification → recertification → RESOLVED.
 
-## Frontend
+Local proving-ground execution is labeled local and is not represented as real Snowflake/Airflow mutation.
 
-- npm clean install: **PASS**
-- TypeScript typecheck: **PASS**
-- Next.js production build: **PASS**
-- Rendered operator-console smoke test: **PASS**
-- Real API checks for Airflow Assets, providers, skills and training: **PASS**
+## Agent benchmark
 
-## Benchmarks
+- scenarios: 18
+- root-cause accuracy: 1.0
+- first-divergence accuracy: 1.0
+- agent turns: 234
+- logical tool calls: 199
+- LLM tokens: 0
+- estimated AI cost: $0
+- runtime: 38.69 seconds
+- static-read cache: 16 entries, 91 hits, 39 misses
 
-### Lineage benchmark
+## Lineage and Airflow benchmarks
 
-- Precision: **1.0**
-- Recall: **1.0**
-- F1: **1.0**
-- Parse failures: **0**
-- Result: **PASS**
+Lineage: precision 1.0, recall 1.0, F1 1.0, parse failures 0.
 
-### Airflow benchmark
+Airflow: DAG count 57, findings 0, correctness gate true.
 
-- DAG count: **55**
-- Static findings: **0**
-- Runtime: **0.083034 seconds**
-- Peak traced memory: **1,126,803 bytes**
-- Correctness gate: **true**
-- Result: **PASS**
+## Live acceptance implementation
 
-## Demos
+- Snowflake: `scripts/live_snowflake_e2e.py` performs real authentication, isolated object creation, PUT, COPY INTO, row/amount/hash validation, and query-ID capture. Current result: **BLOCKED_EXTERNAL**.
+- dbt + Snowflake: `scripts/live_dbt_e2e.py` creates an isolated Snowflake schema, executes seed/build, proves incremental merge and selective rerun, executes tests, validates result data, and cleans up. Current result: **BLOCKED_EXTERNAL**.
+- Airflow: `scripts/live_airflow_e2e.py` targets only `hospitality_agentic_failure_probe`, proves an intentional real failure, then a real successful recovery. Current result: **BLOCKED_EXTERNAL**.
+- LLM: `scripts/live_agent_e2e.py` requires a real provider to invoke the governed `sql_classify` tool, consume its deterministic result, and finish a second provider turn. Current result: **BLOCKED_EXTERNAL**.
 
-Master demo: **PASS**
+## Exact live blockers
 
-The deterministic local-simulation master demo exercised platform doctor/inventory, connections, warehouse surfaces, SQL review/lineage, metadata, dbt, Airflow inventory/Assets/operations, quality/reconciliation, migration, FinOps/governance surfaces, skills, training, providers, MCP, traces and pipeline health.
+- `SNOWFLAKE_ACCOUNT`
+- `SNOWFLAKE_USER`
+- `SNOWFLAKE_PASSWORD`
+- `SNOWFLAKE_WAREHOUSE`
+- `SNOWFLAKE_DATABASE`
+- `SNOWFLAKE_SCHEMA`
+- `ADE_DBT_LIVE_MUTATION_APPROVED=true`
+- `OPENAI_API_KEY`
+- `ADE_LIVE_AGENT_MODEL`
+- `ADE_AIRFLOW_BASE_URL`
+- `ADE_AIRFLOW_TOKEN or ADE_AIRFLOW_USERNAME + ADE_AIRFLOW_PASSWORD`
+- `ADE_AIRFLOW_LIVE_MUTATION_APPROVED=true`
 
-Airflow demo: **PASS**
+Because these values are absent/unapproved, the four live jobs are skipped on push. They have **not** been live verified.
 
-The Airflow demo exercised inventory, DAGs, Assets, operations, capacity, upgrade compatibility, security, bundles, failure lab and backfill planning.
+## Capability verdict
 
-Fresh-clone execution ran both master and Airflow demos successfully.
-
-## Security and product-debt audit
-
-Final deterministic audit result: **PASS**
-
-Measured evidence:
-
-- Tracked files: **623**
-- Text files scanned: **615**
-- High-confidence security findings: **0**
-- Blocking user-facing release-debt findings: **0**
-
-The release audit checks private-key material, common live token/key formats, credential-bearing URLs and production literal secret assignments. It also blocks user-facing release-placeholder phrases while counting generic TODO/FIXME/HACK/stub-style markers for classification.
-
-Tracked local demo credential URLs and default UI passwords found during the final audit were removed from committed Docker configuration and replaced by untracked environment-managed values.
-
-## Exact-head CI
-
-Pre-report acceptance SHA `f06e38e3c2ea2dbab36972501df79f26f22bbcc3`: **PASS**
-
-Green jobs included:
-
-- python-3.11
-- python-3.12
-- frontend
-- node
-- hospitality
-- shiftforge
-- demo-smoke
-- airflow-static
-- airflow-3
-- dbt
-- providers
-- integration
-- parity-ledger
-- airflow-ledger
-- benchmark-lineage
-- benchmark-airflow
-- fresh-clone
-- lint
-- final-audit
-
-**Release invariant:** this report is not authoritative until the commit containing this report passes the same CI matrix. After that run is green, the report-containing branch HEAD is the final release SHA.
-
-## External-only Airflow items
-
-The following capabilities are implemented/tested locally but remain live-unverified because external services or credentials are not present in repository CI:
-
-1. `airflow_backfill_execute` — live Airflow API endpoint/credentials
-2. `airflow_clear` — live Airflow API endpoint/credentials
-3. `airflow_pause` — live Airflow API endpoint/credentials
-4. `airflow_runtime_assets` — live Airflow API endpoint/credentials
-5. `airflow_runtime_dag_runs` — live Airflow API endpoint/credentials
-6. `airflow_runtime_dags` — live Airflow API endpoint/credentials
-7. `airflow_runtime_import_errors` — live Airflow API endpoint/credentials
-8. `airflow_runtime_logs` — live Airflow API endpoint/credentials
-9. `airflow_runtime_task_instances` — live Airflow API endpoint/credentials
-10. `airflow_trigger` — live Airflow API endpoint/credentials
-11. `airflow_unpause` — live Airflow API endpoint/credentials
-12. `airflow_deployment_mwaa` — AWS MWAA account/credentials
-13. `airflow_deployment_composer` — Google Cloud Composer project/credentials
-14. `airflow_deployment_astronomer` — Astronomer workspace/credentials
-15. `airflow_runtime_openlineage` — OpenLineage backend/runtime
-
-These entries are `SKIP_EXTERNAL` only for live verification. Their local adapters, version mapping, permission boundaries, mockable transports and failure behavior remain implemented/tested.
-
-Provider and warehouse adapters likewise do not claim live authentication/connectivity where credentials were not supplied.
-
-## Remaining locally-fixable blockers
-
-**0**
+| Capability | Implemented | Local/default CI | Live external where required |
+|---|---:|---:|---:|
+| 12-agent architecture | YES | YES | N/A |
+| Dynamic Supervisor delegation | YES | YES | N/A |
+| Proactive anomaly detection | YES | YES | logic verified locally |
+| Immutable evidence | YES | YES | N/A |
+| Evidence-grounded RCA | YES | YES | live incident pending |
+| First-divergence localization | YES | YES | live incident pending |
+| Hash/bucket reconciliation | YES | YES | Snowflake pending |
+| Cross-system impact | YES | YES | N/A |
+| Selective remediation planning | YES | YES | execution pending |
+| Human approval | YES | YES | execution pending |
+| Asset recertification | YES | YES | live recertification pending |
+| Investigation UI | YES | YES | N/A |
+| Real Snowflake load/reconciliation | YES | fail-closed gate | BLOCKED_EXTERNAL |
+| Real dbt incremental/selective rerun | YES | fail-closed gate | BLOCKED_EXTERNAL |
+| Real Airflow failure/recovery | YES | fail-closed gate | BLOCKED_EXTERNAL |
+| Real LLM governed tool loop | YES | provider serialization tests | BLOCKED_EXTERNAL |
 
 ## Final verdict
 
-**COMPLETE — only after the exact commit containing this report completes the full CI workflow successfully.**
+Local/default-CI implementation: **PASS**.
+
+Fresh-clone/demo/security acceptance: **PASS** on the measured baseline.
+
+Live external release acceptance: **BLOCKED_EXTERNAL**.
+
+Under the zero-blocker release contract, the correct overall verdict is:
+
+**FINAL VERDICT: NOT COMPLETE**
+
+Do not change this to COMPLETE until all four live external jobs actually execute and pass on the exact release head.

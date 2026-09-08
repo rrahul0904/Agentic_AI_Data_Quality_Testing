@@ -38,13 +38,13 @@ Open:
 - FastAPI: `http://127.0.0.1:8001`
 - API docs: `http://127.0.0.1:8001/docs`
 
-The console exposes **Overview, Assets, Lineage, SQL Intelligence, dbt, Airflow, Data Quality, Reconciliation, Migration, Warehouses, Runs/Evidence, and a deterministic Agent panel**. FinOps and Governance are visibly marked partial rather than filled with invented live data.
+The console exposes **Overview, Investigations, Agent, Assets, Lineage, SQL Intelligence, dbt, Airflow, Data Quality, Reconciliation, Migration, Warehouses, Runs/Evidence, Providers, Skills, Training, Governance, FinOps, and Settings/Doctor**. Investigations shows the 12-agent roster, delegation timeline, immutable evidence tiers, competing hypotheses, first divergence, blast radius, persisted mappings, selective recovery, human approval, verification, and per-asset certification. Credential-dependent values remain explicitly unavailable rather than being invented.
 
 See `docs/DEMO_WALKTHROUGH.md` for the presentation flow.
 
 ## Enterprise proving ground
 
-The hospitality workload currently contains 144 Oracle logical tables, 157 PostgreSQL logical tables, 18 file feeds, 40 metadata-driven ingestion jobs, 55 Airflow DAGs including aliases, 70 dbt models, 4 snapshots, parsed dbt tests, static Snowflake DDL, and deterministic dirty-data fixtures.
+The hospitality workload currently contains 144 Oracle logical tables, 157 PostgreSQL logical tables, 18 file feeds, 40 metadata-driven ingestion jobs, **57 Airflow DAGs**, 70 dbt models, 4 snapshots, parsed dbt tests, static Snowflake DDL, deterministic dirty-data fixtures, business-level cross-DAG dependency chains, and a dedicated live failure/recovery probe DAG.
 
 Counts shown in the product are calculated by backend tools at runtime; the frontend does not hardcode them.
 
@@ -60,32 +60,46 @@ Counts shown in the product are calculated by backend tools at runtime; the fron
 ## Verification
 
 ```bash
-make unit-test
-make integration-test
-make lint
-make quality
-make shiftforge-test
-make frontend-typecheck
-make frontend-build
+python scripts/parse_dbt.py
+make test-unit
+make test-integration
+make test-airflow
+make test-dbt
+make test-providers
+make test-agentic
+make test-hospitality
+make benchmark-agentic
+make benchmark-airflow
+make benchmark-lineage
+make final-audit
 ```
 
-The CLI engineering demo remains available with `make demo`.
+The complete bounded acceptance suite is `make verify`. The flagship multi-agent flow is `make demo-agentic`; the Airflow control-plane demo is `make demo-airflow`.
 
 ## Local versus live
 
-The demo labels simulated paths as `LOCAL SIMULATION`. Live Snowflake and Oracle checks remain `SKIP` until credentials/services are configured. The platform never converts an unavailable live integration into a fake PASS.
+The deterministic proving ground is labeled `LOCAL_PROVING_GROUND` / `LOCAL_SIMULATION`; it is not presented as production execution. Live acceptance is implemented as separate fail-closed gates:
+
+```bash
+make snowflake-live-e2e
+make dbt-live-e2e
+make airflow-live-e2e
+make agent-live-e2e
+```
+
+The GitHub workflow `.github/workflows/live-e2e.yml` performs a non-secret preflight and runs the external gates only when the required credentials and explicit mutation approvals are configured. Missing external configuration is reported as `BLOCKED_EXTERNAL`, never as PASS.
 
 ## Safety
 
 Deterministic tools are the source of truth. Analyst and Plan modes cannot invoke mutation-risk tools; Builder operations remain governed by risk, environment, and explicit approval. Operator-console convenience endpoints invoke ToolRegistry in Analyst mode rather than bypassing it.
 
-## Current limits
+## Agentic investigation architecture
 
-Full multi-model lineage, deep Snowflake FinOps/RBAC/query-history intelligence, large-scale live cross-warehouse data diff, advanced Airflow runtime root-cause analysis, MCP/skills/provider integrations, trace playback, production TUI, and autonomous remediation remain roadmap work.
+The investigation control plane has **12 explicit first-class roles**: Supervisor, Metadata, Business Context, Lineage, Transformation, Mapping, Quality/Test, Execution Planning, Evidence, RCA, Impact, and Remediation.
 
-Track parity in `specs/ALTIMATE_PARITY_MATRIX.md` and `specs/BEYOND_ALTIMATE_ROADMAP.md`. Registered deterministic tools are summarized in `specs/TOOL_CATALOG.md`.
+Agents reason and propose; governed deterministic tools measure, verify, and execute. The Supervisor branches dynamically from evidence—for example, a source→RAW divergence can skip Transformation analysis, while a dbt-layer divergence invokes it.
 
-
+The deterministic failure corpus contains 18 scenarios. The verified implementation baseline produced 100% root-cause accuracy and 100% first-divergence accuracy with zero LLM tokens. Mutating recovery is separated from investigation by an explicit human-approval boundary, followed by selective execution, independent verification, and per-asset recertification.
 ## Acceptance and verification
 
 The `altimate-full-parity` branch exposes a deterministic Data Engineering OS rather than a narrative-only agent. The implementation includes SQL/dbt/lineage/data-diff/quality/migration/FinOps/governance/session/provider/MCP/tracing capabilities plus a deep Airflow 2/3 control plane.
@@ -109,4 +123,4 @@ Run the master deterministic demo with:
 bash scripts/demo-full-platform.sh
 ```
 
-Live Snowflake, Oracle, cloud Airflow, GitHub/GitLab delivery and cloud LLM integrations are never fabricated. Where credentials/services are absent, the corresponding adapter remains implemented and locally tested while runtime status is `SKIP_EXTERNAL`.
+Live Snowflake, Oracle, cloud Airflow, GitHub/GitLab delivery and cloud LLM integrations are never fabricated. Where credentials/services are absent, the corresponding adapter remains implemented and locally tested while release status is `BLOCKED_EXTERNAL` or runtime status is `SKIP_EXTERNAL`, depending on the surface.
