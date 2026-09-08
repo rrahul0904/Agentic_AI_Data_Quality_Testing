@@ -6,6 +6,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from agentic_data_platform.dbt.adapter import LocalDbtProjectAdapter
+from agentic_data_platform.errors import safe_error
 from agentic_data_platform.platform.discovery import render_discovery
 from agentic_data_platform.migration.sqlserver_snowflake import plan_sqlserver_to_snowflake
 from agentic_data_platform.models import ActorMode, ApprovalRecord, Environment, ToolRequest
@@ -344,7 +345,8 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(payload, indent=2, default=str))
         return 0
     except (KeyError, ValueError, PermissionError, FileNotFoundError, json.JSONDecodeError) as exc:
-        print(json.dumps({"status": "ERROR", "error": str(exc)}))
+        error = safe_error(exc)
+        print(json.dumps({"status": "ERROR", "error": error["message"], **error}))
         return 2
 
 
