@@ -1,6 +1,7 @@
 .PHONY: doctor test unit-test integration-test e2e lint quality dbt-parse dbt-test airflow-check shiftforge-test benchmark demo demo-setup demo-data demo-ui frontend-typecheck frontend-build docker-up docker-down
 
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
+PYTHON_BIN := $(if $(findstring /,$(PYTHON)),$(abspath $(PYTHON)),$(shell command -v $(PYTHON)))
 HOSPITALITY := hospitality-snowflake-data-platform
 WEB := apps/web
 
@@ -23,7 +24,7 @@ lint:
 
 quality:
 	$(MAKE) unit-test
-	cd $(HOSPITALITY) && $(abspath $(PYTHON)) -m pytest -q -p no:cacheprovider
+	cd $(HOSPITALITY) && $(PYTHON_BIN) -m pytest -q -p no:cacheprovider
 	cd local-data-harness && npm run quality
 
 dbt-parse:
@@ -132,7 +133,7 @@ ci: verify
 .PHONY: test-hospitality demo-smoke
 
 test-hospitality:
-	cd $(HOSPITALITY) && $(abspath $(PYTHON)) -m pytest -q -p no:cacheprovider
+	cd $(HOSPITALITY) && $(PYTHON_BIN) -m pytest -q -p no:cacheprovider
 
 demo-smoke:
 	bash scripts/demo-full-platform.sh
