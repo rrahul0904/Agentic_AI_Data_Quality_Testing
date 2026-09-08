@@ -144,3 +144,13 @@ h1{font-size:30px;letter-spacing:-1px;margin:5px 0 0}h2{font-size:17px;letter-sp
 .agentic-recovery-action>span{font-size:9px;text-transform:none;color:#35453e}
 .agentic-recovery-action small{font-size:8px;color:#7c8882}
 @media(max-width:760px){.agentic-mappings article{grid-template-columns:1fr}.agentic-mappings article>b{display:none}.agentic-recovery-grid{grid-template-columns:1fr}.agentic-recovery-action{grid-template-columns:1fr}}
+
+.trace-list{display:grid;gap:6px;align-content:start}
+.trace-row{display:grid;text-align:left;gap:3px;border:1px solid #e2e8e4;border-radius:7px;padding:9px;background:#fff;cursor:pointer}
+.trace-row:hover{border-color:#9cab9f;background:#f8faf9}
+.trace-row strong{font-size:9px;overflow-wrap:anywhere}
+.trace-row span,.trace-row small{font-size:8px;color:#6d7b74}
+.trace-timeline{display:grid;gap:7px;max-height:720px;overflow:auto}
+.trace-step{border-left:2px solid #9eaaa4;padding:8px 10px;background:#fafcfb}
+.trace-step strong,.trace-step span{display:block;font-size:9px;margin-bottom:4px}
+.trace-step pre,.trace-timeline>pre{font-size:8px;white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f7f5;padding:8px;border-radius:5px}

@@ -4,6 +4,8 @@ import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { API, getJson, postJson } from "../lib/api";
 import InvestigationConsole from "./InvestigationConsole";
+import SessionConsole from "./SessionConsole";
+import TraceConsole from "./TraceConsole";
 
 type Status = "PASS" | "FAIL" | "WARN" | "SKIP" | "PARTIAL" | string;
 type RecordValue = Record<string, unknown>;
@@ -211,7 +213,7 @@ const NAV = [
   "Overview", "Investigations", "Agent", "Assets", "Lineage", "SQL Intelligence", "dbt", "Airflow",
   "Data Quality", "Reconciliation", "Warehouses", "Connections", "Metadata", "Data Diff",
   "Migration", "Cost / FinOps", "Governance / PII", "PR Reviews", "Skills", "Training",
-  "Providers", "MCP", "Jobs", "Traces", "Runs / Evidence", "Settings / Doctor",
+  "Providers", "MCP", "Jobs", "Traces", "Sessions", "Runs / Evidence", "Settings / Doctor",
 ];
 
 const DEFAULT_SQL = `WITH orders AS (
@@ -449,7 +451,8 @@ export default function OperatorConsole() {
             {active === "Providers" && <DomainView title="Providers" eyebrow="MODEL PROVIDER CONTROL PLANE" endpoint="/api/v1/providers" />}
             {active === "MCP" && <DomainView title="MCP" eyebrow="MODEL CONTEXT PROTOCOL" endpoint="/api/v1/mcp" />}
             {active === "Jobs" && <DomainView title="Jobs" eyebrow="BACKGROUND JOB CONTROL" endpoint="/api/v1/jobs" />}
-            {active === "Traces" && <DomainView title="Traces" eyebrow="REPLAYABLE EXECUTION EVIDENCE" endpoint="/api/v1/traces" />}
+            {active === "Traces" && <TraceConsole />}
+            {active === "Sessions" && <SessionConsole />}
             {active === "Settings / Doctor" && <DomainView title="Settings / Doctor" eyebrow="PLATFORM READINESS" endpoint="/api/v1/platform/health" />}
             {active === "Runs / Evidence" && overview && <EvidenceView overview={overview} quality={quality} />}
             {active === "Investigations" && <InvestigationConsole />}

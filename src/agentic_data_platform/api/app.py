@@ -987,6 +987,14 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             actor_mode=ActorMode.BUILDER,
         )
 
+    @app.get("/api/v1/runtime-sessions")
+    def runtime_session_list(limit: int = 100) -> dict[str, Any]:
+        return invoke_read("runtime_session_list", runtime_args(limit=limit))
+
+    @app.get("/api/v1/runtime-sessions/{session_id}/replay")
+    def runtime_session_replay(session_id: str) -> dict[str, Any]:
+        return invoke_read("runtime_session_replay", runtime_args(session_id=session_id))
+
     @app.get("/api/v1/traces")
     def trace_list(limit: int = 100) -> dict[str, Any]:
         return invoke_read("trace_list", runtime_args(limit=limit))
