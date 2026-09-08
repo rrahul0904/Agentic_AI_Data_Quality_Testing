@@ -639,7 +639,11 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     @app.post("/api/v1/agent/query")
     def agent_query(payload: AgentQueryInput) -> dict[str, Any]:
         question = payload.question.strip()
-        if payload.mode in {"auto", "live"}:
+        requested_mode = payload.mode
+        configured_mode = os.getenv("ADE_AGENT_MODE", "auto").strip().casefold()
+        if requested_mode == "auto" and configured_mode in {"live", "deterministic"}:
+            requested_mode = configured_mode
+        if requested_mode in {"auto", "live"}:
             configured = provider_configured(payload.provider)
             if configured:
                 try:
@@ -654,7 +658,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
                     raise HTTPException(400, safe_error(exc)) from exc
                 except Exception as exc:
                     raise HTTPException(502, safe_error(exc)) from exc
-            if payload.mode == "live":
+            if requested_mode == "live":
                 return {
                     "status": "BLOCKED_EXTERNAL",
                     "question": question,
