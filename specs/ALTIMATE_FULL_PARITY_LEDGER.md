@@ -1,27 +1,37 @@
 # Altimate Full Parity Ledger
 
-Pinned reference: `AltimateAI/altimate-code@ec475f46ba0a4ce6bcfbed33cebacf31ad45a455`  
-Target branch: `altimate-full-parity`  
-Pre-implementation baseline: `94dc6ef55907bcb089845c9678d82aeb35571871`
+Pinned reference: `AltimateAI/altimate-code@ec475f46ba0a4ce6bcfbed33cebacf31ad45a455`
 
-This ledger is source-inventoried from the pinned upstream Git tree and evidence-mapped to executable implementation and tests. It does not infer completion from filenames alone.
+## Source inventory
 
-## Reference inventory
-
-- skills: **21**
 - tools: **79**
 - native: **35**
 - session: **32**
 - provider: **12**
 - mcp: **8**
+- skills: **21**
 - validators: **7**
+- cli: **104**
+- tui: **226**
+- plugin: **27**
+- permission: **6**
+- config: **14**
+- server: **87**
+- dbt_tools: **33**
+- drivers: **30**
+- core: **464**
+- llm: **100**
+- sdk: **45**
+- github: **5**
+- benchmark: **2**
+- install: **2**
 
-## Status
+## Ledger status
 
-- DONE: **194**
+- DONE: **208**
 - PARTIAL: **0**
 - MISSING: **0**
 - SKIP_EXTERNAL: **0**
 - NOT_APPLICABLE: **0**
 
-The machine-readable source of truth is `specs/ALTIMATE_FULL_PARITY_LEDGER.json`. CI validates status values, implementation paths, test evidence and registered public tool mappings.
+Fine-grained reference tools/runtime entries remain one-to-one. Large product/package trees are grouped by behavioral domain with executable implementation and test evidence; they are no longer silently excluded from parity accounting.

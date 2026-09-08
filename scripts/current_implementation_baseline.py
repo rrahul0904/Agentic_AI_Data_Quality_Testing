@@ -10,6 +10,7 @@ from pathlib import Path
 
 from agentic_data_platform.api.app import create_app
 from agentic_data_platform.providers import ProviderRegistry
+from agentic_data_platform.skills import BUILTIN_SKILLS
 from agentic_data_platform.tools.builtin import build_tool_registry
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,7 +37,7 @@ def main() -> int:
         "test_file_count": len(test_files),
         "api_route_count": len([route for route in app.routes if getattr(route, "path", None)]),
         "provider_count": len(ProviderRegistry().names()),
-        "skill_count": 21,
+        "skill_count": len(BUILTIN_SKILLS),
         "branch": command(["git", "branch", "--show-current"]),
         "commit": command(["git", "rev-parse", "HEAD"]),
     }
