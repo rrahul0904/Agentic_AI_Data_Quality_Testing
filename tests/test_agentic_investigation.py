@@ -6,6 +6,7 @@ from agentic_data_platform.agents import (
     InvestigationStore,
     SupervisorAgent,
     agent_roster,
+    benchmark_catalog,
     scenario_catalog,
 )
 from agentic_data_platform.tools.builtin import build_tool_registry
@@ -66,7 +67,7 @@ def test_approval_execution_verification_and_recertification(tmp_path):
 
 def test_all_scenarios_localize_expected_root_cause_and_divergence(tmp_path):
     service = supervisor(tmp_path)
-    for item in scenario_catalog():
+    for item in benchmark_catalog():
         report = service.investigate(item["scenario_id"])
         assert report.root_cause == item["expected_root_cause"], item["scenario_id"]
         assert report.first_divergence == item["expected_first_divergence"], item["scenario_id"]
