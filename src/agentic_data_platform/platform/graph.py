@@ -31,6 +31,7 @@ class PlatformAssetGraph:
         instance._add_sources()
         airflow = instance._add_airflow()
         instance._add_dbt(airflow)
+        instance._add_consumers()
         manifest_path = root / "dbt" / "target" / "manifest.json"
         if manifest_path.is_file():
             import json
@@ -75,9 +76,22 @@ class PlatformAssetGraph:
         airflow = AirflowProject.scan(self.project)
         for dag in airflow.dags.values():
             dag_node = self._node("airflow_dag", dag.dag_id, file=dag.file, schedule=dag.schedule, source=dag.source)
+            task_nodes: dict[str, GraphNode] = {}
             for task in dag.tasks:
                 task_node = self._node("airflow_task", f"{dag.dag_id}.{task}", dag_id=dag.dag_id, task_id=task)
+                task_nodes[task] = task_node
                 self._connect(dag_node, task_node, "contains")
+            for upstream, downstream in dag.task_graph:
+                source_task = task_nodes.get(upstream) or next(
+                    (node for name, node in task_nodes.items() if name.endswith(upstream)),
+                    None,
+                )
+                target_task = task_nodes.get(downstream) or next(
+                    (node for name, node in task_nodes.items() if name.endswith(downstream)),
+                    None,
+                )
+                if source_task and target_task:
+                    self._connect(source_task, target_task, "executes_before")
             if dag.source:
                 for entity in dag.entities:
                     source = self._resolve_source(dag.source, entity)
@@ -104,6 +118,10 @@ class PlatformAssetGraph:
             return "dbt_test"
         if resource_type == "snapshot":
             return "dbt_snapshot"
+        if resource_type == "metric":
+            return "metric"
+        if resource_type == "exposure":
+            return "consumer"
         if resource_type == "model" and str(node.get("name", "")).startswith("mart_"):
             return "mart"
         return "dbt_model"
@@ -151,6 +169,32 @@ class PlatformAssetGraph:
             logical_raw = self._logical_raw_for_stage(str(item.get("name", "")))
             if logical_raw:
                 self._connect(logical_raw, target_node, "transforms", derived_from="source_entity")
+
+    def _add_consumers(self) -> None:
+        """Attach repository dashboard SQL to the assets it actually references."""
+        dashboards = self.project / "dashboards"
+        if not dashboards.is_dir():
+            return
+        candidates = [
+            node for node in self.graph.list_nodes()
+            if node.kind in {"mart", "dbt_model", "dbt_snapshot", "metric"}
+        ]
+        for path in sorted(dashboards.rglob("*.sql")):
+            text = path.read_text(encoding="utf-8")
+            consumer = self._node(
+                "consumer",
+                f"dashboard:{path.stem}",
+                consumer_type="dashboard_sql",
+                file=str(path),
+            )
+            referenced = 0
+            for asset in candidates:
+                simple = asset.name.rsplit(".", 1)[-1]
+                if re.search(rf"(?i)(?<![A-Za-z0-9_]){re.escape(simple)}(?![A-Za-z0-9_])", text):
+                    self._connect(asset, consumer, "consumed_by", file=str(path))
+                    referenced += 1
+            if not referenced:
+                consumer.properties["unresolved"] = True
 
     def add_column_lineage(self, manifest: dict[str, Any]) -> dict[str, Any]:
         from agentic_data_platform.metadata.graph import MetadataGraph
@@ -204,8 +248,15 @@ class PlatformAssetGraph:
         downstream = self.graph.traverse(node.node_id, direction="out", depth=depth)
         marts = [item for item in downstream if item["kind"] == "mart"]
         tests = [item for item in downstream if item["kind"] == "dbt_test"]
-        severity = "HIGH" if marts or len(downstream) >= 10 else "MEDIUM" if downstream else "LOW"
+        metrics = [item for item in downstream if item["kind"] == "metric"]
+        consumers = [item for item in downstream if item["kind"] == "consumer"]
+        severity = "HIGH" if marts or metrics or consumers or len(downstream) >= 10 else "MEDIUM" if downstream else "LOW"
         return {
-            "changed_asset": asdict(node), "downstream": downstream, "affected_marts": marts,
-            "affected_tests": tests, "severity": severity,
+            "changed_asset": asdict(node),
+            "downstream": downstream,
+            "affected_marts": marts,
+            "affected_tests": tests,
+            "affected_metrics": metrics,
+            "affected_consumers": consumers,
+            "severity": severity,
         }
