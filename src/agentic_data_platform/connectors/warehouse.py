@@ -48,6 +48,20 @@ class WarehouseAdapter(ABC):
     def cost(self, **_: Any) -> dict[str, Any]:
         return {"status": "SKIP", "reason": f"{self.platform} cost data is not configured"}
 
+    def metadata(self, **_: Any) -> dict[str, Any]:
+        return {
+            "status": "PASS",
+            "platform": self.platform,
+            "databases": self.databases(),
+        }
+
+    def permissions(self, **_: Any) -> dict[str, Any]:
+        return {
+            "status": "SKIP_EXTERNAL",
+            "platform": self.platform,
+            "reason": "Permission metadata is connector/provider specific and requires an authorized live connection.",
+        }
+
 
 class ConnectorWarehouseAdapter(WarehouseAdapter):
     def __init__(self, connector: DataPlatformConnector, database: str | None = None) -> None:
@@ -79,3 +93,22 @@ class ConnectorWarehouseAdapter(WarehouseAdapter):
 
     def query(self, sql: str) -> Any:
         return self.connector.execute_read(sql)
+
+    def metadata(self, **kwargs: Any) -> dict[str, Any]:
+        catalogs = self.databases()
+        return {
+            "status": "PASS",
+            "platform": self.platform,
+            "databases": catalogs,
+            "schema_count": len(self.schemas(kwargs.get("database"))),
+        }
+
+    def permissions(self, **_: Any) -> dict[str, Any]:
+        capabilities = {item.value for item in self.connector.capabilities()}
+        if "get_role_metadata" not in capabilities:
+            return {
+                "status": "SKIP_EXTERNAL",
+                "platform": self.platform,
+                "reason": "Connector does not expose authorized role metadata.",
+            }
+        return {"status": "PASS", "platform": self.platform, "capability": "get_role_metadata"}

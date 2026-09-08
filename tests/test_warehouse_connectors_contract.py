@@ -299,3 +299,16 @@ def test_mongodb_read_only_metadata_and_json_query_contract():
     assert result.rows[0]["guest_id"] == 7
     blocked = '{"collection":"reservations","operation":"aggregate","pipeline":[{"$out":"copy"}]}'
     assert connector.dry_run_sql(blocked).valid is False
+
+
+def test_common_warehouse_adapter_metadata_and_permissions_contract():
+    from agentic_data_platform.connectors.warehouse import ConnectorWarehouseAdapter
+    from agentic_data_platform.connectors.sqlite import SQLiteConnector
+
+    adapter = ConnectorWarehouseAdapter(SQLiteConnector(":memory:"))
+    metadata = adapter.metadata()
+    assert metadata["status"] == "PASS"
+    assert metadata["platform"] == "sqlite"
+    permissions = adapter.permissions()
+    assert permissions["status"] in {"PASS", "SKIP_EXTERNAL"}
+    assert "platform" in permissions

@@ -22,6 +22,7 @@ def classify(paths: list[str]) -> dict[str, int]:
         "provider": sum(p.startswith("packages/opencode/src/provider/") and p.endswith(".ts") for p in paths),
         "mcp": sum(p.startswith("packages/opencode/src/mcp/") and p.endswith(".ts") for p in paths),
         "skills": sum(p.startswith(".opencode/skills/") and p.endswith("/SKILL.md") for p in paths),
+        "validators": sum(p.startswith("packages/opencode/src/altimate/validators/") and p.endswith(".ts") for p in paths),
         "cli": sum(p.startswith("packages/opencode/src/cli/") and source(p) for p in paths),
         "tui": sum(p.startswith("packages/tui/") and source(p) for p in paths),
         "plugin": sum(p.startswith("packages/opencode/src/plugin/") and source(p) for p in paths),
