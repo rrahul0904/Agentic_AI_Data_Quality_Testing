@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 from .base import ProviderRequest, ProviderResponse, ToolCall, Usage
+from .messages import to_openai_messages
 
 
 def openai_tools(tools):
@@ -42,7 +43,7 @@ class OpenAICompatibleProvider:
         headers = {"content-type": "application/json", **self.headers}
         if self.api_key:
             headers["authorization"] = f"Bearer {self.api_key}"
-        payload: dict[str, Any] = {"model": request.model, "messages": list(request.messages)}
+        payload: dict[str, Any] = {"model": request.model, "messages": to_openai_messages(request.messages)}
         if request.tools:
             payload["tools"] = openai_tools(request.tools)
             payload["tool_choice"] = "auto"

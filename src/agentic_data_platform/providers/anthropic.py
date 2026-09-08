@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 from .base import ProviderRequest, ProviderResponse, ToolCall, Usage
+from .messages import to_anthropic_messages
 
 
 class AnthropicProvider:
@@ -24,7 +25,7 @@ class AnthropicProvider:
 
     def generate(self, request: ProviderRequest) -> ProviderResponse:
         system_parts = [str(m.get("content", "")) for m in request.messages if m.get("role") == "system"]
-        messages = [dict(m) for m in request.messages if m.get("role") != "system"]
+        messages = to_anthropic_messages(request.messages)
         payload: dict[str, Any] = {
             "model": request.model,
             "messages": messages,

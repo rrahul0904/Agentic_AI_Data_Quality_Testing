@@ -5,6 +5,7 @@ from typing import Any
 import httpx
 
 from .base import ProviderRequest, ProviderResponse, ToolCall, Usage
+from .messages import to_gemini_contents
 
 
 def _gemini_payload(request: ProviderRequest) -> dict[str, Any]:
@@ -13,34 +14,7 @@ def _gemini_payload(request: ProviderRequest) -> dict[str, Any]:
         for message in request.messages
         if message.get("role") == "system"
     ]
-    contents = []
-    for message in request.messages:
-        role = message.get("role")
-        if role == "system":
-            continue
-        target_role = "model" if role == "assistant" else "user"
-        content = message.get("content")
-        if isinstance(content, str):
-            parts = [{"text": content}]
-        elif isinstance(content, list):
-            parts = []
-            for item in content:
-                if isinstance(item, dict) and item.get("type") == "tool-result":
-                    parts.append(
-                        {
-                            "functionResponse": {
-                                "name": item.get("name") or item.get("toolName") or "tool",
-                                "response": item.get("result") or item.get("content") or {},
-                            }
-                        }
-                    )
-                elif isinstance(item, dict) and item.get("text") is not None:
-                    parts.append({"text": str(item["text"])})
-                else:
-                    parts.append({"text": str(item)})
-        else:
-            parts = [{"text": str(content or "")}]
-        contents.append({"role": target_role, "parts": parts})
+    contents = to_gemini_contents(request.messages)
 
     payload: dict[str, Any] = {"contents": contents}
     if system_parts:

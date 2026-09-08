@@ -198,8 +198,19 @@ class AgentRuntime:
                     },
                 )
 
-                if response.content:
-                    self.store.add_message(session_id, "assistant", response.content)
+                if response.content or response.tool_calls:
+                    assistant_metadata: dict[str, Any] = {}
+                    if response.tool_calls:
+                        assistant_metadata["tool_calls"] = [
+                            {"id": call.call_id, "name": call.name, "args": dict(call.args)}
+                            for call in response.tool_calls
+                        ]
+                    self.store.add_message(
+                        session_id,
+                        "assistant",
+                        response.content or "",
+                        assistant_metadata,
+                    )
 
                 if not response.tool_calls:
                     end_hooks = self._emit("session.end", {

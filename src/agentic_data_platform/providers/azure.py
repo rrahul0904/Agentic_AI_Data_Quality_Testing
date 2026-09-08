@@ -7,6 +7,7 @@ import httpx
 
 from .base import ProviderRequest, ProviderResponse, ToolCall, Usage
 from .openai_compatible import openai_tools
+from .messages import to_openai_messages
 
 
 class AzureOpenAIProvider:
@@ -32,7 +33,7 @@ class AzureOpenAIProvider:
         if self.api_key:
             headers["api-key"] = self.api_key
         payload: dict[str, Any] = {
-            "messages": list(request.messages),
+            "messages": to_openai_messages(request.messages),
         }
         if request.tools:
             payload["tools"] = openai_tools(request.tools)
