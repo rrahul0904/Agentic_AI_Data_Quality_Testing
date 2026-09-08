@@ -6,6 +6,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: data-diff-benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   local-smoke:
     runs-on: ubuntu-latest
