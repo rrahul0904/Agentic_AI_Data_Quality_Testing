@@ -5,9 +5,9 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres@postgres/airflow
-    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-local-development-only}
-    AIRFLOW_CONN_POSTGRES_HOSPITALITY: postgresql://postgres:postgres@postgres:5432/hospitality_app
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW_METADATA_DB_URL:?Set AIRFLOW_METADATA_DB_URL in .env}
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:?Set AIRFLOW_SECRET_KEY in .env}
+    AIRFLOW_CONN_POSTGRES_HOSPITALITY: ${AIRFLOW_CONN_POSTGRES_HOSPITALITY:?Set AIRFLOW_CONN_POSTGRES_HOSPITALITY in .env}
     _PIP_ADDITIONAL_REQUIREMENTS: >-
       apache-airflow-providers-postgres>=5.13
       apache-airflow-providers-snowflake>=6.0
@@ -34,7 +34,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-hospitality_app}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     ports: ["${POSTGRES_PORT:-5432}:5432"]
     volumes:
       - hospitality_postgres:/var/lib/postgresql/data
@@ -53,7 +53,7 @@ services:
       - |
         airflow db migrate
         airflow users create \
-          --username admin --password admin \
+          --username ${AIRFLOW_ADMIN_USER:-admin} --password ${AIRFLOW_ADMIN_PASSWORD:?Set AIRFLOW_ADMIN_PASSWORD in .env} \
           --firstname Local --lastname Admin \
           --role Admin --email admin@example.invalid || true
     restart: "no"

@@ -50,7 +50,7 @@ LITERAL_SECRET = re.compile(
 )
 SAFE_LITERAL_HINTS = (
     "example", "fixture", "dummy", "fake", "test", "changeme", "placeholder",
-    "redacted", "super-secret-value", "not-a-real", "local-dev",
+    "redacted", "super-secret-value", "not-a-real", "local-dev", "env_var(",
 )
 
 

@@ -95,7 +95,7 @@ Current product-level targets:
 - 13 warehouse targets including MongoDB; external live connections are optional.
 - 32 built-in skills: the 21 pinned Altimate-compatible skills plus 11 Airflow/pipeline operations skills.
 - Airflow 3 Assets, Task SDK compatibility, mapping, deferrables, bundles, deadlines, security, XCom, capacity, OpenLineage and version-aware REST operations.
-- A dense operator console whose pages use real `/api/v1` responses rather than roadmap placeholders.
+- A dense operator console whose pages use real `/api/v1` responses with explicit unavailable states for credential-dependent services.
 
 Run the bounded local acceptance suite with:
 

@@ -32,7 +32,7 @@ make test
 make start
 ```
 
-Open Airflow at [http://localhost:8080](http://localhost:8080) with local credentials `admin` / `admin`. These credentials are only for the local Airflow UI.
+Before starting Docker services, set `POSTGRES_PASSWORD`, `AIRFLOW_SECRET_KEY`, `AIRFLOW_ADMIN_PASSWORD`, `AIRFLOW_METADATA_DB_URL`, and `AIRFLOW_CONN_POSTGRES_HOSPITALITY` in the untracked `.env` file. Open Airflow at [http://localhost:8080](http://localhost:8080) with the local admin user/password you configured there.
 
 To connect Snowflake, execute `scripts/setup_snowflake.sql` with SnowSQL from the repository root, copy `dbt/profiles.yml.example` to `dbt/profiles.yml`, populate `.env`, and create an Airflow connection named `snowflake_hospitality`. Missing source artifacts or cloud credentials cause an explicit task failure; the project does not manufacture successful load states.
 
@@ -119,5 +119,5 @@ tests/           fast local inventory and generator tests
 
 ## Current implementation boundary
 
-This first implementation wave establishes the full platform contract, physical 100+ table source schemas, every required DAG ID, multi-scale feeds, Snowflake landing/audit controls, and an analytics vertical slice exceeding the 30-model minimum. Subsequent hardening work is tracked in [docs/implementation_roadmap.md](docs/implementation_roadmap.md): native live Oracle/PostgreSQL extraction, per-feed CSV schemas beyond positional landing, remaining hospitality subject-area facts/marts, alert integrations, and load-test evidence.
+The repository contains the deterministic local proving ground, full source catalogs, required DAG inventory, multi-scale synthetic feeds, Snowflake landing/audit controls, dbt transformation layers, quality/reconciliation evidence, and operator-facing tests used by the platform acceptance suite. Live Oracle/PostgreSQL/Snowflake/cloud execution remains credential- and service-dependent and is reported explicitly rather than represented as local success.
 
