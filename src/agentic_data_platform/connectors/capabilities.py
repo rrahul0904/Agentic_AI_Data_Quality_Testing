@@ -16,3 +16,6 @@ class ConnectorCapability(str, Enum):
     GET_DDL = "get_ddl"
     GET_QUERY_HISTORY = "get_query_history"
     GET_LINEAGE = "get_lineage"
+    GET_METADATA_TAGS = "get_metadata_tags"
+    GET_ROLE_METADATA = "get_role_metadata"
+    GET_COST_METADATA = "get_cost_metadata"

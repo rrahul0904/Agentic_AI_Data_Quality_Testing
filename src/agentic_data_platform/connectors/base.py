@@ -36,6 +36,31 @@ class DataPlatformConnector(ABC):
     def get_ddl(self, schema: str, table: str) -> str:
         raise NotImplementedError(f"{self.platform} does not expose DDL retrieval")
 
+    def health(self) -> dict[str, Any]:
+        try:
+            result = self.dry_run_sql("SELECT 1")
+            return {"status": "PASS" if result.valid else "FAIL", "platform": self.platform, "metadata": result.metadata}
+        except Exception as exc:
+            return {"status": "FAIL", "platform": self.platform, "error": f"{type(exc).__name__}: {exc}"}
+
+    def query_history(self, **_: Any) -> list[dict[str, Any]]:
+        raise NotImplementedError(f"{self.platform} does not expose query history")
+
+    def warehouse_usage(self, **_: Any) -> dict[str, Any]:
+        raise NotImplementedError(f"{self.platform} does not expose warehouse usage")
+
+    def cost_usage(self, **_: Any) -> dict[str, Any]:
+        raise NotImplementedError(f"{self.platform} does not expose cost metadata")
+
+    def role_metadata(self, **_: Any) -> dict[str, Any]:
+        raise NotImplementedError(f"{self.platform} does not expose role metadata")
+
+    def tags(self, **_: Any) -> list[dict[str, Any]]:
+        raise NotImplementedError(f"{self.platform} does not expose metadata tags")
+
+    def supports(self, capability: ConnectorCapability) -> bool:
+        return capability in self.capabilities()
+
     # Wave 1 compatibility. It intentionally remains a restricted interface.
     def introspect(self, scope: str) -> dict[str, Any]:
         return {"scope": scope, "schemas": [item.name for item in self.list_schemas()]}

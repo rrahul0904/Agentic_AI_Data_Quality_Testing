@@ -1,0 +1,140 @@
+name: live-agentic-e2e
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - altimate-full-parity
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+      missing: ${{ steps.check.outputs.missing }}
+    env:
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+      SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+      SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+      SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
+      ADE_DBT_LIVE_MUTATION_APPROVED: ${{ secrets.ADE_DBT_LIVE_MUTATION_APPROVED }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ADE_LIVE_AGENT_MODEL: ${{ secrets.ADE_LIVE_AGENT_MODEL }}
+      ADE_AIRFLOW_BASE_URL: ${{ secrets.ADE_AIRFLOW_BASE_URL }}
+      ADE_AIRFLOW_VERSION: ${{ secrets.ADE_AIRFLOW_VERSION }}
+      ADE_AIRFLOW_TOKEN: ${{ secrets.ADE_AIRFLOW_TOKEN }}
+      ADE_AIRFLOW_USERNAME: ${{ secrets.ADE_AIRFLOW_USERNAME }}
+      ADE_AIRFLOW_PASSWORD: ${{ secrets.ADE_AIRFLOW_PASSWORD }}
+      ADE_AIRFLOW_LIVE_MUTATION_APPROVED: ${{ secrets.ADE_AIRFLOW_LIVE_MUTATION_APPROVED }}
+    steps:
+      - id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in SNOWFLAKE_ACCOUNT SNOWFLAKE_USER SNOWFLAKE_PASSWORD SNOWFLAKE_WAREHOUSE SNOWFLAKE_DATABASE SNOWFLAKE_SCHEMA ADE_DBT_LIVE_MUTATION_APPROVED OPENAI_API_KEY ADE_LIVE_AGENT_MODEL ADE_AIRFLOW_BASE_URL ADE_AIRFLOW_LIVE_MUTATION_APPROVED; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ -z "${ADE_AIRFLOW_TOKEN:-}" ] && { [ -z "${ADE_AIRFLOW_USERNAME:-}" ] || [ -z "${ADE_AIRFLOW_PASSWORD:-}" ]; }; then
+            missing+=("ADE_AIRFLOW_TOKEN_OR_USERNAME_PASSWORD")
+          fi
+          if [ "${ADE_DBT_LIVE_MUTATION_APPROVED:-}" != "true" ]; then
+            missing+=("ADE_DBT_LIVE_MUTATION_APPROVED=true")
+          fi
+          if [ "${ADE_AIRFLOW_LIVE_MUTATION_APPROVED:-}" != "true" ]; then
+            missing+=("ADE_AIRFLOW_LIVE_MUTATION_APPROVED=true")
+          fi
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "missing=" >> "$GITHUB_OUTPUT"
+            echo "LIVE PREFLIGHT: READY"
+          else
+            joined="$(IFS=,; echo "${missing[*]}")"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "missing=$joined" >> "$GITHUB_OUTPUT"
+            echo "LIVE PREFLIGHT: BLOCKED_EXTERNAL"
+            echo "MISSING_OR_UNAPPROVED=$joined"
+            if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+              exit 1
+            fi
+          fi
+
+  live-snowflake-e2e:
+    needs: preflight
+    if: needs.preflight.outputs.ready == 'true' && (github.event_name == 'workflow_dispatch' || vars.ADE_LIVE_RELEASE_AUTO == 'true')
+    runs-on: ubuntu-latest
+    env:
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+      SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+      SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+      SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: PYTHONPATH=src python scripts/live_snowflake_e2e.py
+
+  live-dbt-e2e:
+    needs: preflight
+    if: needs.preflight.outputs.ready == 'true' && (github.event_name == 'workflow_dispatch' || vars.ADE_LIVE_RELEASE_AUTO == 'true')
+    runs-on: ubuntu-latest
+    env:
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+      SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+      SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+      ADE_DBT_LIVE_MUTATION_APPROVED: ${{ secrets.ADE_DBT_LIVE_MUTATION_APPROVED }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: PYTHONPATH=src python scripts/live_dbt_e2e.py
+
+  live-agent-e2e:
+    needs: preflight
+    if: needs.preflight.outputs.ready == 'true' && (github.event_name == 'workflow_dispatch' || vars.ADE_LIVE_RELEASE_AUTO == 'true')
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ADE_LIVE_AGENT_PROVIDER: openai
+      ADE_LIVE_AGENT_MODEL: ${{ secrets.ADE_LIVE_AGENT_MODEL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: PYTHONPATH=src python scripts/live_agent_e2e.py
+
+  live-airflow-e2e:
+    needs: preflight
+    if: needs.preflight.outputs.ready == 'true' && (github.event_name == 'workflow_dispatch' || vars.ADE_LIVE_RELEASE_AUTO == 'true')
+    runs-on: ubuntu-latest
+    env:
+      ADE_AIRFLOW_BASE_URL: ${{ secrets.ADE_AIRFLOW_BASE_URL }}
+      ADE_AIRFLOW_VERSION: ${{ secrets.ADE_AIRFLOW_VERSION }}
+      ADE_AIRFLOW_TOKEN: ${{ secrets.ADE_AIRFLOW_TOKEN }}
+      ADE_AIRFLOW_USERNAME: ${{ secrets.ADE_AIRFLOW_USERNAME }}
+      ADE_AIRFLOW_PASSWORD: ${{ secrets.ADE_AIRFLOW_PASSWORD }}
+      ADE_AIRFLOW_LIVE_MUTATION_APPROVED: ${{ secrets.ADE_AIRFLOW_LIVE_MUTATION_APPROVED }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: PYTHONPATH=src python scripts/live_airflow_e2e.py

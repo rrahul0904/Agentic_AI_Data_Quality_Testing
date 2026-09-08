@@ -28,7 +28,16 @@ class BigQueryConnector(DataPlatformConnector):
         self.cost_per_tb = cost_per_tb
 
     def capabilities(self) -> set[ConnectorCapability]:
-        return {ConnectorCapability.LIST_CATALOGS, ConnectorCapability.LIST_SCHEMAS, ConnectorCapability.LIST_TABLES, ConnectorCapability.DESCRIBE_TABLE, ConnectorCapability.QUERY_READ, ConnectorCapability.QUERY_DRY_RUN}
+        return {
+            ConnectorCapability.LIST_CATALOGS,
+            ConnectorCapability.LIST_SCHEMAS,
+            ConnectorCapability.LIST_TABLES,
+            ConnectorCapability.DESCRIBE_TABLE,
+            ConnectorCapability.QUERY_READ,
+            ConnectorCapability.QUERY_DRY_RUN,
+            ConnectorCapability.GET_QUERY_HISTORY,
+            ConnectorCapability.GET_COST_METADATA,
+        }
 
     def list_catalogs(self) -> list[str]:
         return [str(item.project_id) for item in self._client.list_projects()]
@@ -68,3 +77,33 @@ class BigQueryConnector(DataPlatformConnector):
         job = self._client.query(sql)
         rows = tuple(dict(row.items()) for row in job.result())
         return QueryResult(rows, tuple(rows[0]) if rows else (), getattr(job, "job_id", None), {"total_bytes_processed": getattr(job, "total_bytes_processed", None)})
+
+    def query_history(self, *, days: int = 7, limit: int = 1000, region: str = "region-us", **_: Any) -> list[dict[str, Any]]:
+        project = self.config.project
+        if not project:
+            raise ValueError("BigQuery project is required for query history")
+        days = max(1, min(int(days), 180))
+        limit = max(1, min(int(limit), 10000))
+        region = region.replace(chr(96), "")
+        sql = (
+            f"SELECT job_id AS query_id, query AS query_text, user_email AS user_name, "
+            "statement_type AS query_type, state AS execution_status, error_result, "
+            "total_bytes_processed AS bytes_scanned, total_slot_ms, creation_time AS start_time, "
+            "end_time "
+            f"FROM `{project}.{region}.INFORMATION_SCHEMA.JOBS_BY_PROJECT` "
+            f"WHERE creation_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {days} DAY) "
+            "AND job_type = 'QUERY' ORDER BY creation_time DESC "
+            f"LIMIT {limit}"
+        )
+        return list(self.execute_read(sql).rows)
+
+    def cost_usage(self, *, days: int = 7, region: str = "region-us", **_: Any) -> dict[str, Any]:
+        rows = self.query_history(days=days, limit=10000, region=region)
+        total_bytes = sum(int(row.get("bytes_scanned") or 0) for row in rows)
+        estimated = Decimal(total_bytes) / Decimal(1024**4) * self.cost_per_tb
+        return {
+            "days": days,
+            "bytes_processed": total_bytes,
+            "estimated_on_demand_cost_usd": str(estimated),
+            "note": "On-demand scan estimate; reservations/editions may use different billing.",
+        }

@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+if command -v python3 >/dev/null 2>&1; then PYTHON="python3"; elif command -v python >/dev/null 2>&1; then PYTHON="python"; else echo "Python 3.11+ is required" >&2; exit 1; fi
+VENV="$ROOT/.venv"
+if printenv ADE_VENV >/dev/null 2>&1; then VENV="$(printenv ADE_VENV)"; fi
+if [ "$#" -gt 0 ] && [ "$1" = "--dry-run" ]; then
+  printf "%s\n" "$PYTHON -m venv $VENV" "$VENV/bin/python -m pip install -e $ROOT"
+  exit 0
+fi
+"$PYTHON" -c "import sys; raise SystemExit(0 if sys.version_info >= (3,11) else 1)" || { echo "Python 3.11+ is required" >&2; exit 1; }
+"$PYTHON" -m venv "$VENV"
+"$VENV/bin/python" -m pip install --upgrade pip
+"$VENV/bin/python" -m pip install -e "$ROOT"
+echo "Installed. Run: $VENV/bin/agentic-data-platform doctor"

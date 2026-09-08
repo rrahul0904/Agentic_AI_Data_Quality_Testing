@@ -27,7 +27,7 @@ def test_operator_overview_is_derived_from_real_project(tmp_path, monkeypatch):
     assert body["counts"]["postgres_tables"] == 157
     assert body["counts"]["file_feeds"] == 18
     assert body["counts"]["sources"] == 319
-    assert body["counts"]["airflow_dags"] == 55
+    assert body["counts"]["airflow_dags"] == 57
     assert body["counts"]["dbt_models"] == 70
     assert body["counts"]["tools"] >= 80
     assert 0 <= body["health_score"] <= 100
@@ -98,12 +98,17 @@ def test_operator_dbt_airflow_migration_and_warehouse_contracts(tmp_path, monkey
     coverage = api.get("/api/v1/dbt/coverage")
     assert coverage.status_code == 200 and coverage.json()["models"] == 70
     airflow = api.get("/api/v1/airflow/inventory")
-    assert airflow.status_code == 200 and airflow.json()["dag_count"] == 55
-    assert len(airflow.json()["details"]) == 55
+    assert airflow.status_code == 200 and airflow.json()["dag_count"] == 57
+    assert len(airflow.json()["details"]) == 57
     migration = api.get("/api/v1/migration/inventory")
     assert migration.status_code == 200 and migration.json()["models"] >= 1
     warehouses = api.get("/api/v1/warehouses")
-    assert warehouses.status_code == 200 and len(warehouses.json()["adapters"]) == 7
+    assert warehouses.status_code == 200
+    platforms = {item["platform"] for item in warehouses.json()["adapters"]}
+    assert {
+        "snowflake", "bigquery", "databricks", "postgres", "redshift", "oracle",
+        "mysql", "sqlserver", "duckdb", "sqlite", "clickhouse", "trino",
+    }.issubset(platforms)
 
 
 def test_deterministic_agent_reports_tool_evidence(tmp_path, monkeypatch):

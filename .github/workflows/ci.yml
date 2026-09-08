@@ -6,6 +6,7 @@ on:
 
 jobs:
   python:
+    name: python-${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -115,8 +116,185 @@ jobs:
           data=json.load(open('/tmp/overview.json'))
           assert data['counts']['oracle_tables'] == 144
           assert data['counts']['postgres_tables'] == 157
-          assert data['counts']['airflow_dags'] == 55
+          assert data['counts']['airflow_dags'] >= 57
           assert data['counts']['dbt_models'] == 70
           assert data['counts']['tools'] >= 50
           PY
+          curl -fsS http://127.0.0.1:8001/api/v1/airflow/assets >/dev/null
+          curl -fsS http://127.0.0.1:8001/api/v1/providers >/dev/null
+          curl -fsS http://127.0.0.1:8001/api/v1/skills/catalog >/dev/null
+          curl -fsS http://127.0.0.1:8001/api/v1/training/status >/dev/null
           grep -q "Agentic" /tmp/console.html
+          grep -q "Providers" /tmp/console.html
+          grep -q "Settings / Doctor" /tmp/console.html
+
+
+  agent-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: python scripts/parse_dbt.py
+      - run: pytest -q tests/test_agent*.py tests/test_ground_truth_isolation.py tests/test_proactive_agentic_monitoring.py tests/test_quality_agentic_primitives.py tests/test_selective_recovery.py tests/test_asset_certification.py tests/test_cross_system_impact_graph.py tests/test_mapping_transformation_agents.py
+      - run: ruff check src/agentic_data_platform/agents tests/test_agent*.py tests/test_ground_truth_isolation.py tests/test_proactive_agentic_monitoring.py tests/test_quality_agentic_primitives.py tests/test_selective_recovery.py tests/test_asset_certification.py tests/test_cross_system_impact_graph.py tests/test_mapping_transformation_agents.py benchmarks/agentic scripts/demo-agentic-investigation.py
+
+  agent-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: python scripts/parse_dbt.py
+      - run: PYTHONPATH=src python scripts/demo-agentic-investigation.py
+
+  benchmark-agentic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: python scripts/parse_dbt.py
+      - run: PYTHONPATH=src python benchmarks/agentic/run.py
+
+  airflow-static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: pytest -q tests/test_airflow_control_plane.py tests/integration/test_airflow_full_surface.py
+      - run: PYTHONPATH=src python benchmarks/airflow/run.py
+
+  parity-ledger:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: PYTHONPATH=src python scripts/check_parity_gate.py --ledger all
+      - run: PYTHONPATH=src python scripts/altimate_parity_evidence.py
+
+  benchmark-lineage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: PYTHONPATH=src python benchmarks/lineage/run.py
+
+  benchmark-airflow:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: PYTHONPATH=src python benchmarks/airflow/run.py
+
+  fresh-clone:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: agentic-data-platform --help
+      - run: python scripts/parse_dbt.py
+      - run: pytest -q tests/integration/test_fresh_clone.py tests/integration/test_full_parity.py
+      - run: bash scripts/demo-full-platform.sh
+
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: ruff check src tests integration/e2e-tests scripts
+
+  dbt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: python scripts/parse_dbt.py
+      - run: pytest -q tests/test_dbt_runtime.py tests/test_dbt_validators.py tests/test_dbt_test_generation.py tests/test_dbt_pr_review.py
+
+  airflow-3:
+    runs-on: ubuntu-latest
+    env:
+      ADE_AIRFLOW_VERSION: "3.3.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: pytest -q tests/test_airflow_control_plane.py tests/integration/test_airflow_full_surface.py
+      - run: bash scripts/demo-airflow.sh
+
+  providers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: pytest -q tests/test_providers.py tests/test_provider_control.py tests/test_provider_expanded.py tests/test_provider_tool_messages.py
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: python scripts/parse_dbt.py
+      - run: pytest -q tests/integration integration/e2e-tests
+
+  airflow-ledger:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: PYTHONPATH=src python scripts/check_parity_gate.py --ledger airflow
+      - run: PYTHONPATH=src python scripts/check_airflow_gate.py
+
+
+  final-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: python scripts/final_acceptance_audit.py
+      - run: pytest -q tests/test_final_acceptance_audit.py

@@ -1,3 +1,4 @@
+{{ config(materialized='incremental', unique_key=['reconciliation_date', 'currency_code'], incremental_strategy='merge') }}
 select
   coalesce(settlement_date, to_date(updated_at)) as reconciliation_date,
   currency_code,
@@ -9,5 +10,8 @@ select
   sum(settled_net_amount) as settled_net_amount,
   sum(gross_variance) as unreconciled_variance
 from {{ ref('int_payment_reconciliation') }}
+{% if is_incremental() %}
+where updated_at >= dateadd(day, -3, (select coalesce(max(reconciliation_date), '1900-01-01'::date) from {{ this }}))
+{% endif %}
 group by 1, 2
 

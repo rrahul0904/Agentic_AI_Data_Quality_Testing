@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from agentic_data_platform.agents.planner import PlannerAgent
+from agentic_data_platform.agents import InvestigationStore, SupervisorAgent
 from agentic_data_platform.models import ActorMode, ApprovalRecord, Environment, ProjectRecord, RunRecord, ToolRequest
 from agentic_data_platform.persistence.sqlite import SQLiteControlPlaneRepository
 from agentic_data_platform.sql.parser import parse_sql
@@ -54,6 +55,7 @@ class ToolInput(BaseModel):
     actor_mode: ActorMode = ActorMode.ANALYST
     environment: Environment = Environment.DEV
     dry_run: bool = False
+    approved: bool = False
 
 
 class SqlWorkspaceInput(BaseModel):
@@ -70,6 +72,84 @@ class ReconcileRowCountInput(BaseModel):
 
 class AgentQueryInput(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
+
+
+class InvestigationApprovalInput(BaseModel):
+    approved_by: str = Field(min_length=1, max_length=200)
+
+
+class InvestigationRejectInput(BaseModel):
+    rejected_by: str = Field(min_length=1, max_length=200)
+    reason: str = Field(default="operator rejected remediation", min_length=1, max_length=1000)
+
+
+class ProactiveAnomalyInput(BaseModel):
+    signals: dict[str, Any]
+    scenario_id: str = Field(default="airflow_green_data_bad", min_length=1, max_length=200)
+
+
+class ArgsInput(BaseModel):
+    args: dict[str, Any] = Field(default_factory=dict)
+
+
+class SessionCreateInput(BaseModel):
+    title: str | None = None
+    provider: str | None = None
+    model: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SessionMessageInput(BaseModel):
+    role: str
+    content: Any
+    error: dict[str, Any] | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SessionTodoInput(BaseModel):
+    text: str = Field(min_length=1)
+    priority: int = 0
+
+
+class SessionTodoUpdateInput(BaseModel):
+    status: str
+
+
+class MemorySaveInput(BaseModel):
+    content: str = Field(min_length=1)
+    scope: str = "project"
+    project_id: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    citations: list[str] = Field(default_factory=list)
+    expires_at: str | None = None
+
+
+class TrainingTextInput(BaseModel):
+    source: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+    source_type: str = "text"
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SkillCreateInput(BaseModel):
+    name: str = Field(min_length=1)
+    description: str = ""
+    body: str = Field(min_length=1)
+    scope: str = "project"
+    always_apply: bool = False
+    apply_paths: list[str] = Field(default_factory=list)
+
+
+class SkillInstallInput(BaseModel):
+    name: str | None = None
+    source: str | None = None
+    scope: str = "project"
+    overwrite: bool = False
+
+
+class JobSubmitInput(BaseModel):
+    tool: str = Field(min_length=1)
+    args: dict[str, Any] = Field(default_factory=dict)
 
 
 def _record_payload(record: Any) -> dict[str, Any]:
@@ -94,6 +174,11 @@ def _quality_database() -> Path:
     return Path(configured).expanduser().resolve() if configured else _program_root() / ".ade" / "quality.db"
 
 
+def _investigation_database() -> Path:
+    configured = os.getenv("ADE_INVESTIGATION_DATABASE")
+    return Path(configured).expanduser().resolve() if configured else _program_root() / ".ade" / "agentic-investigations.db"
+
+
 def _shiftforge_fixture() -> Path:
     return _program_root() / "shiftforge" / "examples" / "revinate"
 
@@ -102,32 +187,49 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     repo = repository or SQLiteControlPlaneRepository(os.getenv("ADE_DATABASE_PATH", "ade.db"))
     repo.initialize()
     registry = build_tool_registry()
-    app = FastAPI(title="Agentic Data Engineering OS", version="0.4.0")
+    investigation_store = InvestigationStore(_investigation_database())
+    supervisor = SupervisorAgent(registry, investigation_store, _project_root())
+    app = FastAPI(title="Agentic Data Engineering OS", version="0.5.0")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=os.getenv("ADE_UI_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(","),
         allow_credentials=False,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PATCH", "DELETE"],
         allow_headers=["content-type"],
     )
 
-    def invoke_read(tool_name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+    def invoke_governed(
+        tool_name: str,
+        args: dict[str, Any] | None = None,
+        *,
+        actor_mode: ActorMode = ActorMode.ANALYST,
+        environment: Environment = Environment.DEV,
+        dry_run: bool = False,
+        approved: bool = False,
+    ) -> dict[str, Any]:
         definition = registry.describe(tool_name)
         request = ToolRequest(
             tool=tool_name,
             operation=tool_name,
-            environment=Environment.DEV,
+            environment=environment,
             risk=definition.risk,
             args=args or {},
         )
-        return registry.invoke(
-            ToolInvocation(
-                request,
-                run_id=f"api-v1-{tool_name}",
-                dry_run=False,
-                actor_mode=ActorMode.ANALYST,
+        try:
+            return registry.invoke(
+                ToolInvocation(
+                    request,
+                    run_id=f"api-v1-{tool_name}",
+                    approved=approved,
+                    dry_run=dry_run,
+                    actor_mode=actor_mode,
+                )
             )
-        )
+        except (KeyError, ValueError, PermissionError, FileNotFoundError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    def invoke_read(tool_name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+        return invoke_governed(tool_name, args, actor_mode=ActorMode.ANALYST)
 
     def demo_project_args() -> dict[str, Any]:
         return {"project": str(_project_root())}
@@ -238,6 +340,70 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     def platform_impact(node: str, depth: int = 8) -> dict[str, Any]:
         return invoke_read("platform_impact", {**demo_project_args(), "node": node, "depth": depth})
 
+    @app.get("/api/v1/agents/roster")
+    def agent_roster() -> dict[str, Any]:
+        items = supervisor.roster()
+        return {"status": "PASS", "count": len(items), "agents": items}
+
+    @app.get("/api/v1/investigations/scenarios")
+    def investigation_scenarios() -> dict[str, Any]:
+        items = supervisor.scenarios()
+        return {"status": "PASS", "count": len(items), "scenarios": items}
+
+    @app.post("/api/v1/investigations/anomaly")
+    def proactive_anomaly(payload: ProactiveAnomalyInput) -> dict[str, Any]:
+        try:
+            return supervisor.detect_and_investigate(
+                payload.signals,
+                scenario_id=payload.scenario_id,
+            )
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.get("/api/v1/investigations")
+    def investigation_list(limit: int = 100) -> dict[str, Any]:
+        items = investigation_store.list_incidents(limit)
+        return {"status": "PASS", "count": len(items), "incidents": items}
+
+    @app.post("/api/v1/investigations/{scenario_id}/start")
+    def investigation_start(scenario_id: str) -> dict[str, Any]:
+        try:
+            report = supervisor.investigate(scenario_id)
+            return supervisor.public_report(report.incident_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.get("/api/v1/investigations/{incident_id}")
+    def investigation_detail(incident_id: str) -> dict[str, Any]:
+        try:
+            return supervisor.public_report(incident_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.post("/api/v1/investigations/{incident_id}/approve")
+    def investigation_approve(incident_id: str, payload: InvestigationApprovalInput) -> dict[str, Any]:
+        try:
+            return supervisor.approve(incident_id, approved_by=payload.approved_by)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/v1/investigations/{incident_id}/execute")
+    def investigation_execute(incident_id: str) -> dict[str, Any]:
+        try:
+            report = supervisor.execute_approved(incident_id)
+            return supervisor.public_report(report.incident_id)
+        except PermissionError as exc:
+            raise HTTPException(403, str(exc)) from exc
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/v1/investigations/{incident_id}/reject")
+    def investigation_reject(incident_id: str, payload: InvestigationRejectInput) -> dict[str, Any]:
+        try:
+            return supervisor.reject(incident_id, rejected_by=payload.rejected_by, reason=payload.reason)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
     @app.post("/api/v1/sql/review")
     def sql_review(payload: SqlWorkspaceInput) -> dict[str, Any]:
         return invoke_read("sql_review", {"sql": payload.sql, "dialect": payload.dialect})
@@ -282,6 +448,86 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     @app.get("/api/v1/airflow/failures")
     def airflow_failures() -> dict[str, Any]:
         return invoke_read("airflow_failure_summary", demo_project_args())
+
+    @app.get("/api/v1/airflow/static-analysis")
+    def airflow_static_analysis() -> dict[str, Any]:
+        return invoke_read("airflow_static_dag_intelligence", demo_project_args())
+
+    @app.get("/api/v1/airflow/dags")
+    def airflow_dags() -> dict[str, Any]:
+        return invoke_read("airflow_inventory", demo_project_args())
+
+    @app.get("/api/v1/airflow/dags/{dag_id}")
+    def airflow_dag(dag_id: str) -> dict[str, Any]:
+        return invoke_read("airflow_dag_details", {**demo_project_args(), "dag_id": dag_id})
+
+    @app.get("/api/v1/airflow/dags/{dag_id}/tasks")
+    def airflow_dag_tasks(dag_id: str) -> dict[str, Any]:
+        return invoke_read("airflow_task_graph", {**demo_project_args(), "dag_id": dag_id})
+
+    @app.get("/api/v1/airflow/dags/{dag_id}/runs")
+    def airflow_dag_runs(dag_id: str, limit: int = 100) -> dict[str, Any]:
+        return invoke_read("airflow_runtime_dag_runs", {**demo_project_args(), "dag_id": dag_id, "limit": limit})
+
+    @app.get("/api/v1/airflow/tasks/{task_id}")
+    def airflow_task(task_id: str) -> dict[str, Any]:
+        graph = invoke_read("airflow_graph", demo_project_args())
+        matches = [node for node in graph["nodes"] if node.get("kind") == "task" and node.get("name") == task_id]
+        if not matches:
+            raise HTTPException(404, f"Airflow task not found: {task_id}")
+        return {"task_id": task_id, "matches": matches}
+
+    @app.get("/api/v1/airflow/assets")
+    def airflow_assets() -> dict[str, Any]:
+        return invoke_read("airflow_asset_inventory", demo_project_args())
+
+    @app.get("/api/v1/airflow/assets/{asset:path}")
+    def airflow_asset(asset: str) -> dict[str, Any]:
+        result = invoke_read("airflow_asset_inventory", demo_project_args())
+        matches = [item for item in result["items"] if item["name"] == asset]
+        if not matches:
+            raise HTTPException(404, f"Airflow asset not found: {asset}")
+        return matches[0]
+
+    @app.get("/api/v1/airflow/connections")
+    def airflow_connections() -> dict[str, Any]:
+        return invoke_read("airflow_connection_analysis", demo_project_args())
+
+    @app.get("/api/v1/airflow/pools")
+    def airflow_pools() -> dict[str, Any]:
+        return invoke_read("airflow_pool_health", demo_project_args())
+
+    @app.get("/api/v1/airflow/import-errors")
+    def airflow_import_errors() -> dict[str, Any]:
+        return invoke_read("airflow_import_errors", demo_project_args())
+
+    @app.post("/api/v1/airflow/root-cause")
+    def airflow_root_cause(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_read("airflow_pipeline_root_cause", {**demo_project_args(), **payload.args})
+
+    @app.post("/api/v1/airflow/backfill/plan")
+    def airflow_backfill_plan(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_read("airflow_backfill_plan", {**demo_project_args(), **payload.args})
+
+    @app.get("/api/v1/airflow/capacity")
+    def airflow_capacity() -> dict[str, Any]:
+        return invoke_read("airflow_capacity_plan", demo_project_args())
+
+    @app.get("/api/v1/airflow/upgrade")
+    def airflow_upgrade() -> dict[str, Any]:
+        return invoke_read("airflow_upgrade_analysis", demo_project_args())
+
+    @app.get("/api/v1/airflow/security")
+    def airflow_security() -> dict[str, Any]:
+        return invoke_read("airflow_secret_risk", demo_project_args())
+
+    @app.get("/api/v1/airflow/xcom")
+    def airflow_xcom() -> dict[str, Any]:
+        return invoke_read("airflow_xcom_analysis", demo_project_args())
+
+    @app.get("/api/v1/airflow/bundles")
+    def airflow_bundles() -> dict[str, Any]:
+        return invoke_read("airflow_bundle_inventory", demo_project_args())
 
     @app.get("/api/v1/quality/summary")
     def quality_summary() -> dict[str, Any]:
@@ -441,6 +687,570 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             },
         }
 
+    DOMAIN_TOOLS: dict[str, dict[str, str]] = {
+        "connections": {
+            "add": "connection_add", "remove": "connection_remove", "list": "connection_list",
+            "show": "connection_show", "test": "connection_test", "default": "connection_default",
+            "discover": "connection_discover",
+        },
+        "metadata": {
+            "refresh": "schema_refresh", "index": "schema_index", "search": "schema_search",
+            "inspect": "schema_inspect", "tags": "schema_tags", "status": "metadata_status",
+            "autocomplete": "autocomplete",
+        },
+        "data-diff": {
+            "run": "data_diff", "plan": "data_diff_plan", "profile": "data_diff_profile",
+            "join": "data_diff_join", "hash": "data_diff_hash", "cascade": "data_diff_cascade",
+        },
+        "finops": {
+            "history": "finops_query_history", "expensive": "finops_expensive_queries",
+            "errors": "finops_query_errors", "patterns": "finops_query_patterns",
+            "cost": "finops_cost_summary", "usage": "finops_warehouse_usage",
+            "advisor": "finops_warehouse_advisor", "idle": "finops_idle_resources",
+            "report": "finops_report",
+        },
+        "governance": {
+            "pii-scan": "pii_scan", "pii-lineage": "pii_lineage",
+            "pii-exposure": "pii_exposure", "pii-policy": "pii_policy_check",
+            "pii-downstream": "pii_downstream_assets", "rbac-audit": "rbac_audit",
+            "rbac-object-access": "rbac_object_access", "rbac-risk": "rbac_risk",
+            "pii-access": "pii_access_report",
+        },
+        "providers": {
+            "list": "provider_list", "auth": "provider_auth", "auth-status": "provider_auth_status",
+            "family": "provider_family", "models": "provider_models",
+            "search": "provider_model_search", "model-status": "provider_model_status",
+            "snapshot": "provider_model_snapshot", "transform": "provider_transform",
+            "output-budget": "provider_output_budget",
+        },
+        "mcp": {
+            "list": "mcp_list", "add": "mcp_add", "remove": "mcp_remove",
+            "enable": "mcp_enable", "disable": "mcp_disable", "discover": "mcp_discover",
+            "catalog": "mcp_catalog", "install": "mcp_install",
+            "auth-set-env": "mcp_auth_set_env", "auth-status": "mcp_auth_status",
+            "status": "mcp_status", "tools": "mcp_tools", "resources": "mcp_resources",
+            "call": "mcp_call", "oauth-begin": "mcp_oauth_begin",
+            "oauth-callback": "mcp_oauth_callback",
+        },
+        "skills": {
+            "catalog": "skill_catalog", "install": "skill_install",
+            "install-source": "skill_install_source", "create": "skill_create",
+            "test": "skill_test", "install-all": "skill_install_all",
+            "list": "skill_list", "show": "skill_show", "enable": "skill_enable",
+            "disable": "skill_disable", "remove": "skill_remove",
+            "auto-load": "skill_auto_load", "plan": "skill_plan", "execute": "skill_execute",
+        },
+        "training": {
+            "ingest": "training_ingest", "ingest-text": "training_ingest_text",
+            "search": "training_search", "context": "training_context",
+            "status": "training_status", "clear": "training_clear",
+        },
+        "sessions": {
+            "create": "session_create", "list": "session_list", "show": "session_show",
+            "message-add": "session_message_add", "messages": "session_messages",
+            "status": "session_status", "status-set": "session_status_set",
+            "todo-add": "session_todo_add", "todo-update": "session_todo_update",
+            "todos": "session_todos", "reminder-add": "session_reminder_add",
+            "reminders": "session_reminders", "reminder-deliver": "session_reminder_deliver",
+            "revert": "session_revert", "state": "session_state",
+            "state-patch": "session_state_patch", "prompt": "session_prompt",
+            "compact": "session_compact", "nudge": "session_nudge",
+            "termination": "session_termination", "retry-plan": "session_retry_plan",
+            "tool-result-cap": "session_tool_result_cap", "overflow": "session_overflow",
+        },
+        "memory": {
+            "save": "memory_save", "list": "memory_list", "search": "memory_search",
+            "remove": "memory_remove",
+        },
+        "traces": {
+            "list": "trace_list", "show": "trace_show", "export": "trace_export",
+            "replay": "trace_replay",
+        },
+        "jobs": {
+            "submit": "job_submit", "list": "job_list", "show": "job_show",
+            "cancel": "job_cancel",
+        },
+    }
+
+    @app.get("/api/v1/domains")
+    def domain_surface() -> dict[str, Any]:
+        return {
+            domain: {
+                operation: {
+                    "tool": tool_name,
+                    "risk": registry.describe(tool_name).risk.value,
+                    "capability": registry.describe(tool_name).capability.value,
+                }
+                for operation, tool_name in operations.items()
+            }
+            for domain, operations in DOMAIN_TOOLS.items()
+        }
+
+    # --- Phase 2 stable runtime API -------------------------------------------------
+
+    def runtime_args(**extra: Any) -> dict[str, Any]:
+        return {**demo_project_args(), **extra}
+
+    @app.get("/api/v1/sessions")
+    def session_list(limit: int = 100) -> dict[str, Any]:
+        return invoke_read("session_list", runtime_args(limit=limit))
+
+    @app.post("/api/v1/sessions")
+    def session_create(payload: SessionCreateInput) -> dict[str, Any]:
+        return invoke_governed(
+            "session_create",
+            runtime_args(
+                title=payload.title,
+                provider=payload.provider,
+                model=payload.model,
+                metadata=payload.metadata,
+            ),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/sessions/{session_id}")
+    def session_show(session_id: str) -> dict[str, Any]:
+        return invoke_read("session_show", runtime_args(session_id=session_id))
+
+    @app.get("/api/v1/sessions/{session_id}/messages")
+    def session_messages(session_id: str, limit: int | None = None) -> dict[str, Any]:
+        return invoke_read(
+            "session_messages",
+            runtime_args(session_id=session_id, limit=limit),
+        )
+
+    @app.post("/api/v1/sessions/{session_id}/messages")
+    def session_message_add(session_id: str, payload: SessionMessageInput) -> dict[str, Any]:
+        return invoke_governed(
+            "session_message_add",
+            runtime_args(
+                session_id=session_id,
+                role=payload.role,
+                content=payload.content,
+                error=payload.error,
+                metadata=payload.metadata,
+            ),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/sessions/{session_id}/todos")
+    def session_todos(session_id: str) -> dict[str, Any]:
+        return invoke_read("session_todos", runtime_args(session_id=session_id))
+
+    @app.post("/api/v1/sessions/{session_id}/todos")
+    def session_todo_add(session_id: str, payload: SessionTodoInput) -> dict[str, Any]:
+        return invoke_governed(
+            "session_todo_add",
+            runtime_args(
+                session_id=session_id,
+                text=payload.text,
+                priority=payload.priority,
+            ),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.patch("/api/v1/sessions/todos/{todo_id}")
+    def session_todo_update(todo_id: str, payload: SessionTodoUpdateInput) -> dict[str, Any]:
+        return invoke_governed(
+            "session_todo_update",
+            runtime_args(todo_id=todo_id, status=payload.status),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.post("/api/v1/sessions/{session_id}/compact")
+    def session_compact(session_id: str, payload: ArgsInput) -> dict[str, Any]:
+        return invoke_governed(
+            "session_compact",
+            runtime_args(session_id=session_id, **payload.args),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/sessions/{session_id}/termination")
+    def session_termination(session_id: str) -> dict[str, Any]:
+        return invoke_read(
+            "session_termination",
+            runtime_args(session_id=session_id),
+        )
+
+    @app.get("/api/v1/memory")
+    def memory_list(query: str = "", project_id: str | None = None, limit: int = 100) -> dict[str, Any]:
+        tool = "memory_search" if query else "memory_list"
+        return invoke_read(
+            tool,
+            runtime_args(query=query, project_id=project_id, limit=limit),
+        )
+
+    @app.post("/api/v1/memory")
+    def memory_save(payload: MemorySaveInput) -> dict[str, Any]:
+        return invoke_governed(
+            "memory_save",
+            runtime_args(**payload.model_dump()),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.delete("/api/v1/memory/{memory_id}")
+    def memory_remove(memory_id: str) -> dict[str, Any]:
+        return invoke_governed(
+            "memory_remove",
+            runtime_args(memory_id=memory_id),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/training/status")
+    def training_status() -> dict[str, Any]:
+        return invoke_read("training_status", runtime_args())
+
+    @app.get("/api/v1/training/search")
+    def training_search(query: str, limit: int = 10) -> dict[str, Any]:
+        return invoke_read(
+            "training_search",
+            runtime_args(query=query, limit=limit),
+        )
+
+    @app.post("/api/v1/training/ingest-text")
+    def training_ingest_text(payload: TrainingTextInput) -> dict[str, Any]:
+        return invoke_governed(
+            "training_ingest_text",
+            runtime_args(**payload.model_dump()),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.post("/api/v1/training/ingest-project")
+    def training_ingest_project(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_governed(
+            "training_ingest",
+            runtime_args(**payload.args),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.delete("/api/v1/training")
+    def training_clear() -> dict[str, Any]:
+        return invoke_governed(
+            "training_clear",
+            runtime_args(),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/skills/catalog")
+    def skill_catalog() -> dict[str, Any]:
+        return invoke_read("skill_catalog", runtime_args())
+
+    @app.get("/api/v1/skills")
+    def skill_list() -> dict[str, Any]:
+        return invoke_read("skill_list", runtime_args())
+
+    @app.post("/api/v1/skills")
+    def skill_create(payload: SkillCreateInput) -> dict[str, Any]:
+        return invoke_governed(
+            "skill_create",
+            runtime_args(**payload.model_dump()),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.post("/api/v1/skills/install")
+    def skill_install(payload: SkillInstallInput) -> dict[str, Any]:
+        return invoke_governed(
+            "skill_install",
+            runtime_args(**payload.model_dump(exclude_none=True)),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/skills/{name}")
+    def skill_show(name: str) -> dict[str, Any]:
+        return invoke_read("skill_show", runtime_args(name=name))
+
+    @app.get("/api/v1/skills/{name}/test")
+    def skill_test(name: str) -> dict[str, Any]:
+        return invoke_read("skill_test", runtime_args(name=name))
+
+    @app.post("/api/v1/skills/{name}/enable")
+    def skill_enable(name: str) -> dict[str, Any]:
+        return invoke_governed(
+            "skill_enable",
+            runtime_args(name=name),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.post("/api/v1/skills/{name}/disable")
+    def skill_disable(name: str) -> dict[str, Any]:
+        return invoke_governed(
+            "skill_disable",
+            runtime_args(name=name),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.delete("/api/v1/skills/{name}")
+    def skill_remove(name: str) -> dict[str, Any]:
+        return invoke_governed(
+            "skill_remove",
+            runtime_args(name=name),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/traces")
+    def trace_list(limit: int = 100) -> dict[str, Any]:
+        return invoke_read("trace_list", runtime_args(limit=limit))
+
+    @app.get("/api/v1/traces/{trace_id}")
+    def trace_show(trace_id: str) -> dict[str, Any]:
+        return invoke_read("trace_show", runtime_args(trace_id=trace_id))
+
+    @app.get("/api/v1/traces/{trace_id}/export")
+    def trace_export(trace_id: str, format: str = "json") -> dict[str, Any]:
+        return invoke_read(
+            "trace_export",
+            runtime_args(trace_id=trace_id, format=format),
+        )
+
+    @app.get("/api/v1/traces/{trace_id}/replay")
+    def trace_replay(trace_id: str) -> dict[str, Any]:
+        return invoke_read("trace_replay", runtime_args(trace_id=trace_id))
+
+    @app.get("/api/v1/jobs")
+    def job_list(limit: int = 100) -> dict[str, Any]:
+        return invoke_read("job_list", runtime_args(limit=limit))
+
+    @app.post("/api/v1/jobs")
+    def job_submit(payload: JobSubmitInput) -> dict[str, Any]:
+        return invoke_governed(
+            "job_submit",
+            runtime_args(tool=payload.tool, args=payload.args),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/jobs/{job_id}")
+    def job_show(job_id: str) -> dict[str, Any]:
+        return invoke_read("job_show", runtime_args(job_id=job_id))
+
+    @app.delete("/api/v1/jobs/{job_id}")
+    def job_cancel(job_id: str) -> dict[str, Any]:
+        return invoke_governed(
+            "job_cancel",
+            runtime_args(job_id=job_id),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/providers")
+    def provider_list() -> dict[str, Any]:
+        return invoke_read("provider_list", {})
+
+    @app.get("/api/v1/providers/auth")
+    def provider_auth() -> dict[str, Any]:
+        return invoke_read("provider_auth", {})
+
+    @app.get("/api/v1/models")
+    def provider_models(
+        provider: str | None = None,
+        status: str | None = None,
+        catalog_path: str | None = None,
+    ) -> dict[str, Any]:
+        return invoke_read(
+            "provider_models",
+            {
+                "provider": provider,
+                "status": status,
+                "catalog_path": catalog_path,
+            },
+        )
+
+    @app.get("/api/v1/connections")
+    def connection_list() -> dict[str, Any]:
+        return invoke_read("connection_list", runtime_args())
+
+    @app.post("/api/v1/connections")
+    def connection_add(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_governed(
+            "connection_add",
+            runtime_args(**payload.args),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/connections/discover")
+    def connection_discover() -> dict[str, Any]:
+        return invoke_read("connection_discover", runtime_args())
+
+    @app.post("/api/v1/connections/{name}/test")
+    def connection_test(name: str) -> dict[str, Any]:
+        return invoke_read("connection_test", runtime_args(name=name))
+
+    @app.delete("/api/v1/connections/{name}")
+    def connection_remove(name: str) -> dict[str, Any]:
+        return invoke_governed(
+            "connection_remove",
+            runtime_args(name=name),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/metadata/status")
+    def metadata_status(connection: str | None = None) -> dict[str, Any]:
+        return invoke_read(
+            "metadata_status",
+            runtime_args(connection=connection),
+        )
+
+    @app.get("/api/v1/metadata/search")
+    def metadata_search(query: str = "", connection: str | None = None, limit: int = 50) -> dict[str, Any]:
+        return invoke_read(
+            "schema_search",
+            runtime_args(query=query, connection=connection, limit=limit),
+        )
+
+    @app.post("/api/v1/metadata/refresh")
+    def metadata_refresh(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_read(
+            "schema_refresh",
+            runtime_args(**payload.args),
+        )
+
+    @app.post("/api/v1/data-diff")
+    def production_data_diff(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_read(
+            "data_diff",
+            runtime_args(**payload.args),
+        )
+
+    @app.get("/api/v1/finops/report")
+    def finops_report(
+        connection: str | None = None,
+        days: int = 7,
+        limit: int = 1000,
+    ) -> dict[str, Any]:
+        return invoke_read(
+            "finops_report",
+            runtime_args(connection=connection, days=days, limit=limit),
+        )
+
+    @app.post("/api/v1/pii/scan")
+    def pii_scan(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_read("pii_scan", runtime_args(**payload.args))
+
+    @app.post("/api/v1/pii/policy")
+    def pii_policy(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_read(
+            "pii_policy_check",
+            runtime_args(**payload.args),
+        )
+
+    @app.get("/api/v1/rbac/audit")
+    def rbac_audit(connection: str | None = None) -> dict[str, Any]:
+        return invoke_read(
+            "rbac_audit",
+            runtime_args(connection=connection),
+        )
+
+    @app.get("/api/v1/mcp")
+    def mcp_list() -> dict[str, Any]:
+        return invoke_read("mcp_list", runtime_args())
+
+    @app.get("/api/v1/mcp/catalog")
+    def mcp_catalog() -> dict[str, Any]:
+        return invoke_read("mcp_catalog", runtime_args())
+
+    @app.get("/api/v1/mcp/discover")
+    def mcp_discover() -> dict[str, Any]:
+        return invoke_read("mcp_discover", runtime_args())
+
+    @app.post("/api/v1/mcp/install")
+    def mcp_install(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_governed(
+            "mcp_install",
+            runtime_args(**payload.args),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/mcp/{name}/status")
+    def mcp_status(name: str) -> dict[str, Any]:
+        return invoke_read("mcp_status", runtime_args(name=name))
+
+    @app.get("/api/v1/mcp/{name}/tools")
+    def mcp_tools(name: str) -> dict[str, Any]:
+        return invoke_read("mcp_tools", runtime_args(name=name))
+
+    @app.get("/api/v1/mcp/{name}/resources")
+    def mcp_resources(name: str) -> dict[str, Any]:
+        return invoke_read("mcp_resources", runtime_args(name=name))
+
+    @app.post("/api/v1/review/dbt")
+    def dbt_pr_review(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_read(
+            "dbt_pr_review",
+            runtime_args(**payload.args),
+        )
+
+    @app.post("/api/v1/review/impact")
+    def review_impact(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_read(
+            "change_impact",
+            runtime_args(**payload.args),
+        )
+
+    @app.post("/api/v1/review/recommended-tests")
+    def review_recommended_tests(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_read(
+            "recommended_tests",
+            runtime_args(**payload.args),
+        )
+
+    @app.post("/api/v1/review/deployment-risk")
+    def review_deployment_risk(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_read(
+            "deployment_risk",
+            runtime_args(**payload.args),
+        )
+
+    @app.post("/api/v1/review/github")
+    def review_github(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_governed(
+            "github_pr_review",
+            runtime_args(**payload.args),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.post("/api/v1/review/gitlab")
+    def review_gitlab(payload: ArgsInput) -> dict[str, Any]:
+        return invoke_governed(
+            "gitlab_mr_review",
+            runtime_args(**payload.args),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.post("/api/v1/dbt/execute/{operation}")
+    def dbt_execute(operation: str, payload: ArgsInput) -> dict[str, Any]:
+        allowed = {
+            "parse": ("dbt_parse", ActorMode.ANALYST),
+            "ls": ("dbt_ls", ActorMode.ANALYST),
+            "compile": ("dbt_compile", ActorMode.ANALYST),
+            "test": ("dbt_test", ActorMode.ANALYST),
+            "run": ("dbt_run", ActorMode.BUILDER),
+            "build": ("dbt_build", ActorMode.BUILDER),
+            "seed": ("dbt_seed", ActorMode.BUILDER),
+            "snapshot": ("dbt_snapshot", ActorMode.BUILDER),
+        }
+        if operation not in allowed:
+            raise HTTPException(404, "unsupported dbt operation")
+        tool_name, mode = allowed[operation]
+        return invoke_governed(
+            tool_name,
+            runtime_args(**payload.args),
+            actor_mode=mode,
+        )
+
+    @app.post("/api/v1/{domain}/{operation}")
+    def invoke_domain(domain: str, operation: str, payload: ToolInput) -> dict[str, Any]:
+        operations = DOMAIN_TOOLS.get(domain)
+        if operations is None:
+            raise HTTPException(404, f"unknown API domain: {domain}")
+        tool_name = operations.get(operation)
+        if tool_name is None:
+            raise HTTPException(404, f"unknown {domain} operation: {operation}")
+        return invoke_governed(
+            tool_name,
+            payload.args,
+            actor_mode=payload.actor_mode,
+            environment=payload.environment,
+            dry_run=payload.dry_run,
+        )
+
     @app.post("/projects")
     def create_project(payload: ProjectInput) -> dict[str, Any]:
         record = ProjectRecord(payload.name)
@@ -506,25 +1316,13 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
 
     @app.post("/tools/{tool_name}")
     def invoke_tool(tool_name: str, payload: ToolInput) -> dict[str, Any]:
-        try:
-            definition = registry.describe(tool_name)
-            request = ToolRequest(
-                tool=tool_name,
-                operation=tool_name,
-                environment=payload.environment,
-                risk=definition.risk,
-                args=payload.args,
-            )
-            return registry.invoke(
-                ToolInvocation(
-                    request,
-                    run_id=f"api-{tool_name}",
-                    dry_run=payload.dry_run,
-                    actor_mode=payload.actor_mode,
-                )
-            )
-        except (KeyError, ValueError, PermissionError, FileNotFoundError) as exc:
-            raise HTTPException(400, str(exc)) from exc
+        return invoke_governed(
+            tool_name,
+            payload.args,
+            actor_mode=payload.actor_mode,
+            environment=payload.environment,
+            dry_run=payload.dry_run,
+        )
 
     @app.post("/approvals")
     def approve(payload: ApprovalInput) -> dict[str, Any]:

@@ -3,6 +3,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { API, getJson, postJson } from "../lib/api";
+import InvestigationConsole from "./InvestigationConsole";
 
 type Status = "PASS" | "FAIL" | "WARN" | "SKIP" | "PARTIAL" | string;
 type RecordValue = Record<string, unknown>;
@@ -207,8 +208,10 @@ type SqlProposal = {
 };
 
 const NAV = [
-  "Overview", "Assets", "Lineage", "SQL Intelligence", "dbt", "Airflow", "Data Quality",
-  "Reconciliation", "Migration", "Warehouses", "FinOps", "Governance", "Runs / Evidence", "Agent",
+  "Overview", "Investigations", "Agent", "Assets", "Lineage", "SQL Intelligence", "dbt", "Airflow",
+  "Data Quality", "Reconciliation", "Warehouses", "Connections", "Metadata", "Data Diff",
+  "Migration", "Cost / FinOps", "Governance / PII", "PR Reviews", "Skills", "Training",
+  "Providers", "MCP", "Jobs", "Traces", "Runs / Evidence", "Settings / Doctor",
 ];
 
 const DEFAULT_SQL = `WITH orders AS (
@@ -404,7 +407,6 @@ export default function OperatorConsole() {
           {NAV.map((item) => (
             <button key={item} onClick={() => setActive(item)} className={active === item ? "nav-item active" : "nav-item"}>
               <span className="nav-glyph">{item.slice(0, 2).toUpperCase()}</span><span>{item}</span>
-              {["FinOps", "Governance"].includes(item) && <em>PARTIAL</em>}
             </button>
           ))}
         </nav>
@@ -436,9 +438,21 @@ export default function OperatorConsole() {
             {active === "Reconciliation" && <ReconciliationView source={sourceCount} target={targetCount} setSource={setSourceCount} setTarget={setTargetCount} run={() => void runReconciliation()} result={reconcile} history={quality?.recent_reconciliations ?? []} dataDiff={dataDiff} />}
             {active === "Migration" && <MigrationView inventory={migration} findings={migrationFindings} blockers={migrationBlockers} />}
             {active === "Warehouses" && <WarehousesView warehouses={warehouses} inventory={inventory} />}
-            {active === "FinOps" && <RoadmapView title="Snowflake FinOps" description="Static warehouse metadata exists today. Query history, credit attribution, spill analysis, idle warehouse detection, and right-sizing remain next-wave work." />}
-            {active === "Governance" && <RoadmapView title="Governance & RBAC" description="PII detection and policy boundaries exist in the platform foundations. Deep Snowflake grant graph, sensitive-data access analysis, and policy enforcement are still partial." />}
+            {active === "Connections" && <DomainView title="Connections" eyebrow="CONFIGURED CONNECTION REGISTRY" endpoint="/api/v1/connections" />}
+            {active === "Metadata" && <DomainView title="Metadata" eyebrow="INDEXED PLATFORM METADATA" endpoint="/api/v1/metadata/status" />}
+            {active === "Data Diff" && <DomainView title="Data Diff" eyebrow="CROSS-SYSTEM PARITY" endpoint="/api/v1/data-diff/demo" />}
+            {active === "Cost / FinOps" && <DomainView title="Cost / FinOps" eyebrow="EVIDENCE-BACKED COST INTELLIGENCE" endpoint="/api/v1/finops/report" />}
+            {active === "Governance / PII" && <DomainView title="Governance / PII" eyebrow="RBAC & SENSITIVE DATA" endpoint="/api/v1/rbac/audit" />}
+            {active === "PR Reviews" && <DomainView title="PR Reviews" eyebrow="DETERMINISTIC REVIEW SURFACE" endpoint="/api/v1/domains" selectKey="review" />}
+            {active === "Skills" && <DomainView title="Skills" eyebrow="EXECUTABLE SKILL CATALOG" endpoint="/api/v1/skills/catalog" />}
+            {active === "Training" && <DomainView title="Training" eyebrow="LOCAL TRAINING CORPUS" endpoint="/api/v1/training/status" />}
+            {active === "Providers" && <DomainView title="Providers" eyebrow="MODEL PROVIDER CONTROL PLANE" endpoint="/api/v1/providers" />}
+            {active === "MCP" && <DomainView title="MCP" eyebrow="MODEL CONTEXT PROTOCOL" endpoint="/api/v1/mcp" />}
+            {active === "Jobs" && <DomainView title="Jobs" eyebrow="BACKGROUND JOB CONTROL" endpoint="/api/v1/jobs" />}
+            {active === "Traces" && <DomainView title="Traces" eyebrow="REPLAYABLE EXECUTION EVIDENCE" endpoint="/api/v1/traces" />}
+            {active === "Settings / Doctor" && <DomainView title="Settings / Doctor" eyebrow="PLATFORM READINESS" endpoint="/api/v1/platform/health" />}
             {active === "Runs / Evidence" && overview && <EvidenceView overview={overview} quality={quality} />}
+            {active === "Investigations" && <InvestigationConsole />}
             {active === "Agent" && <AgentView question={agentQuestion} setQuestion={setAgentQuestion} ask={askAgent} busy={agentBusy} answer={agentAnswer} />}
           </>
         )}
@@ -618,8 +632,18 @@ function AirflowView({ airflow, operations, failureLab }: { airflow: AirflowInve
           {airflow.details.map((dag) => <tr key={dag.dag_id}><td><strong>{dag.dag_id}</strong><small>{dag.file.split("/").slice(-2).join("/")}</small></td><td>{dag.schedule ?? "—"}</td><td>{dag.tasks.length}</td><td>{dag.retries ?? "—"}</td><td><StatusBadge status={dag.catchup === false ? "PASS" : dag.catchup === true ? "WARN" : "SKIP"} /></td><td>{dag.connections.join(", ") || "—"}</td><td>{dag.source ?? "orchestration"}</td></tr>)}
         </tbody></table></div>
       </Panel>
+      <AirflowDeepPanels />
     </>
   );
+}
+
+function AirflowDeepPanels() {
+  return <div className="two-col equal">
+    <DomainView title="Airflow 3 Assets & events" eyebrow="ASSETS / DATASETS" endpoint="/api/v1/airflow/assets" />
+    <DomainView title="Airflow capacity" eyebrow="POOLS / QUEUES / CONCURRENCY" endpoint="/api/v1/airflow/capacity" />
+    <DomainView title="Upgrade intelligence" eyebrow="TASK SDK / AIRFLOW 3" endpoint="/api/v1/airflow/upgrade" />
+    <DomainView title="Airflow security" eyebrow="SECRETS / XCOM / BUNDLES" endpoint="/api/v1/airflow/security" />
+  </div>;
 }
 
 function QualityView({ quality }: { quality: QualitySummary | null }) {
@@ -704,6 +728,28 @@ function AgentView({ question, setQuestion, ask, busy, answer }: { question: str
   );
 }
 
-function RoadmapView({ title, description }: { title: string; description: string }) {
-  return <Panel title={title} eyebrow="PARTIAL / NEXT WAVE"><div className="roadmap"><StatusBadge status="PARTIAL" /><h3>Backend foundation exists; deep operational intelligence is not complete.</h3><p>{description}</p><div className="roadmap-grid"><span>Real metadata only</span><span>No fake live state</span><span>Analyst-safe</span><span>Tracked in parity matrix</span></div></div></Panel>;
+function DomainView({ title, eyebrow, endpoint, selectKey }: { title: string; eyebrow: string; endpoint: string; selectKey?: string }) {
+  const [data, setData] = useState<unknown>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setData(null);
+    setLoadError(null);
+    void getJson<unknown>(endpoint).then((value) => {
+      if (cancelled) return;
+      if (selectKey && value && typeof value === "object" && selectKey in (value as RecordValue)) {
+        setData((value as RecordValue)[selectKey]);
+      } else {
+        setData(value);
+      }
+    }).catch((cause) => {
+      if (!cancelled) setLoadError(cause instanceof Error ? cause.message : String(cause));
+    });
+    return () => { cancelled = true; };
+  }, [endpoint, selectKey]);
+  return <Panel title={title} eyebrow={eyebrow}>
+    {loadError ? <div className="error-box">{loadError}</div> : data === null ? <Loading text={`Loading ${title.toLowerCase()} evidence…`} /> :
+      <pre className="json-panel tall-json">{JSON.stringify(data, null, 2)}</pre>}
+  </Panel>;
 }
+

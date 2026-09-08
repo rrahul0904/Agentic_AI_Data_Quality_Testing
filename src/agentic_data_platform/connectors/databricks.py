@@ -30,7 +30,15 @@ class DatabricksConnector(DataPlatformConnector):
         self.config = config or DatabricksConfig.from_env()
 
     def capabilities(self) -> set[ConnectorCapability]:
-        return {ConnectorCapability.LIST_CATALOGS, ConnectorCapability.LIST_SCHEMAS, ConnectorCapability.LIST_TABLES, ConnectorCapability.DESCRIBE_TABLE, ConnectorCapability.QUERY_READ, ConnectorCapability.QUERY_DRY_RUN}
+        return {
+            ConnectorCapability.LIST_CATALOGS,
+            ConnectorCapability.LIST_SCHEMAS,
+            ConnectorCapability.LIST_TABLES,
+            ConnectorCapability.DESCRIBE_TABLE,
+            ConnectorCapability.QUERY_READ,
+            ConnectorCapability.QUERY_DRY_RUN,
+            ConnectorCapability.GET_QUERY_HISTORY,
+        }
 
     def _read(self, sql: str) -> QueryResult:
         return query_result(execute(self._executor, sql))
@@ -64,3 +72,17 @@ class DatabricksConnector(DataPlatformConnector):
     def execute_read(self, sql: str) -> QueryResult:
         self.require_read_only(sql)
         return self._read(sql)
+
+    def query_history(self, *, days: int = 7, limit: int = 1000, **_: Any) -> list[dict[str, Any]]:
+        days = max(1, min(int(days), 365))
+        limit = max(1, min(int(limit), 10000))
+        sql = (
+            "SELECT statement_id AS query_id, statement_text AS query_text, executed_by AS user_name, "
+            "execution_status, total_duration_ms AS total_elapsed_time, read_bytes AS bytes_scanned, "
+            "produced_rows AS rows_produced, start_time, end_time, compute.warehouse_id AS warehouse_name "
+            "FROM system.query.history "
+            f"WHERE start_time >= current_timestamp() - INTERVAL {days} DAY "
+            "ORDER BY start_time DESC "
+            f"LIMIT {limit}"
+        )
+        return list(self._read(sql).rows)

@@ -22,6 +22,7 @@ class AirflowDag:
     connections: tuple[str, ...] = ()
     source: str | None = None
     entities: tuple[str, ...] = ()
+    load_strategy: str | None = None
     writes: tuple[str, ...] = ()
     task_graph: tuple[tuple[str, str], ...] = ()
     dag_dependencies: tuple[str, ...] = ()
@@ -108,12 +109,13 @@ class AirflowProject:
                     dag_id = _positional_literal(node, 0)
                     source = _positional_literal(node, 1)
                     entities = tuple(value for value in (_literal(arg) for arg in node.args[2:]) if isinstance(value, str))
+                    load_strategy = _keyword_literal(node, "strategy") or "timestamp_incremental"
                     if dag_id:
                         inventory.dags[dag_id] = AirflowDag(
                             dag_id, str(path), schedule=template_schedule, catchup=template_catchup,
                             retries=default_retries, tasks=tuple(sorted(template_tasks)), operators=tuple(sorted(template_operators)),
                             task_groups=tuple(sorted(template_groups)), connections=tuple(sorted(all_connections)),
-                            source=source, entities=entities, writes=tuple(sorted(all_writes)),
+                            source=source, entities=entities, load_strategy=load_strategy, writes=tuple(sorted(all_writes)),
                             task_graph=tuple(sorted(relation_edges)), dag_dependencies=tuple(sorted(all_dag_dependencies)),
                             dbt_commands=tuple(sorted(all_dbt_commands)),
                         )

@@ -78,7 +78,7 @@ def test_airflow_operational_analysis_and_failure_lab():
     backfill = backfill_analysis(HOSPITALITY)
     health = pipeline_health(HOSPITALITY)
     lab = failure_lab()
-    assert retries["dag_count"] == 55
+    assert retries["dag_count"] == 57
     assert backfill["mode"] == "STATIC"
     assert 0 <= health["score"] <= 100
     assert lab["diagnosis"]["cause"] == "WAREHOUSE_PERMISSION"

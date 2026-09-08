@@ -84,3 +84,29 @@ Deterministic tools are the source of truth. Analyst and Plan modes cannot invok
 Full multi-model lineage, deep Snowflake FinOps/RBAC/query-history intelligence, large-scale live cross-warehouse data diff, advanced Airflow runtime root-cause analysis, MCP/skills/provider integrations, trace playback, production TUI, and autonomous remediation remain roadmap work.
 
 Track parity in `specs/ALTIMATE_PARITY_MATRIX.md` and `specs/BEYOND_ALTIMATE_ROADMAP.md`. Registered deterministic tools are summarized in `specs/TOOL_CATALOG.md`.
+
+
+## Acceptance and verification
+
+The `altimate-full-parity` branch exposes a deterministic Data Engineering OS rather than a narrative-only agent. The implementation includes SQL/dbt/lineage/data-diff/quality/migration/FinOps/governance/session/provider/MCP/tracing capabilities plus a deep Airflow 2/3 control plane.
+
+Current product-level targets:
+- 22 first-class model-provider configurations, with live auth reported honestly.
+- 13 warehouse targets including MongoDB; external live connections are optional.
+- 32 built-in skills: the 21 pinned Altimate-compatible skills plus 11 Airflow/pipeline operations skills.
+- Airflow 3 Assets, Task SDK compatibility, mapping, deferrables, bundles, deadlines, security, XCom, capacity, OpenLineage and version-aware REST operations.
+- A dense operator console whose pages use real `/api/v1` responses with explicit unavailable states for credential-dependent services.
+
+Run the bounded local acceptance suite with:
+
+```bash
+make verify
+```
+
+Run the master deterministic demo with:
+
+```bash
+bash scripts/demo-full-platform.sh
+```
+
+Live Snowflake, Oracle, cloud Airflow, GitHub/GitLab delivery and cloud LLM integrations are never fabricated. Where credentials/services are absent, the corresponding adapter remains implemented and locally tested while runtime status is `SKIP_EXTERNAL`.
