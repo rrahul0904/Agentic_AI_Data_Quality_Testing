@@ -122,11 +122,17 @@ def extract_document(
         "suffix": suffix,
     }
     if suffix == ".pdf":
-        text, detail = _pdf_text(content)
+        try:
+            text, detail = _pdf_text(content)
+        except Exception as exc:
+            raise ValueError("unable to parse PDF document") from exc
         metadata.update(detail)
         source_type = "pdf"
     elif suffix == ".docx":
-        text, detail = _docx_text(content)
+        try:
+            text, detail = _docx_text(content)
+        except Exception as exc:
+            raise ValueError("unable to parse DOCX document") from exc
         metadata.update(detail)
         source_type = "docx"
     else:
