@@ -94,7 +94,13 @@ def test_api_v1_memory_training_and_skills(tmp_path, monkeypatch):
 
     catalog = client.get("/api/v1/skills/catalog")
     assert catalog.status_code == 200
-    assert len(catalog.json()["skills"]) == 21
+    skill_names = {item["name"] for item in catalog.json()["skills"]}
+    assert len(skill_names) == 32
+    assert {
+        "altimate-setup", "dbt-pr-review", "sql-review", "training-status",
+        "airflow-analyze", "airflow-troubleshoot", "airflow-backfill",
+        "airflow-upgrade", "airflow-security", "pipeline-health", "root-cause",
+    }.issubset(skill_names)
 
     custom = client.post(
         "/api/v1/skills",
