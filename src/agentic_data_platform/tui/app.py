@@ -12,6 +12,7 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Input, ListItem, ListView, RichLog, Static
 
+from agentic_data_platform.errors import safe_error
 from agentic_data_platform.interface import AgenticService
 from agentic_data_platform.models import ActorMode
 from agentic_data_platform.security.redaction import redact, redact_string
@@ -25,7 +26,8 @@ NAVIGATION = (
 
 
 def _format_user_error(exc: Exception) -> str:
-    return f"{type(exc).__name__}: {redact_string(str(exc))}"
+    error = safe_error(exc)
+    return f"{error['error_type']}: {error['message']}"
 
 
 class AgenticApp(App[None]):
