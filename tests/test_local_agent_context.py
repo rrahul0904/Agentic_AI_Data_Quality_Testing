@@ -21,3 +21,17 @@ def test_default_agent_model_is_cost_sensitive(monkeypatch) -> None:
     config = agent_config()
     assert config["provider"] == "openai"
     assert config["model"] == "gpt-5.6-luna"
+
+
+def test_document_secrets_are_redacted_before_retrieval(tmp_path) -> None:
+    result = ingest_document(
+        tmp_path,
+        "runbook.md",
+        b"OPENAI_API_KEY=sk-example-secret-value-1234567890\nRevenue rules are approved.",
+    )
+    assert result["metadata"]["secrets_redacted"] is True
+    found = knowledge_search(tmp_path, "OPENAI_API_KEY Revenue", limit=5)
+    assert found["results"]
+    corpus = "\n".join(str(item["content"]) for item in found["results"])
+    assert "sk-example-secret-value-1234567890" not in corpus
+    assert "[REDACTED]" in corpus
