@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from agentic_data_platform.agents.scenarios import FailureScenario
+from agentic_data_platform.agents.scenarios import InvestigationScenario
 
 
 @dataclass(frozen=True)
@@ -52,11 +52,14 @@ def _first_dbt_asset(path: tuple[str, ...]) -> str | None:
 
 
 def build_selective_recovery_plan(
-    scenario: FailureScenario,
+    scenario: InvestigationScenario,
     blast_radius: tuple[str, ...] | list[str],
+    *,
+    root_cause: str,
+    first_divergence: str | None,
 ) -> SelectiveRecoveryPlan:
     dag_id = _airflow_dag(scenario.pipeline_path)
-    root = scenario.expected_root_cause
+    root = root_cause
     signals = scenario.signals
     airflow_actions: list[RecoveryAction] = []
 
@@ -94,7 +97,7 @@ def build_selective_recovery_plan(
 
     impact = tuple(dict.fromkeys(str(item) for item in blast_radius))
     quality_rechecks = (
-        f"recheck:{scenario.expected_first_divergence}",
+        f"recheck:{first_divergence or 'unknown'}",
         f"quality:{scenario.affected_asset}",
         f"business_metric:{scenario.business_concept}",
     )

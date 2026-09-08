@@ -5,7 +5,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from agentic_data_platform.agents import InvestigationStore, SupervisorAgent, scenario_catalog
+from agentic_data_platform.agents import InvestigationStore, SupervisorAgent, benchmark_catalog
 from agentic_data_platform.tools.builtin import build_tool_registry
 
 
@@ -13,7 +13,7 @@ def main() -> None:
     started = time.perf_counter()
     correct_root = 0
     correct_divergence = 0
-    scenarios = scenario_catalog()
+    scenarios = benchmark_catalog()
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(__file__).resolve().parents[2]
         service = SupervisorAgent(

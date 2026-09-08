@@ -14,7 +14,7 @@ from agentic_data_platform.agents.contracts import (
     HypothesisStatus,
     RemediationPlan,
 )
-from agentic_data_platform.agents.scenarios import FailureScenario
+from agentic_data_platform.agents.scenarios import InvestigationScenario
 from agentic_data_platform.agents.recovery import build_selective_recovery_plan
 from agentic_data_platform.quality.anomaly import detect_pipeline_anomalies
 
@@ -24,7 +24,7 @@ ToolInvoker = Callable[[AgentRole, str, dict[str, Any]], dict[str, Any]]
 
 @dataclass
 class AgentContext:
-    scenario: FailureScenario
+    scenario: InvestigationScenario
     incident_id: str
     project: Path
     invoke: ToolInvoker
@@ -652,6 +652,27 @@ class ImpactAgent(BaseSpecialistAgent):
         )
 
 
+_REMEDIATION_BY_ROOT_CAUSE = {
+    "WATERMARK_ADVANCED_BEYOND_EXTRACT": "RESET_WATERMARK_AND_BOUNDED_BACKFILL",
+    "DBT_FILTER_EXCLUDES_VALID_STATUS": "PATCH_DBT_FILTER_AND_SELECTIVE_BUILD",
+    "DBT_JOIN_FANOUT": "PATCH_JOIN_CARDINALITY",
+    "DBT_INCREMENTAL_LATE_ARRIVAL_GAP": "WIDEN_INCREMENTAL_LOOKBACK_AND_REBUILD",
+    "AIRFLOW_RETRY_DUPLICATE_LOAD": "DELETE_DUPLICATE_BATCH_AND_RELOAD_IDEMPOTENTLY",
+    "SNOWFLAKE_PERMISSION_DENIED": "RESTORE_ROLE_GRANT_AND_RETRY_LOAD",
+    "SNOWFLAKE_PARTIAL_LOAD": "LOAD_MISSING_MANIFEST_FILE",
+    "SOURCE_SCHEMA_DRIFT": "APPLY_COMPATIBLE_SCHEMA_MIGRATION",
+    "SOURCE_FRESHNESS_BREACH": "HOLD_PUBLICATION_AND_REFRESH_SOURCE",
+    "SOURCE_NULL_SPIKE": "QUARANTINE_BATCH_AND_VALIDATE_SOURCE_CONTRACT",
+    "REVENUE_TRANSFORMATION_MISMATCH": "REBUILD_AFFECTED_MART_AFTER_TRANSFORMATION_REVIEW",
+    "MISSING_CUSTOMER_REFERENCE": "RELOAD_GUEST_KEYS_BEFORE_RESERVATIONS",
+    "CDC_EVENT_GAP": "REPLAY_CDC_SEQUENCE_RANGE",
+    "OUT_OF_ORDER_EVENT": "REPLAY_AND_MERGE_BY_EVENT_TIME",
+    "DBT_TEST_FAILURE": "FIX_DUPLICATE_GRAIN_AND_REBUILD",
+    "DBT_COMPILATION_FAILURE": "PATCH_MODEL_COLUMN_REFERENCE",
+    "AIRFLOW_TASK_FAILURE": "RETRY_AFTER_SOURCE_CONNECTIVITY_CHECK",
+    "BUSINESS_COMPLETENESS_ANOMALY": "BOUNDED_SOURCE_TO_RAW_RECONCILIATION_AND_RELOAD",
+}
+
 class RemediationAgent(BaseSpecialistAgent):
     role = AgentRole.REMEDIATION
     policy = AgentPolicy()
@@ -659,8 +680,15 @@ class RemediationAgent(BaseSpecialistAgent):
     def run(self, context: AgentContext) -> tuple[AgentResult, RemediationPlan]:
         evidence_ids = tuple(item.evidence_id for item in context.evidence)
         blast = tuple(context.shared.get("blast_radius", ()))
-        action = context.scenario.remediation_action
-        selective = build_selective_recovery_plan(context.scenario, blast)
+        root_cause = str(context.shared.get("root_cause") or "INSUFFICIENT_EVIDENCE")
+        first_divergence_value = context.shared.get("first_divergence")
+        action = _REMEDIATION_BY_ROOT_CAUSE.get(root_cause, "COLLECT_MORE_EVIDENCE")
+        selective = build_selective_recovery_plan(
+            context.scenario,
+            blast,
+            root_cause=root_cause,
+            first_divergence=str(first_divergence_value) if first_divergence_value else None,
+        )
         plan = RemediationPlan(
             action=action,
             reason=f"Evidence-supported root cause: {context.shared.get('root_cause')}",

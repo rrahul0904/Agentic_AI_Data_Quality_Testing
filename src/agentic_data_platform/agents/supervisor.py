@@ -191,7 +191,7 @@ class SupervisorAgent:
         )
         results: list[AgentResult] = []
         evidence: list[EvidenceRecord] = []
-        context = AgentContext(scenario, incident_id, self.project, self._invoke, evidence, {})
+        context = AgentContext(scenario.runtime_input(), incident_id, self.project, self._invoke, evidence, {})
 
         self._supervisor_result(
             context,

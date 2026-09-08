@@ -11,7 +11,12 @@ from agentic_data_platform.tools.builtin import build_tool_registry
 
 def test_watermark_recovery_is_bounded_and_selective():
     scenario = get_scenario("watermark_defect")
-    plan = build_selective_recovery_plan(scenario, scenario.downstream_assets)
+    plan = build_selective_recovery_plan(
+        scenario.runtime_input(),
+        scenario.downstream_assets,
+        root_cause="WATERMARK_ADVANCED_BEYOND_EXTRACT",
+        first_divergence="source→raw",
+    )
     assert plan.bounded is True
     assert len(plan.airflow_actions) == 1
     action = plan.airflow_actions[0]
@@ -26,7 +31,12 @@ def test_watermark_recovery_is_bounded_and_selective():
 
 def test_dbt_failure_uses_selective_downstream_build():
     scenario = get_scenario("dbt_filter_defect")
-    plan = build_selective_recovery_plan(scenario, scenario.downstream_assets)
+    plan = build_selective_recovery_plan(
+        scenario.runtime_input(),
+        scenario.downstream_assets,
+        root_cause="DBT_FILTER_EXCLUDES_VALID_STATUS",
+        first_divergence="staging→intermediate",
+    )
     assert plan.airflow_actions == ()
     assert plan.dbt_selector == "stg_orders+"
     assert plan.dbt_command == "dbt build --select stg_orders+"

@@ -5,6 +5,20 @@ from typing import Any
 
 
 @dataclass(frozen=True)
+class InvestigationScenario:
+    scenario_id: str
+    title: str
+    affected_asset: str
+    business_concept: str
+    source_systems: tuple[str, ...]
+    comparisons: tuple[dict[str, Any], ...]
+    signals: dict[str, Any]
+    pipeline_path: tuple[str, ...]
+    downstream_assets: tuple[str, ...] = ()
+    description: str = ""
+
+
+@dataclass(frozen=True)
 class FailureScenario:
     scenario_id: str
     title: str
@@ -21,19 +35,34 @@ class FailureScenario:
     description: str = ""
     after_fix: dict[str, Any] = field(default_factory=dict)
 
+    def runtime_input(self) -> InvestigationScenario:
+        """Return the only scenario shape that agents are allowed to receive."""
+        return InvestigationScenario(
+            scenario_id=self.scenario_id,
+            title=self.title,
+            affected_asset=self.affected_asset,
+            business_concept=self.business_concept,
+            source_systems=tuple(self.source_systems),
+            comparisons=tuple(dict(item) for item in self.comparisons),
+            signals=dict(self.signals),
+            pipeline_path=tuple(self.pipeline_path),
+            downstream_assets=tuple(self.downstream_assets),
+            description=self.description,
+        )
+
     def agent_context(self) -> dict[str, Any]:
-        # Ground-truth expectations are intentionally excluded from the agent input.
+        runtime = self.runtime_input()
         return {
-            "scenario_id": self.scenario_id,
-            "title": self.title,
-            "affected_asset": self.affected_asset,
-            "business_concept": self.business_concept,
-            "source_systems": list(self.source_systems),
-            "comparisons": [dict(item) for item in self.comparisons],
-            "signals": dict(self.signals),
-            "pipeline_path": list(self.pipeline_path),
-            "downstream_assets": list(self.downstream_assets),
-            "description": self.description,
+            "scenario_id": runtime.scenario_id,
+            "title": runtime.title,
+            "affected_asset": runtime.affected_asset,
+            "business_concept": runtime.business_concept,
+            "source_systems": list(runtime.source_systems),
+            "comparisons": [dict(item) for item in runtime.comparisons],
+            "signals": dict(runtime.signals),
+            "pipeline_path": list(runtime.pipeline_path),
+            "downstream_assets": list(runtime.downstream_assets),
+            "description": runtime.description,
         }
 
 
@@ -243,6 +272,19 @@ _add(FailureScenario(
 
 
 def scenario_catalog() -> list[dict[str, Any]]:
+    """Public scenario catalog. Benchmark ground truth is intentionally omitted."""
+    return [
+        {
+            "scenario_id": item.scenario_id,
+            "title": item.title,
+            "affected_asset": item.affected_asset,
+        }
+        for item in SCENARIOS.values()
+    ]
+
+
+def benchmark_catalog() -> list[dict[str, Any]]:
+    """Private deterministic benchmark ledger with expected labels."""
     return [
         {
             "scenario_id": item.scenario_id,
