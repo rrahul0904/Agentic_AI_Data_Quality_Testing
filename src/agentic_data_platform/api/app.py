@@ -83,6 +83,11 @@ class InvestigationRejectInput(BaseModel):
     reason: str = Field(default="operator rejected remediation", min_length=1, max_length=1000)
 
 
+class ProactiveAnomalyInput(BaseModel):
+    signals: dict[str, Any]
+    scenario_id: str = Field(default="airflow_green_data_bad", min_length=1, max_length=200)
+
+
 class ArgsInput(BaseModel):
     args: dict[str, Any] = Field(default_factory=dict)
 
@@ -344,6 +349,16 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     def investigation_scenarios() -> dict[str, Any]:
         items = supervisor.scenarios()
         return {"status": "PASS", "count": len(items), "scenarios": items}
+
+    @app.post("/api/v1/investigations/anomaly")
+    def proactive_anomaly(payload: ProactiveAnomalyInput) -> dict[str, Any]:
+        try:
+            return supervisor.detect_and_investigate(
+                payload.signals,
+                scenario_id=payload.scenario_id,
+            )
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
 
     @app.get("/api/v1/investigations")
     def investigation_list(limit: int = 100) -> dict[str, Any]:

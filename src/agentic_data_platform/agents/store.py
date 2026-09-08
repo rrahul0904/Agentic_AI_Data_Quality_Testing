@@ -115,6 +115,14 @@ class InvestigationStore:
         self.connection.row_factory = sqlite3.Row
         self.lock = threading.Lock()
         self.connection.executescript(_SCHEMA)
+        columns = {
+            row["name"]
+            for row in self.connection.execute("PRAGMA table_info(incident_evidence)").fetchall()
+        }
+        if "correlation_json" not in columns:
+            self.connection.execute(
+                "ALTER TABLE incident_evidence ADD COLUMN correlation_json TEXT NOT NULL DEFAULT '{}'"
+            )
         self.connection.commit()
 
     def create_incident(

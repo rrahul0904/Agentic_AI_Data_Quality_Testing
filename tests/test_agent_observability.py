@@ -28,8 +28,7 @@ def test_agent_results_expose_observability_and_correlation(tmp_path):
 
     assert public["evidence"]
     for evidence in public["evidence"]:
-        correlation = evidence["payload"] if False else evidence.get("correlation")
-        # persisted public evidence exposes correlation separately from measurement payload.
+        correlation = evidence["correlation"]
         assert correlation["incident_id"] == report.incident_id
         assert correlation["batch_id"]
         assert correlation["airflow_run_id"]

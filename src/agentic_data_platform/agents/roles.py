@@ -15,6 +15,7 @@ from agentic_data_platform.agents.contracts import (
     RemediationPlan,
 )
 from agentic_data_platform.agents.scenarios import FailureScenario
+from agentic_data_platform.quality.anomaly import detect_pipeline_anomalies
 
 
 ToolInvoker = Callable[[AgentRole, str, dict[str, Any]], dict[str, Any]]
@@ -228,37 +229,38 @@ class MappingAgent(BaseSpecialistAgent):
 
 class QualityAgent(BaseSpecialistAgent):
     role = AgentRole.QUALITY
-    policy = AgentPolicy(("reconcile_row_count", "reconcile_aggregate", "reconcile_freshness"))
+    policy = AgentPolicy(("reconcile_row_count", "reconcile_aggregate", "reconcile_freshness", "quality_anomaly_detect"))
 
     def run(self, context: AgentContext) -> AgentResult:
-        signals = context.scenario.signals
-        anomalies = []
-        if abs(float(signals.get("payment_volume_change_pct", 0))) >= 15:
-            anomalies.append({"metric": "payment_volume_change_pct", "value": signals["payment_volume_change_pct"], "threshold": 15})
-        ratio = signals.get("payment_to_reservation_ratio")
-        baseline = signals.get("historical_payment_to_reservation_ratio")
-        if ratio is not None and baseline is not None and abs(float(ratio) - float(baseline)) >= 0.1:
-            anomalies.append({"metric": "payment_to_reservation_ratio", "value": ratio, "baseline": baseline})
-        if signals.get("freshness_lag_minutes", 0) > signals.get("freshness_sla_minutes", float("inf")):
-            anomalies.append({"metric": "freshness_lag_minutes", "value": signals["freshness_lag_minutes"], "sla": signals["freshness_sla_minutes"]})
-        if signals.get("null_spike"):
-            anomalies.append({"metric": "null_percentage", "value": signals.get("current_null_pct"), "baseline": signals.get("historical_null_pct")})
+        deterministic = detect_pipeline_anomalies(context.scenario.signals)
+        signals = list(deterministic["findings"])
         failed = [item for item in context.scenario.comparisons if item.get("status") == "FAIL"]
-        anomalies.extend({"metric": "boundary_reconciliation", "pair": item["pair"], "detail": item} for item in failed)
+        signals.extend(
+            {
+                "metric": "boundary_reconciliation",
+                "status": "ANOMALY",
+                "pair": item["pair"],
+                "detail": item,
+            }
+            for item in failed
+        )
+        anomalies = [item for item in signals if item.get("status") == "ANOMALY"]
         context.shared["anomaly"] = {
             "detected": bool(anomalies),
-            "signals": anomalies,
-            "airflow_state": signals.get("airflow_state"),
-            "dbt_state": signals.get("dbt_state"),
+            "signals": signals,
+            "airflow_state": context.scenario.signals.get("airflow_state"),
+            "dbt_state": context.scenario.signals.get("dbt_state"),
+            "detector": "deterministic_anomaly_engine",
         }
         return self.result(
             status="FAIL" if anomalies else "PASS",
             claim="Business/data anomaly detected independently of orchestration status." if anomalies else "No quality anomaly detected.",
             confidence=0.99 if anomalies else 0.9,
             context=context,
-            reasoning="Deterministic thresholds and source/target reconciliation drive the incident signal; no LLM determines PASS/FAIL.",
+            reasoning="Deterministic anomaly thresholds and boundary reconciliations drive the incident signal; no LLM determines PASS/FAIL.",
             next_action="Open or continue an incident and collect bounded evidence." if anomalies else "Continue normal certification.",
             observations=context.shared["anomaly"],
+            tools=("quality_anomaly_detect",),
         )
 
 

@@ -33,6 +33,7 @@ from agentic_data_platform.agents.roles import (
 from agentic_data_platform.agents.scenarios import FailureScenario, get_scenario, scenario_catalog
 from agentic_data_platform.agents.store import InvestigationStore
 from agentic_data_platform.models import ActorMode, Environment, ToolRequest
+from agentic_data_platform.quality.anomaly import detect_pipeline_anomalies
 from agentic_data_platform.tools.registry import ToolInvocation, ToolRegistry
 
 
@@ -152,6 +153,28 @@ class SupervisorAgent:
             observations={"delegated_roles": [item.role.value for item in results if item.role is not AgentRole.SUPERVISOR]},
         )
         self._save(context.incident_id, result, results)
+
+    def detect_and_investigate(
+        self,
+        signals: dict[str, Any],
+        *,
+        scenario_id: str = "airflow_green_data_bad",
+    ) -> dict[str, Any]:
+        """Open an investigation automatically only when deterministic anomaly logic fires."""
+        detection = detect_pipeline_anomalies(signals)
+        if detection["status"] != "ANOMALY":
+            return {
+                "status": "PASS",
+                "incident_created": False,
+                "detection": detection,
+            }
+        report = self.investigate(scenario_id)
+        return {
+            "status": "ANOMALY",
+            "incident_created": True,
+            "detection": detection,
+            "investigation": self.public_report(report.incident_id),
+        }
 
     def investigate(self, scenario_id: str) -> InvestigationReport:
         scenario = get_scenario(scenario_id)
