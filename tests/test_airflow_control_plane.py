@@ -158,3 +158,32 @@ def test_airflow_tools_are_governed_and_mutations_require_builder_approval(tmp_p
         )
     )
     assert dry["status"] == "DRY_RUN"
+
+
+def test_airflow_static_semantics_surface(tmp_path):
+    dags = tmp_path / "airflow" / "dags"
+    dags.mkdir(parents=True)
+    (dags / "semantics.py").write_text(
+        "from airflow.sdk import DAG, Asset\n"
+        "from airflow.providers.standard.operators.python import BranchPythonOperator, ShortCircuitOperator\n"
+        "asset = Asset('s3://raw/reservation')\n"
+        "def failed(context): pass\n"
+        "with DAG(dag_id='semantic_dag', schedule=asset, catchup=False, max_active_runs=2, on_failure_callback=failed) as dag:\n"
+        "    branch = BranchPythonOperator(task_id='branch', python_callable=lambda: 'work', retries=12, trigger_rule='all_done', pool='etl')\n"
+        "    gate = ShortCircuitOperator(task_id='gate', python_callable=lambda: True, depends_on_past=True, outlets=[asset])\n"
+        "branch.expand_kwargs([{'python_callable': 'a'}, {'python_callable': 'b'}])\n"
+    )
+    control = AirflowControlPlane(tmp_path)
+    report = control.static_semantics()
+    assert report["status"] == "PASS"
+    assert report["counts"]["callbacks"] >= 1
+    assert report["counts"]["branches"] >= 1
+    assert report["counts"]["short_circuits"] >= 1
+    settings = [item for record in report["records"] for item in record["settings"]]
+    assert any(item["key"] == "max_active_runs" and item["value"] == 2 for item in settings)
+    mapping = control.mapping_report()
+    assert any(item["static_cardinality"] == 2 for item in mapping["mapping_calls"])
+    rules = {item["rule_id"] for item in control.quality_scan()["findings"]}
+    assert "AIRFLOW_EXCESSIVE_RETRIES" in rules
+    assert "AIRFLOW_TRIGGER_RULE_RISK" in rules
+    assert "AIRFLOW_DEPENDS_ON_PAST" in rules

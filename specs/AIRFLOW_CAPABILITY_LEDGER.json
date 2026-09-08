@@ -3,7 +3,7 @@
   "target_branch": "altimate-full-parity",
   "target_airflow": "3.x semantics with 2.x compatibility",
   "status_counts": {
-    "DONE": 82,
+    "DONE": 83,
     "PARTIAL": 0,
     "MISSING": 0,
     "SKIP_EXTERNAL": 15,
@@ -2053,6 +2053,26 @@
         "live connectivity is the only skipped portion"
       ],
       "external_dependency": "OpenLineage backend/runtime"
+    },
+    {
+      "capability": "airflow_static_dag_intelligence",
+      "status": "DONE",
+      "our_path": "src/agentic_data_platform/airflow_compat/control.py",
+      "our_symbol": "ToolRegistry:airflow_static_dag_intelligence",
+      "api_surface": "/api/v1/airflow/static-analysis and /tools/airflow_static_dag_intelligence",
+      "cli_surface": "agentic-data-platform tool airflow_static_dag_intelligence",
+      "ui_surface": "Airflow operator-console domain",
+      "tests": [
+        "tests/test_airflow_control_plane.py"
+      ],
+      "integration_tests": [
+        "tests/integration/test_airflow_full_surface.py"
+      ],
+      "evidence": [
+        "AST-only static semantics; never imports DAG modules",
+        "callbacks/hooks/timeouts/retries/concurrency/trigger rules/inlets/outlets/mapping evidence"
+      ],
+      "external_dependency": null
     }
   ]
 }

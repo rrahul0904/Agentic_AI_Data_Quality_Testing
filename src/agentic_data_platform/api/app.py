@@ -363,6 +363,10 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     def airflow_failures() -> dict[str, Any]:
         return invoke_read("airflow_failure_summary", demo_project_args())
 
+    @app.get("/api/v1/airflow/static-analysis")
+    def airflow_static_analysis() -> dict[str, Any]:
+        return invoke_read("airflow_static_dag_intelligence", demo_project_args())
+
     @app.get("/api/v1/airflow/dags")
     def airflow_dags() -> dict[str, Any]:
         return invoke_read("airflow_inventory", demo_project_args())

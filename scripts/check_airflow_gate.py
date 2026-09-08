@@ -11,7 +11,7 @@ from check_parity_gate import check_ledger
 ROOT = Path(__file__).resolve().parents[1]
 LEDGER = ROOT / "specs" / "AIRFLOW_CAPABILITY_LEDGER.json"
 REQUIRED = {
-    "airflow_inventory", "airflow_graph", "airflow_dag_lineage", "airflow_task_lineage",
+    "airflow_inventory", "airflow_static_dag_intelligence", "airflow_graph", "airflow_dag_lineage", "airflow_task_lineage",
     "airflow_asset_inventory", "airflow_asset_dependencies", "airflow_asset_events",
     "airflow_event_schedule_analysis", "airflow_asset_watchers", "airflow_event_stalls",
     "airflow_dynamic_mapping_analysis", "airflow_mapping_risk", "airflow_mapping_cardinality",

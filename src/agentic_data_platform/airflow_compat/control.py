@@ -57,6 +57,14 @@ class SourceRecord:
     deadlines: list[dict[str, Any]] = field(default_factory=list)
     slas: list[dict[str, Any]] = field(default_factory=list)
     top_level_calls: list[dict[str, Any]] = field(default_factory=list)
+    hooks: list[dict[str, Any]] = field(default_factory=list)
+    callbacks: list[dict[str, Any]] = field(default_factory=list)
+    settings: list[dict[str, Any]] = field(default_factory=list)
+    inlets: list[dict[str, Any]] = field(default_factory=list)
+    outlets: list[dict[str, Any]] = field(default_factory=list)
+    branches: list[dict[str, Any]] = field(default_factory=list)
+    short_circuits: list[dict[str, Any]] = field(default_factory=list)
+    triggers: list[dict[str, Any]] = field(default_factory=list)
     openlineage: bool = False
     task_sdk: bool = False
     asset_watcher: bool = False
@@ -107,6 +115,22 @@ def _first_text(call: ast.Call) -> str | None:
 
 def _decorator_name(node: ast.AST) -> str:
     return _call_name(node.func) if isinstance(node, ast.Call) else _call_name(node)
+
+
+def _expr(node: ast.AST | None) -> str | None:
+    if node is None:
+        return None
+    try:
+        return ast.unparse(node)
+    except (ValueError, TypeError):
+        return None
+
+
+def _static_cardinality(node: ast.AST) -> int | None:
+    literal = _literal(node)
+    if isinstance(literal, (list, tuple, set, dict)):
+        return len(literal)
+    return None
 
 
 def _unique(items: list[str]) -> list[str]:
@@ -183,9 +207,62 @@ class AirflowControlPlane:
                         record.variables.append(value)
                 if short in {"xcom_push", "xcom_pull"}:
                     record.xcom_calls.append({"operation": short, "line": node.lineno})
+                if short.endswith("Hook"):
+                    record.hooks.append({"hook": short, "line": node.lineno})
+                if "Branch" in short or short == "branch":
+                    record.branches.append({"operator": short, "line": node.lineno})
+                if "ShortCircuit" in short or short == "short_circuit":
+                    record.short_circuits.append({"operator": short, "line": node.lineno})
+                if short.endswith("Trigger") or short == "defer":
+                    record.triggers.append({"trigger": short, "line": node.lineno})
+                callback_keys = {
+                    "on_failure_callback", "on_success_callback", "on_retry_callback",
+                    "on_execute_callback", "on_skipped_callback", "sla_miss_callback",
+                }
+                setting_keys = {
+                    "schedule", "schedule_interval", "timetable", "start_date", "end_date",
+                    "retries", "retry_delay", "retry_exponential_backoff", "max_retry_delay",
+                    "execution_timeout", "dagrun_timeout", "max_active_tasks", "max_active_runs",
+                    "priority_weight", "weight_rule", "trigger_rule", "depends_on_past",
+                    "wait_for_downstream", "catchup",
+                }
+                for kw in node.keywords:
+                    if kw.arg in callback_keys:
+                        record.callbacks.append({
+                            "kind": kw.arg,
+                            "value": _expr(kw.value),
+                            "line": node.lineno,
+                            "task_id": task_id,
+                            "dag_id": dag_id,
+                        })
+                    if kw.arg in setting_keys:
+                        record.settings.append({
+                            "key": kw.arg,
+                            "value": _literal(kw.value),
+                            "expression": _expr(kw.value),
+                            "line": node.lineno,
+                            "task_id": task_id,
+                            "dag_id": dag_id,
+                            "call": short,
+                        })
+                    if kw.arg == "inlets":
+                        record.inlets.append({"value": _expr(kw.value), "line": node.lineno, "task_id": task_id})
+                    if kw.arg == "outlets":
+                        record.outlets.append({"value": _expr(kw.value), "line": node.lineno, "task_id": task_id})
                 if short in {"expand", "expand_kwargs", "map", "zip", "concat"}:
                     record.dynamic_mapping = True
-                    record.mapping_calls.append({"operation": short, "line": node.lineno})
+                    cardinalities = [
+                        value for value in (
+                            [_static_cardinality(arg) for arg in node.args]
+                            + [_static_cardinality(kw.value) for kw in node.keywords]
+                        )
+                        if value is not None
+                    ]
+                    record.mapping_calls.append({
+                        "operation": short,
+                        "line": node.lineno,
+                        "static_cardinality": max(cardinalities) if cardinalities else None,
+                    })
                 if short in {"Asset", "Dataset", "AssetAlias"}:
                     value = _first_text(node)
                     if value:
@@ -285,6 +362,48 @@ class AirflowControlPlane:
             "bundle_count": sum(len(record.bundles) for record in self.records),
         }
 
+    def static_semantics(self) -> dict[str, Any]:
+        records = []
+        for record in self.records:
+            records.append({
+                "file": record.file,
+                "dag_ids": record.dag_ids,
+                "task_ids": record.task_ids,
+                "hooks": record.hooks,
+                "callbacks": record.callbacks,
+                "settings": record.settings,
+                "inlets": record.inlets,
+                "outlets": record.outlets,
+                "branches": record.branches,
+                "short_circuits": record.short_circuits,
+                "triggers": record.triggers,
+                "mapping_calls": record.mapping_calls,
+                "sensors": record.sensors,
+                "deferrable": record.deferrable,
+                "connections": record.connections,
+                "variables": record.variables,
+                "pools": record.pools,
+                "queues": record.queues,
+                "assets": record.assets,
+                "datasets": record.datasets,
+            })
+        return {
+            "status": "PASS",
+            "mode": "STATIC_AST",
+            "file_count": len(records),
+            "records": records,
+            "counts": {
+                "hooks": sum(len(item.hooks) for item in self.records),
+                "callbacks": sum(len(item.callbacks) for item in self.records),
+                "settings": sum(len(item.settings) for item in self.records),
+                "inlets": sum(len(item.inlets) for item in self.records),
+                "outlets": sum(len(item.outlets) for item in self.records),
+                "branches": sum(len(item.branches) for item in self.records),
+                "short_circuits": sum(len(item.short_circuits) for item in self.records),
+                "triggers": sum(len(item.triggers) for item in self.records),
+            },
+        }
+
     def graph(self) -> dict[str, Any]:
         nodes: dict[str, dict[str, Any]] = {}
         edges: set[tuple[str, str, str]] = set()
@@ -380,7 +499,9 @@ class AirflowControlPlane:
             for record in self.records for item in record.mapping_calls
         ]
         explosive = [
-            item for item in calls if item["operation"] in {"expand", "expand_kwargs"}
+            item for item in calls
+            if item["operation"] in {"expand", "expand_kwargs"}
+            and (item.get("static_cardinality") is None or int(item["static_cardinality"]) > 1024)
         ]
         return {
             "status": "WARN" if explosive else "PASS",
@@ -633,8 +754,21 @@ class AirflowControlPlane:
                 if not item["deferrable"] and item.get("mode") != "reschedule":
                     findings.append(self._finding("AIRFLOW_SENSOR_WORKER_SLOT", "MEDIUM", record.file, item["line"], f"{item['operator']} may occupy a worker slot while waiting.", "Prefer a deferrable operator or reschedule mode when supported."))
             for item in record.mapping_calls:
-                if item["operation"] in {"expand", "expand_kwargs"}:
+                if item["operation"] in {"expand", "expand_kwargs"} and item.get("static_cardinality") is None:
                     findings.append(self._finding("AIRFLOW_DYNAMIC_MAP_REVIEW", "MEDIUM", record.file, item["line"], "Dynamic mapping cardinality is not statically bounded.", "Bound input cardinality and configure max_map_length."))
+                if item.get("static_cardinality") is not None and int(item["static_cardinality"]) > 1024:
+                    findings.append(self._finding("AIRFLOW_DYNAMIC_MAP_EXPLOSION", "HIGH", record.file, item["line"], f"Static mapped cardinality is {item['static_cardinality']}.", "Batch or bound mapped work and validate max_map_length."))
+            for setting in record.settings:
+                value = setting.get("value")
+                expression = str(setting.get("expression") or "")
+                if setting["key"] == "start_date" and ("datetime.now(" in expression or "pendulum.now(" in expression):
+                    findings.append(self._finding("AIRFLOW_DYNAMIC_START_DATE", "HIGH", record.file, setting["line"], "DAG/task start_date is evaluated dynamically at parse time.", "Use a fixed, timezone-aware start date."))
+                if setting["key"] == "retries" and isinstance(value, int) and value > 10:
+                    findings.append(self._finding("AIRFLOW_EXCESSIVE_RETRIES", "MEDIUM", record.file, setting["line"], f"Retries configured to {value}.", "Use bounded retries with backoff and classify non-retryable errors."))
+                if setting["key"] == "trigger_rule" and str(value).casefold() in {"all_done", "always"}:
+                    findings.append(self._finding("AIRFLOW_TRIGGER_RULE_RISK", "MEDIUM", record.file, setting["line"], f"Trigger rule {value!r} can run despite upstream failure.", "Verify this permissive trigger rule is intentional."))
+                if setting["key"] == "depends_on_past" and value is True:
+                    findings.append(self._finding("AIRFLOW_DEPENDS_ON_PAST", "LOW", record.file, setting["line"], "depends_on_past=True can block recovery/backfills.", "Validate historical-run dependency and backfill behavior."))
             for item in record.deprecated_imports:
                 findings.append(self._finding("AIRFLOW_DEPRECATED_IMPORT", "MEDIUM", record.file, 1, f"Deprecated/internal import: {item}", "Use stable airflow.sdk or current public provider imports for Airflow 3."))
             if record.subdag:
@@ -706,6 +840,7 @@ class AirflowControlPlane:
         args = args or {}
         mapping = {
             "inventory": self.inventory,
+            "static": self.static_semantics,
             "graph": self.graph,
             "assets": self.asset_report,
             "events": self.event_report,

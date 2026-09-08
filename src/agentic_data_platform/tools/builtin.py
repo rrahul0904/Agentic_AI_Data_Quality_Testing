@@ -868,6 +868,7 @@ def build_tool_registry() -> ToolRegistry:
         )
 
     add("airflow_graph", Capability.DISCOVER, lambda a, kind="graph": airflow_control(a).report(kind, a), "Airflow 2/3 airflow graph deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_static_dag_intelligence", Capability.DISCOVER, lambda a: airflow_control(a).report("static", a), "Expose full Airflow 2/3 static DAG semantics without importing DAG modules.", platforms=frozenset({Platform.LOCAL}))
     add("airflow_dag_lineage", Capability.DISCOVER, lambda a, kind="graph": airflow_control(a).report(kind, a), "Airflow 2/3 airflow dag lineage deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
     add("airflow_task_lineage", Capability.DISCOVER, lambda a, kind="graph": airflow_control(a).report(kind, a), "Airflow 2/3 airflow task lineage deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
     add("airflow_asset_lineage", Capability.DISCOVER, lambda a, kind="graph": airflow_control(a).report(kind, a), "Airflow 2/3 airflow asset lineage deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
