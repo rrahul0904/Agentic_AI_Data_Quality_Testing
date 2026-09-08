@@ -14,6 +14,13 @@ from agentic_data_platform.persistence.sqlite import SQLiteControlPlaneRepositor
 from agentic_data_platform.sql.engine import analyze_sql
 from agentic_data_platform.tools.builtin import build_tool_registry
 from agentic_data_platform.tools.registry import ToolInvocation
+from agentic_data_platform.runtime.local_agent import (
+    index_project_knowledge,
+    ingest_document,
+    knowledge_search,
+    knowledge_status,
+    run_project_agent,
+)
 
 
 DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
@@ -189,6 +196,16 @@ def build_parser() -> argparse.ArgumentParser:
     discover.add_argument("project", nargs="?", default=".")
     discover.add_argument("--dbt-project")
     discover.add_argument("--manifest")
+    ask = sub.add_parser("ask", help="ask the project-aware governed agent")
+    ask.add_argument("question")
+    ask.add_argument("--project", default=_default_project())
+    ask.add_argument("--provider")
+    ask.add_argument("--model")
+    knowledge = sub.add_parser("knowledge", help="manage local project knowledge")
+    knowledge.add_argument("operation", choices=["index", "ingest", "search", "status"])
+    knowledge.add_argument("value", nargs="?")
+    knowledge.add_argument("--project", default=_default_project())
+    knowledge.add_argument("--limit", type=int, default=10)
     doctor = sub.add_parser("doctor")
     doctor.add_argument("project", nargs="?", default=_default_project())
     tool = sub.add_parser("tool", help="invoke any registered deterministic tool with JSON args")
@@ -271,7 +288,33 @@ def _reconcile(args: argparse.Namespace) -> dict:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        if args.command == "discover":
+        if args.command == "ask":
+            payload = run_project_agent(
+                build_tool_registry(),
+                args.project,
+                args.question,
+                provider=args.provider,
+                model=args.model,
+            )
+        elif args.command == "knowledge":
+            if args.operation == "index":
+                payload = index_project_knowledge(args.project)
+            elif args.operation == "status":
+                payload = knowledge_status(args.project)
+            elif args.operation == "search":
+                if not args.value:
+                    raise ValueError("knowledge search requires a query")
+                payload = knowledge_search(args.project, args.value, limit=args.limit)
+            else:
+                if not args.value:
+                    raise ValueError("knowledge ingest requires a file path")
+                path = Path(args.value).expanduser().resolve()
+                payload = ingest_document(
+                    args.project,
+                    path.name,
+                    path.read_bytes(),
+                )
+        elif args.command == "discover":
             if args.dbt_project:
                 adapter = LocalDbtProjectAdapter(args.dbt_project)
                 payload = {"project": adapter.project_metadata()}
