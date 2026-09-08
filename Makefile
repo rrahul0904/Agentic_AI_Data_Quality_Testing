@@ -1,7 +1,7 @@
 .PHONY: doctor test unit-test integration-test e2e lint quality dbt-parse dbt-test airflow-check shiftforge-test benchmark demo demo-setup demo-data demo-ui frontend-typecheck frontend-build docker-up docker-down
 
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
-PYTHON_BIN := $(if $(findstring /,$(PYTHON)),$(abspath $(PYTHON)),$(shell command -v $(PYTHON)))
+PYTHON_BIN := $(shell $(PYTHON) -c 'import sys; print(sys.executable)')
 HOSPITALITY := hospitality-snowflake-data-platform
 WEB := apps/web
 
