@@ -13,7 +13,8 @@ def test_runtime_executes_tool_loop(tmp_path):
         ProviderResponse(content="read only",usage=Usage(20,4),finish_reason="stop")])
     result=AgentRuntime(build_tool_registry(),store,traces).run(session,"safe?",provider,"test")
     assert result["response"]=="read only"
-    assert [m["role"] for m in store.messages(session)]==["user","assistant","tool","assistant"]\n    assert store.messages(session)[1]["metadata"]["tool_calls"][0]["name"] == "sql_classify"
+    assert [m["role"] for m in store.messages(session)]==["user","assistant","tool","assistant"]
+    assert store.messages(session)[1]["metadata"]["tool_calls"][0]["name"] == "sql_classify"
     assert any(e["kind"]=="tool" for e in traces.list(trace_id=result["trace_id"]))
 
 def test_runtime_denies_mutation_for_analyst(tmp_path):
