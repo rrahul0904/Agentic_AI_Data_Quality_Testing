@@ -44,6 +44,43 @@ _OPENAI_COMPATIBLE: dict[str, ProviderSpec] = {
         None,
         notes="Local Ollama OpenAI-compatible endpoint; connectivity is checked separately.",
     ),
+    "lm-studio": ProviderSpec(
+        "lm-studio",
+        "openai-compatible",
+        os.getenv("LM_STUDIO_BASE_URL", "http://localhost:1234/v1"),
+        None,
+        notes="Local LM Studio OpenAI-compatible endpoint; live connectivity is verified on use.",
+    ),
+    "cohere": ProviderSpec(
+        "cohere",
+        "openai-compatible",
+        os.getenv("COHERE_OPENAI_BASE_URL", "https://api.cohere.ai/compatibility/v1"),
+        "COHERE_API_KEY",
+        notes="Uses Cohere's OpenAI-compatible API surface.",
+    ),
+    "databricks-ai-gateway": ProviderSpec(
+        "databricks-ai-gateway",
+        "openai-compatible",
+        os.getenv("DATABRICKS_AI_GATEWAY_URL", ""),
+        "DATABRICKS_TOKEN",
+        required_envs=("DATABRICKS_AI_GATEWAY_URL",),
+        notes="Requires an authorized Databricks AI Gateway / serving endpoint URL.",
+    ),
+    "snowflake-cortex": ProviderSpec(
+        "snowflake-cortex",
+        "openai-compatible",
+        os.getenv("SNOWFLAKE_CORTEX_BASE_URL", ""),
+        "SNOWFLAKE_CORTEX_TOKEN",
+        required_envs=("SNOWFLAKE_CORTEX_BASE_URL",),
+        notes="Configured only when an authorized Snowflake Cortex OpenAI-compatible endpoint is supplied.",
+    ),
+    "github-copilot": ProviderSpec(
+        "github-copilot",
+        "openai-compatible",
+        os.getenv("GITHUB_COPILOT_BASE_URL", "https://api.githubcopilot.com"),
+        "GITHUB_COPILOT_TOKEN",
+        notes="Available only with an explicitly authorized GitHub Copilot integration token.",
+    ),
 }
 
 

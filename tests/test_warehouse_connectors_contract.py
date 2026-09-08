@@ -245,9 +245,57 @@ def test_factory_fails_closed_when_credentials_are_missing(monkeypatch):
         "ADE_TRINO_HOST",
         "ADE_TRINO_USER",
         "ADE_TRINO_CATALOG",
+        "ADE_MONGODB_URI",
     ):
         monkeypatch.delenv(name, raising=False)
 
-    for platform in ("postgres", "redshift", "mysql", "sqlserver", "oracle", "clickhouse", "trino"):
+    for platform in ("postgres", "redshift", "mysql", "sqlserver", "oracle", "clickhouse", "trino", "mongodb"):
         with pytest.raises(ExternalConnectionUnavailable):
             connector_from_args({"platform": platform})
+
+class MongoCollectionFixture:
+    def __init__(self):
+        self.rows = [{"_id": 1, "guest_id": 7, "email": "fixture@example.test"}]
+
+    def find(self, filter_doc, projection=None, limit=100):
+        return list(self.rows)[:limit]
+
+    def aggregate(self, pipeline):
+        return list(self.rows)
+
+
+class MongoDatabaseFixture:
+    def __init__(self):
+        self.collection = MongoCollectionFixture()
+
+    def list_collection_names(self):
+        return ["reservations"]
+
+    def __getitem__(self, name):
+        assert name == "reservations"
+        return self.collection
+
+
+class MongoClientFixture:
+    def list_database_names(self):
+        return ["hotel"]
+
+    def __getitem__(self, name):
+        assert name == "hotel"
+        return MongoDatabaseFixture()
+
+
+def test_mongodb_read_only_metadata_and_json_query_contract():
+    from agentic_data_platform.connectors import MongoDBConnector
+
+    connector = MongoDBConnector(MongoClientFixture(), database="hotel")
+    assert connector.list_catalogs() == ["hotel"]
+    assert connector.list_tables("hotel")[0].name == "reservations"
+    metadata = connector.describe_table("hotel", "reservations")
+    assert {column.name for column in metadata.columns} >= {"_id", "guest_id", "email"}
+    query = '{"collection":"reservations","filter":{"guest_id":7},"limit":10}'
+    assert connector.dry_run_sql(query).valid is True
+    result = connector.execute_read(query)
+    assert result.rows[0]["guest_id"] == 7
+    blocked = '{"collection":"reservations","operation":"aggregate","pipeline":[{"$out":"copy"}]}'
+    assert connector.dry_run_sql(blocked).valid is False

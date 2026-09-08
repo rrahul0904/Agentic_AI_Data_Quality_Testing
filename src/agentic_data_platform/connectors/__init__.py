@@ -4,6 +4,7 @@ from .clickhouse import ClickHouseConnector
 from .duckdb import DuckDBConnector
 from .information_schema import MySQLConnector, PostgreSQLConnector, RedshiftConnector, SQLServerConnector
 from .oracle import OracleConnector
+from .mongodb import MongoDBConnector
 from .registry import ConnectorRegistry
 from .sqlite import SQLiteConnector
 from .trino import TrinoConnector
@@ -16,6 +17,7 @@ __all__ = [
     "ConnectorWarehouseAdapter",
     "DataPlatformConnector",
     "DuckDBConnector",
+    "MongoDBConnector",
     "MySQLConnector",
     "OracleConnector",
     "PostgreSQLConnector",

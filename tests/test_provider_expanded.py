@@ -175,9 +175,24 @@ def test_provider_registry_includes_expanded_first_class_adapters(monkeypatch):
 
     registry = ProviderRegistry()
     names = set(registry.names())
-    assert {"gemini", "vertex", "azure-openai", "bedrock", "ollama"}.issubset(names)
+    assert {"gemini", "vertex", "azure-openai", "bedrock", "ollama", "lm-studio", "cohere", "databricks-ai-gateway", "snowflake-cortex", "github-copilot"}.issubset(names)
+    assert len(names) >= 22
     specs = {item["name"]: item for item in registry.specs()}
     assert specs["gemini"]["configured"] is True
     assert specs["azure-openai"]["configured"] is True
     assert specs["vertex"]["configured"] is True
     assert specs["ollama"]["protocol"] == "openai-compatible"
+
+
+def test_required_provider_catalog_is_complete_without_faking_auth():
+    registry = ProviderRegistry()
+    required = {
+        "openai", "anthropic", "openrouter", "gemini", "vertex", "bedrock",
+        "azure-openai", "databricks-ai-gateway", "snowflake-cortex", "mistral",
+        "groq", "deepinfra", "cerebras", "cohere", "together", "perplexity",
+        "xai", "lm-studio", "ollama", "vercel", "nvidia", "github-copilot",
+    }
+    assert required.issubset(set(registry.names()))
+    specs = {item["name"]: item for item in registry.specs()}
+    assert specs["databricks-ai-gateway"]["configured"] is False
+    assert specs["snowflake-cortex"]["configured"] is False

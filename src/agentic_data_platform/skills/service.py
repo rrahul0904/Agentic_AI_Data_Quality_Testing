@@ -35,7 +35,7 @@ def _body(name: str, tools: tuple[str, ...], purpose: str) -> str:
     )
 
 
-_BUILTIN_DEFS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+_ALTIMATE_BUILTIN_DEFS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("altimate-setup", "Inspect platform readiness and configured integrations.", ("doctor", "platform_discover", "connection_discover", "mcp_discover")),
     ("cost-report", "Build query and warehouse cost evidence.", ("finops_report",)),
     ("data-parity", "Compare source and target data with scalable cascade diff.", ("data_diff_plan", "data_diff_cascade")),
@@ -58,6 +58,23 @@ _BUILTIN_DEFS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("train", "Ingest approved project knowledge into the local training store.", ("training_ingest",)),
     ("training-status", "Report training corpus and indexing status.", ("training_status",)),
 )
+
+_AIRFLOW_BUILTIN_DEFS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("airflow-analyze", "Inventory and review Airflow DAGs, graph structure and deterministic quality findings.", ("airflow_inventory", "airflow_graph", "airflow_quality_scan")),
+    ("airflow-troubleshoot", "Diagnose Airflow failures from logs, task evidence and pipeline context.", ("airflow_failure_summary", "airflow_log_root_cause", "airflow_pipeline_root_cause")),
+    ("airflow-backfill", "Build a bounded Airflow backfill plan and risk assessment without executing it.", ("airflow_backfill_plan", "airflow_backfill_risk", "airflow_backfill_dry_run")),
+    ("airflow-optimize", "Find retry, sensor, mapping and capacity opportunities.", ("airflow_retry_policy_analysis", "airflow_sensor_efficiency", "airflow_mapping_risk", "airflow_capacity_plan")),
+    ("airflow-upgrade", "Assess Airflow 2 to Airflow 3 compatibility and Task SDK migration findings.", ("airflow_sdk_compatibility", "airflow_upgrade_analysis")),
+    ("airflow-assets", "Inspect Assets, Datasets, producers, consumers and event-driven scheduling.", ("airflow_asset_inventory", "airflow_asset_dependencies", "airflow_event_schedule_analysis")),
+    ("airflow-capacity", "Analyze pools, queues, concurrency and executor capacity.", ("airflow_pool_health", "airflow_queue_health", "airflow_concurrency_analysis", "airflow_capacity_plan")),
+    ("airflow-cost", "Correlate Airflow capacity evidence with warehouse FinOps reporting.", ("airflow_capacity_plan", "finops_report")),
+    ("airflow-security", "Audit Airflow connection, variable, bundle and credential risks without returning secrets.", ("airflow_secret_risk", "airflow_bundle_security", "airflow_xcom_risk")),
+    ("pipeline-health", "Calculate evidence-backed pipeline health across Airflow and downstream systems.", ("airflow_pipeline_health", "pipeline_health_score")),
+    ("root-cause", "Correlate Airflow, dbt, warehouse and quality evidence into supported root-cause hypotheses.", ("airflow_pipeline_root_cause", "platform_root_cause")),
+)
+
+REFERENCE_BUILTIN_SKILLS = frozenset(name for name, _, _ in _ALTIMATE_BUILTIN_DEFS)
+_BUILTIN_DEFS = _ALTIMATE_BUILTIN_DEFS + _AIRFLOW_BUILTIN_DEFS
 
 
 BUILTIN_SKILLS = {

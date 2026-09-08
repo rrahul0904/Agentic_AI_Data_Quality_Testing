@@ -16,6 +16,7 @@ from agentic_data_platform.connectors.information_schema import (
     SQLServerConnector,
 )
 from agentic_data_platform.connectors.oracle import OracleConnector
+from agentic_data_platform.connectors.mongodb import MongoDBConnector
 from agentic_data_platform.connectors.sqlite import SQLiteConnector
 from agentic_data_platform.connectors.clickhouse import ClickHouseConnector
 from agentic_data_platform.connectors.trino import TrinoConnector
@@ -145,6 +146,17 @@ def connector_from_args(args: dict[str, Any]) -> DataPlatformConnector:
             http_scheme=config.get("http_scheme") or os.getenv("ADE_TRINO_HTTP_SCHEME", "https"),
         )
         return TrinoConnector(connection, catalog=catalog)
+
+    if platform in {"mongodb", "mongo"}:
+        uri = config.get("uri") or os.getenv("ADE_MONGODB_URI")
+        database = config.get("database") or os.getenv("ADE_MONGODB_DATABASE")
+        if not uri:
+            raise ExternalConnectionUnavailable("MongoDB URI is not configured")
+        try:
+            from pymongo import MongoClient
+        except ImportError as exc:
+            raise ExternalConnectionUnavailable("pymongo is not installed") from exc
+        return MongoDBConnector(MongoClient(uri), database=database)
 
     if platform == "snowflake":
         account = config.get("account") or os.getenv("ADE_SNOWFLAKE_ACCOUNT")

@@ -335,6 +335,7 @@ def _warehouse_status(_: dict[str, Any]) -> dict[str, Any]:
         ("SQL Server / Fabric", "sqlserver", True, _module_available("pyodbc"), bool(os.getenv("ADE_SQLSERVER_CONNECTION_STRING")), False),
         ("DuckDB", "duckdb", True, _module_available("duckdb"), True, True),
         ("SQLite", "sqlite", True, True, True, True),
+        ("MongoDB", "mongodb", True, _module_available("pymongo"), bool(os.getenv("ADE_MONGODB_URI")), False),
         ("ClickHouse", "clickhouse", True, _module_available("clickhouse_connect"), bool(os.getenv("ADE_CLICKHOUSE_HOST")), False),
         ("Trino", "trino", True, _module_available("trino"), all(os.getenv(k) for k in ("ADE_TRINO_HOST", "ADE_TRINO_USER", "ADE_TRINO_CATALOG")), False),
     ]

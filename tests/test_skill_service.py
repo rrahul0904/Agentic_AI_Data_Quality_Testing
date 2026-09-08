@@ -3,7 +3,7 @@ from __future__ import annotations
 from agentic_data_platform.skills import BUILTIN_SKILLS, SkillService
 
 
-EXPECTED = {
+ALTIMATE_EXPECTED = {
     "altimate-setup",
     "cost-report",
     "data-parity",
@@ -27,16 +27,24 @@ EXPECTED = {
     "training-status",
 }
 
+AIRFLOW_EXPECTED = {
+    "airflow-analyze", "airflow-troubleshoot", "airflow-backfill", "airflow-optimize",
+    "airflow-upgrade", "airflow-assets", "airflow-capacity", "airflow-cost",
+    "airflow-security", "pipeline-health", "root-cause",
+}
+EXPECTED = ALTIMATE_EXPECTED | AIRFLOW_EXPECTED
 
-def test_builtin_skill_catalog_exact_reference_surface():
+
+def test_builtin_skill_catalog_preserves_reference_and_adds_airflow_superset():
     assert set(BUILTIN_SKILLS) == EXPECTED
-    assert len(BUILTIN_SKILLS) == 21
+    assert len(ALTIMATE_EXPECTED) == 21
+    assert len(BUILTIN_SKILLS) == 32
 
 
 def test_install_all_enable_disable_and_plan(tmp_path):
     service = SkillService(tmp_path, state_path=tmp_path / ".ade" / "skills.db")
     installed = service.install_all()
-    assert installed["count"] == 21
+    assert installed["count"] == 32
     assert {item["name"] for item in service.list()} == EXPECTED
 
     disabled = service.set_enabled("sql-review", False)
