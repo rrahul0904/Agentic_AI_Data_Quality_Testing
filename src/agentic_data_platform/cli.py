@@ -6,6 +6,8 @@ from dataclasses import asdict
 from pathlib import Path
 
 from agentic_data_platform.dbt.adapter import LocalDbtProjectAdapter
+from agentic_data_platform.errors import safe_error
+from agentic_data_platform.platform.discovery import render_discovery
 from agentic_data_platform.migration.sqlserver_snowflake import plan_sqlserver_to_snowflake
 from agentic_data_platform.models import ActorMode, ApprovalRecord, Environment, ToolRequest
 from agentic_data_platform.persistence.sqlite import SQLiteControlPlaneRepository
@@ -184,7 +186,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--json", action="store_true", dest="json_output", help="emit machine-readable JSON")
     sub = parser.add_subparsers(dest="command", required=True)
     discover = sub.add_parser("discover")
-    discover.add_argument("project", nargs="?", default=None)
+    discover.add_argument("project", nargs="?", default=".")
     discover.add_argument("--dbt-project")
     discover.add_argument("--manifest")
     doctor = sub.add_parser("doctor")
@@ -227,6 +229,7 @@ def build_parser() -> argparse.ArgumentParser:
         domain_parser.add_argument("operation", choices=sorted(operations))
         domain_parser.add_argument("--args", default="{}", help="JSON arguments passed to the deterministic tool")
         domain_parser.add_argument("--builder", action="store_true", help="invoke in Builder mode")
+        domain_parser.add_argument("--admin", action="store_true", help="invoke in Admin mode through the same policy engine")
         domain_parser.add_argument("--approved", action="store_true", help="explicitly approve tools that require approval")
         domain_parser.add_argument("--dry-run", action="store_true")
 
@@ -269,16 +272,14 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "discover":
-            if args.project:
-                payload = _invoke("platform_discover", {"project": args.project})
-            else:
-                if not args.dbt_project:
-                    raise SystemExit("discover requires a project path or --dbt-project")
+            if args.dbt_project:
                 adapter = LocalDbtProjectAdapter(args.dbt_project)
                 payload = {"project": adapter.project_metadata()}
                 if args.manifest:
                     manifest = adapter.load_manifest(args.manifest)
                     payload.update({"models": adapter.list_models(manifest), "sources": adapter.list_sources(manifest), "tests": adapter.list_tests(manifest)})
+            else:
+                payload = _invoke("platform_discover", {"project": args.project or "."})
         elif args.command == "doctor":
             payload = _invoke("doctor", {"project": args.project})
         elif args.command == "tool":
@@ -323,7 +324,7 @@ def main(argv: list[str] | None = None) -> int:
             payload = _invoke(
                 tool_name,
                 json.loads(args.args),
-                actor_mode=ActorMode.BUILDER if args.builder else ActorMode.ANALYST,
+                actor_mode=ActorMode.ADMIN if getattr(args, "admin", False) else ActorMode.BUILDER if args.builder else ActorMode.ANALYST,
                 approved=bool(args.approved),
                 dry_run=bool(args.dry_run),
             )
@@ -338,10 +339,14 @@ def main(argv: list[str] | None = None) -> int:
             payload = asdict(record)
         else:
             raise SystemExit("execution remains available only through a governed platform adapter")
-        print(json.dumps(payload, indent=2, default=str))
+        if args.command == "discover" and not args.json_output and isinstance(payload, dict) and "git" in payload:
+            print(render_discovery(payload))
+        else:
+            print(json.dumps(payload, indent=2, default=str))
         return 0
     except (KeyError, ValueError, PermissionError, FileNotFoundError, json.JSONDecodeError) as exc:
-        print(json.dumps({"status": "ERROR", "error": str(exc)}))
+        error = safe_error(exc)
+        print(json.dumps({"status": "ERROR", "error": error["message"], **error}))
         return 2
 
 

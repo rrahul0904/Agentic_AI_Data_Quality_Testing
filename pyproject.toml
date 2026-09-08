@@ -7,14 +7,15 @@ name = "agentic-data-engineering-platform"
 version = "0.3.0"
 description = "Policy-governed agentic control plane for data engineering, migration, testing, and verification."
 requires-python = ">=3.11"
-dependencies = ["fastapi>=0.115", "sqlglot>=30.17,<31", "PyYAML>=6"]
+dependencies = ["fastapi>=0.115", "sqlglot>=30.17,<31", "PyYAML>=6", "textual>=1,<8"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6", "httpx>=0.27", "uvicorn>=0.30", "duckdb>=1.2", "dbt-snowflake>=1.9,<2"]
+dev = ["pytest>=8", "ruff>=0.6", "httpx>=0.28,<1", "httpx2>=2.12,<3", "uvicorn>=0.30", "duckdb>=1.2", "dbt-snowflake>=1.9,<2"]
 warehouses = ["duckdb>=1.2", "snowflake-connector-python>=3", "psycopg[binary]>=3", "oracledb>=2", "google-cloud-bigquery>=3", "databricks-sql-connector>=3", "pymongo>=4", "PyMySQL>=1.1", "clickhouse-connect>=0.8", "trino>=0.330", "pyodbc>=5"]
 
 [project.scripts]
 ade = "agentic_data_platform.cli:main"
+agentic = "agentic_data_platform.entrypoint:main"
 agentic-data-platform = "agentic_data_platform.cli:main"
 
 [tool.setuptools.packages.find]

@@ -97,7 +97,7 @@ test-providers:
 
 test-agentic:
 	$(PYTHON) scripts/parse_dbt.py
-	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src $(PYTHON) -m pytest -q -p no:cacheprovider tests/test_agent*.py tests/test_ground_truth_isolation.py tests/test_proactive_agentic_monitoring.py tests/test_quality_agentic_primitives.py tests/test_selective_recovery.py tests/test_asset_certification.py tests/test_cross_system_impact_graph.py tests/test_mapping_transformation_agents.py
+	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src $(PYTHON) -m pytest -q -p no:cacheprovider tests/test_agent*.py tests/test_ground_truth_isolation.py tests/test_proactive_agentic_monitoring.py tests/test_quality_agentic_primitives.py tests/test_selective_recovery.py tests/test_asset_certification.py tests/test_cross_system_impact_graph.py tests/test_mapping_transformation_agents.py tests/test_rca_evidence_grounding.py
 
 test-ui:
 	cd $(WEB) && npm run typecheck && npm run build
@@ -125,7 +125,7 @@ airflow-parity:
 	PYTHONPATH=src $(PYTHON) scripts/check_parity_gate.py --ledger airflow
 	PYTHONPATH=src $(PYTHON) scripts/check_airflow_gate.py
 
-verify: lint typecheck test-unit test-integration test-airflow test-dbt test-providers test-agentic test-hospitality shiftforge-test parity airflow-parity benchmark-lineage benchmark-airflow benchmark-agentic demo-smoke test-ui final-audit
+verify: lint typecheck test-unit test-integration test-airflow test-dbt test-providers test-agentic test-hospitality shiftforge-test parity airflow-parity parity-v2 certification-local benchmark-lineage benchmark-airflow benchmark-agentic demo-smoke test-ui final-audit
 
 ci: verify
 
@@ -159,3 +159,19 @@ dbt-live-e2e:
 	PYTHONPATH=src $(PYTHON) scripts/live_dbt_e2e.py
 
 live-e2e: snowflake-live-e2e airflow-live-e2e agent-live-e2e dbt-live-e2e
+
+
+.PHONY: conformance certification-local certification-live parity-v2
+
+conformance:
+	$(PYTHON) scripts/parse_dbt.py
+	PYTHONPATH=src $(PYTHON) scripts/run_conformance.py
+
+certification-local:
+	PYTHONPATH=src $(PYTHON) scripts/run_certification.py
+
+certification-live:
+	PYTHONPATH=src $(PYTHON) scripts/run_certification.py --live
+
+parity-v2: conformance
+	PYTHONPATH=src $(PYTHON) scripts/generate_parity_ledger_v2.py

@@ -1,0 +1,52 @@
+- id: SQL-CLASSIFY-READ-001
+  capability: sql_classify
+  tool: sql_classify
+  input:
+    sql: "SELECT * FROM orders"
+    dialect: snowflake
+  expected_properties:
+    - path: query_type
+      equals: read
+    - path: blocked
+      equals: false
+    - path: parseable
+      equals: true
+
+- id: SQL-CLASSIFY-WRITE-001
+  capability: sql_classify
+  tool: sql_classify
+  input:
+    sql: "DELETE FROM orders WHERE id = 1"
+    dialect: snowflake
+  expected_properties:
+    - path: query_type
+      equals: write
+    - path: parseable
+      equals: true
+
+- id: SQL-FINGERPRINT-001
+  capability: sql_fingerprint
+  tool: sql_fingerprint
+  input:
+    sql: "SELECT customer_id, SUM(amount) FROM orders GROUP BY customer_id"
+    dialect: snowflake
+  expected_properties:
+    - path: has_aggregation
+      equals: true
+    - path: table_count
+      equals: 1
+
+- id: SQL-TRANSLATE-001
+  capability: sql_translate
+  tool: sql_translate
+  input:
+    sql: "SELECT DATEADD(day, 1, created_at) FROM orders"
+    source_dialect: snowflake
+    target_dialect: postgres
+  expected_properties:
+    - path: success
+      equals: true
+    - path: target_dialect
+      equals: postgres
+    - path: translated_sql
+      truthy: true

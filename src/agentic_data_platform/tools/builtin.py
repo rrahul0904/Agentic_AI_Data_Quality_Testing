@@ -126,6 +126,8 @@ from agentic_data_platform.session import (
 )
 from agentic_data_platform.memory import MemoryStore
 from agentic_data_platform.tracing import TraceStore
+from agentic_data_platform.runtime.replay import replay_session
+from agentic_data_platform.runtime.store import RuntimeStore
 from agentic_data_platform.jobs import BackgroundJobEngine
 from agentic_data_platform.review import (
     change_impact as review_change_impact,
@@ -565,6 +567,8 @@ def build_tool_registry() -> ToolRegistry:
     add("trace_show", Capability.DISCOVER, lambda a: _trace_store(a).tree(a["trace_id"]) if not a.get("event_id") else _trace_store(a).show(a["event_id"]), "Show a trace event tree or one event.", platforms=frozenset({Platform.LOCAL}))
     add("trace_export", Capability.DISCOVER, lambda a: {"trace_id": a["trace_id"], "format": a.get("format", "json"), "content": _trace_store(a).export_html(a["trace_id"]) if a.get("format") == "html" else _trace_store(a).export_json(a["trace_id"])}, "Export trace evidence as JSON or standalone HTML.", platforms=frozenset({Platform.LOCAL}))
     add("trace_replay", Capability.DISCOVER, lambda a: _trace_store(a).replay(a["trace_id"]), "Reconstruct recorded trace timeline without re-executing side effects.", platforms=frozenset({Platform.LOCAL}))
+    add("runtime_session_list", Capability.DISCOVER, lambda a: {"sessions": RuntimeStore(a.get("runtime_database") or (_target(a) / ".ade" / "runtime.db")).list_sessions(limit=int(a.get("limit", 100)))}, "List AgentRuntime sessions used by interactive agents.", platforms=frozenset({Platform.LOCAL}))
+    add("runtime_session_replay", Capability.DISCOVER, lambda a: replay_session(RuntimeStore(a.get("runtime_database") or (_target(a) / ".ade" / "runtime.db")), _trace_store(a), a["session_id"]), "Replay one AgentRuntime session without re-executing tools.", platforms=frozenset({Platform.LOCAL}))
 
     def job_submit_handler(a: dict[str, Any]) -> dict[str, Any]:
         tool_name = a["tool"]
@@ -811,7 +815,7 @@ def build_tool_registry() -> ToolRegistry:
             _dbt(a).artifacts.manifest,
             a["model"],
             dialect=a.get("dialect", "snowflake"),
-            max_scenarios=int(a.get("max_scenarios", 3)),
+            max_scenarios=int(a.get("max_scenarios", 12)),
         ),
         "Generate dbt 1.8+ unit-test YAML from compiled SQL, dependencies, types and lineage.",
     )

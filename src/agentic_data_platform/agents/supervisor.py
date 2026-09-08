@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import replace
+import json
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Callable, TypeVar
@@ -44,6 +46,16 @@ class SupervisorAgent:
     """Evidence-grounded dynamic coordinator for the specialized agent roster."""
 
     role = AgentRole.SUPERVISOR
+    _CACHEABLE_STATIC_TOOLS = frozenset({
+        "platform_graph",
+        "platform_lineage",
+        "platform_impact",
+        "airflow_inventory",
+        "airflow_dag_details",
+        "dbt_manifest_summary",
+        "dbt_incremental_analysis",
+        "dbt_compiled_sql_review",
+    })
 
     def __init__(self, registry: ToolRegistry, store: InvestigationStore, project: str | Path) -> None:
         self.registry = registry
@@ -60,6 +72,9 @@ class SupervisorAgent:
         self.rca = RCAAgent()
         self.impact = ImpactAgent()
         self.remediation = RemediationAgent()
+        self._read_cache: dict[tuple[str, str], dict[str, Any]] = {}
+        self._cache_hits = 0
+        self._cache_misses = 0
         self._policies = {
             item.role: item.policy
             for item in (
@@ -76,6 +91,13 @@ class SupervisorAgent:
     def scenarios() -> list[dict[str, Any]]:
         return scenario_catalog()
 
+    def cache_metrics(self) -> dict[str, int]:
+        return {
+            "entries": len(self._read_cache),
+            "hits": self._cache_hits,
+            "misses": self._cache_misses,
+        }
+
     def _invoke(self, role: AgentRole, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
         policy = self._policies.get(role)
         if policy is None:
@@ -85,6 +107,18 @@ class SupervisorAgent:
         definition = self.registry.describe(tool_name)
         if definition.risk.value != "read_only":
             raise PermissionError(f"specialist investigation agent cannot invoke mutating tool: {tool_name}")
+        cache_key: tuple[str, str] | None = None
+        if tool_name in self._CACHEABLE_STATIC_TOOLS:
+            cache_key = (
+                tool_name,
+                json.dumps(args, sort_keys=True, default=str, separators=(",", ":")),
+            )
+            cached = self._read_cache.get(cache_key)
+            if cached is not None:
+                self._cache_hits += 1
+                return deepcopy(cached)
+            self._cache_misses += 1
+
         request = ToolRequest(
             tool=tool_name,
             operation=tool_name,
@@ -92,9 +126,12 @@ class SupervisorAgent:
             risk=definition.risk,
             args=args,
         )
-        return self.registry.invoke(
+        result = self.registry.invoke(
             ToolInvocation(request, run_id=f"agent-{role.value}", actor_mode=ActorMode.ANALYST)
         )
+        if cache_key is not None:
+            self._read_cache[cache_key] = deepcopy(result)
+        return result
 
     def _save(self, incident_id: str, result: AgentResult, results: list[AgentResult]) -> None:
         results.append(result)

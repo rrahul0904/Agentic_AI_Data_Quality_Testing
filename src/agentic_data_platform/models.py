@@ -52,6 +52,7 @@ class ActorMode(str, Enum):
     ANALYST = "analyst"
     PLAN = "plan"
     BUILDER = "builder"
+    ADMIN = "admin"
 
 
 class Capability(str, Enum):

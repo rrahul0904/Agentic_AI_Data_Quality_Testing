@@ -5,13 +5,38 @@ from __future__ import annotations
 import json
 import os
 from typing import Any, Callable, Mapping
-from urllib.parse import quote
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 from agentic_data_platform.review.dbt import format_review_body
 
 
 Sender = Callable[[str, str, dict[str, str], dict[str, Any]], dict[str, Any]]
+
+
+def _safe_api_url(value: str) -> str:
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("review API URL must use http(s) and include a hostname")
+    if parsed.username or parsed.password:
+        raise ValueError("review API URL must not contain embedded credentials")
+    return value.rstrip("/")
+
+
+def _error_type(http_status: int | None) -> str:
+    status = int(http_status or 0)
+    if status == 0:
+        return "NETWORK_FAILURE"
+    if status == 401:
+        return "AUTHENTICATION_FAILURE"
+    if status == 403:
+        return "PERMISSION_FAILURE"
+    if status == 429:
+        return "RATE_LIMITED"
+    if status >= 500:
+        return "PROVIDER_OUTAGE"
+    return "PROVIDER_ERROR"
 
 
 def _default_sender(
@@ -26,16 +51,26 @@ def _default_sender(
         headers={**headers, "Content-Type": "application/json"},
         method=method,
     )
-    with urlopen(request, timeout=30) as response:
-        raw = response.read().decode(errors="replace")
+    try:
+        with urlopen(request, timeout=30) as response:
+            raw = response.read().decode(errors="replace")
+            try:
+                body: Any = json.loads(raw) if raw else {}
+            except json.JSONDecodeError:
+                body = {"raw": raw}
+            return {
+                "http_status": int(response.status),
+                "body": body,
+            }
+    except HTTPError as exc:
+        raw = exc.read().decode(errors="replace") if exc.fp else ""
         try:
-            body: Any = json.loads(raw) if raw else {}
+            body = json.loads(raw) if raw else {}
         except json.JSONDecodeError:
             body = {"raw": raw}
-        return {
-            "http_status": int(response.status),
-            "body": body,
-        }
+        return {"http_status": int(exc.code), "body": body, "error": str(exc.reason)}
+    except (URLError, TimeoutError, OSError) as exc:
+        return {"http_status": 0, "body": {}, "error": str(exc)}
 
 
 def deliver_github_review(
@@ -78,7 +113,7 @@ def deliver_github_review(
     transport = sender or _default_sender
     result = transport(
         "POST",
-        api_url.rstrip("/")
+        _safe_api_url(api_url)
         + f"/repos/{repository}/pulls/{int(pull_number)}/reviews",
         {
             "Authorization": f"Bearer {token}",
@@ -87,7 +122,7 @@ def deliver_github_review(
         },
         payload,
     )
-    return {
+    response = {
         "status": "PASS"
         if 200 <= int(result.get("http_status", 0)) < 300
         else "FAIL",
@@ -98,6 +133,9 @@ def deliver_github_review(
         "signature": review.get("signature"),
         **result,
     }
+    if response["status"] == "FAIL":
+        response["error_type"] = _error_type(result.get("http_status"))
+    return response
 
 
 def deliver_gitlab_review(
@@ -132,7 +170,7 @@ def deliver_gitlab_review(
     encoded = quote(project, safe="")
     result = transport(
         "POST",
-        api_url.rstrip("/")
+        _safe_api_url(api_url)
         + f"/projects/{encoded}/merge_requests/{int(merge_request_iid)}/notes",
         {
             "PRIVATE-TOKEN": token,
@@ -140,7 +178,7 @@ def deliver_gitlab_review(
         },
         payload,
     )
-    return {
+    response = {
         "status": "PASS"
         if 200 <= int(result.get("http_status", 0)) < 300
         else "FAIL",
@@ -151,3 +189,6 @@ def deliver_gitlab_review(
         "signature": review.get("signature"),
         **result,
     }
+    if response["status"] == "FAIL":
+        response["error_type"] = _error_type(result.get("http_status"))
+    return response

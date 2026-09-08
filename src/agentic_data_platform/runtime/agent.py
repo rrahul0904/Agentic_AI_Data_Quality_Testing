@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from agentic_data_platform.models import ActorMode, Environment, ToolRequest, new_id
 from agentic_data_platform.plugins.manager import PluginManager
@@ -67,13 +67,20 @@ class AgentRuntime:
         environment: Environment = Environment.DEV,
         approved_tools: set[str] | None = None,
         project_root: str | Path | None = None,
+        event_handler: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         session = self.store.get_session(session_id)
         if session is None:
             raise KeyError(f"session not found: {session_id}")
 
         approved_tools = approved_tools or set()
+
+        def notify(event: str, **payload: Any) -> None:
+            if event_handler is not None:
+                event_handler({"event": event, "session_id": session_id, **payload})
+
         self.store.add_message(session_id, "user", user_message)
+        notify("session.started", provider=provider.name, model=model, actor_mode=actor_mode.value)
 
         selected_context = (
             self.context_sources.select(
@@ -158,6 +165,7 @@ class AgentRuntime:
                         "plugins_before": before_hooks,
                     },
                 )
+                notify("generation.started", step=step, provider=provider.name, model=model)
                 response: ProviderResponse = provider.generate(
                     ProviderRequest(
                         model=model,
@@ -197,6 +205,14 @@ class AgentRuntime:
                         "plugins_after": after_hooks,
                     },
                 )
+                notify(
+                    "generation.finished",
+                    step=step,
+                    finish_reason=response.finish_reason,
+                    usage=asdict(response.usage),
+                    tool_call_count=len(response.tool_calls),
+                    content=response.content,
+                )
 
                 if response.content or response.tool_calls:
                     assistant_metadata: dict[str, Any] = {}
@@ -224,6 +240,7 @@ class AgentRuntime:
                         "SUCCESS",
                         {"steps": step, "plugins_end": end_hooks},
                     )
+                    notify("session.finished", status="SUCCESS", steps=step, trace_id=trace_id)
                     return {
                         "session_id": session_id,
                         "trace_id": trace_id,
@@ -284,6 +301,24 @@ class AgentRuntime:
                         risk=definition.risk,
                         args=dict(call.args),
                     )
+                    requires_approval = bool(
+                        definition.requires_approval
+                        or (
+                            environment is Environment.PROD
+                            and definition.risk.value == "mutating"
+                        )
+                    )
+                    notify(
+                        "tool.started",
+                        step=step,
+                        tool=call.name,
+                        args=dict(call.args),
+                        risk=definition.risk.value,
+                        requires_approval=requires_approval,
+                        approved=call.name in approved_tools,
+                    )
+                    if requires_approval and call.name not in approved_tools:
+                        notify("approval.required", tool=call.name, risk=definition.risk.value)
                     try:
                         result = self.registry.invoke(
                             ToolInvocation(
@@ -302,6 +337,7 @@ class AgentRuntime:
                         status = "DENIED" if isinstance(exc, PermissionError) else "ERROR"
 
                     self.store.finish_tool_call(tool_call_id, result, status)
+                    notify("tool.finished", tool=call.name, status=status, result=result)
                     after_tool_hooks = self._emit("tool.after", {
                         "session_id": session_id,
                         "trace_id": trace_id,
@@ -339,6 +375,7 @@ class AgentRuntime:
                 "error": type(exc).__name__,
                 "message": str(exc),
             })
+            notify("session.finished", status="ERROR", error=type(exc).__name__, message=str(exc), trace_id=trace_id)
             self.traces.finish(
                 root,
                 "ERROR",

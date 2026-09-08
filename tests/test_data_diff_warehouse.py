@@ -139,3 +139,92 @@ def test_diff_plan_selects_join_for_same_connector_and_cascade_for_cross():
     )
     assert same["algorithm"] == "JOIN_DIFF"
     assert cross["algorithm"] == "CASCADE"
+
+
+def test_hash_diff_covers_null_keys_without_skipping_rows():
+    connection = duckdb.connect(":memory:")
+    connection.execute("CREATE SCHEMA src")
+    connection.execute("CREATE SCHEMA tgt")
+    connection.execute("CREATE TABLE src.items(id INTEGER, value VARCHAR)")
+    connection.execute("CREATE TABLE tgt.items(id INTEGER, value VARCHAR)")
+    connection.execute("INSERT INTO src.items VALUES (NULL, 'left'), (1, 'same')")
+    connection.execute("INSERT INTO tgt.items VALUES (NULL, 'right'), (1, 'same')")
+    connector = DuckDBConnector(connection)
+
+    result = hash_diff(
+        connector,
+        connector,
+        "src.items",
+        "tgt.items",
+        key_columns=["id"],
+        compare_columns=["value"],
+        max_partition_rows=10,
+    )
+
+    assert result["status"] == "FAIL"
+    assert result["changed_keys"] == [[None]]
+    assert result["raw_rows_retrieved"] == 0
+
+
+def test_hash_diff_detects_duplicate_key_multiplicity():
+    connection = duckdb.connect(":memory:")
+    connection.execute("CREATE SCHEMA src")
+    connection.execute("CREATE SCHEMA tgt")
+    connection.execute("CREATE TABLE src.items(id INTEGER, value VARCHAR)")
+    connection.execute("CREATE TABLE tgt.items(id INTEGER, value VARCHAR)")
+    connection.execute("INSERT INTO src.items VALUES (1, 'same'), (1, 'same')")
+    connection.execute("INSERT INTO tgt.items VALUES (1, 'same')")
+    connector = DuckDBConnector(connection)
+
+    result = hash_diff(
+        connector,
+        connector,
+        "src.items",
+        "tgt.items",
+        key_columns=["id"],
+        compare_columns=["value"],
+        max_partition_rows=10,
+    )
+
+    assert result["status"] == "FAIL"
+    assert result["changed_keys"] == [[1]]
+
+
+def test_join_diff_uses_presence_sentinels_for_nullable_keys():
+    connection = duckdb.connect(":memory:")
+    connection.execute("CREATE SCHEMA src")
+    connection.execute("CREATE SCHEMA tgt")
+    connection.execute("CREATE TABLE src.items(id INTEGER, value VARCHAR)")
+    connection.execute("CREATE TABLE tgt.items(id INTEGER, value VARCHAR)")
+    connection.execute("INSERT INTO src.items VALUES (NULL, 'same'), (1, 'left')")
+    connection.execute("INSERT INTO tgt.items VALUES (NULL, 'same'), (1, 'right')")
+    connector = DuckDBConnector(connection)
+
+    result = join_diff(
+        connector,
+        connector,
+        "src.items",
+        "tgt.items",
+        key_columns=["id"],
+        compare_columns=["value"],
+    )
+
+    assert result["status"] == "FAIL"
+    assert result["counts"] == {"missing": 0, "extra": 0, "changed": 1}
+
+
+def test_hash_diff_empty_tables_is_deterministic_pass():
+    connection = duckdb.connect(":memory:")
+    connection.execute("CREATE SCHEMA src")
+    connection.execute("CREATE SCHEMA tgt")
+    connection.execute("CREATE TABLE src.items(id INTEGER, value VARCHAR)")
+    connection.execute("CREATE TABLE tgt.items(id INTEGER, value VARCHAR)")
+    connector = DuckDBConnector(connection)
+
+    first = hash_diff(connector, connector, "src.items", "tgt.items", key_columns=["id"], compare_columns=["value"])
+    second = hash_diff(connector, connector, "src.items", "tgt.items", key_columns=["id"], compare_columns=["value"])
+
+    assert first == second
+    assert first["status"] == "PASS"
+    assert first["partitions"] == 0
+    assert first["raw_rows_retrieved"] == 0
