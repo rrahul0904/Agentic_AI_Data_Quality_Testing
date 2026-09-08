@@ -2,7 +2,17 @@ name: integrated-platform
 
 on:
   push:
+    branches:
+      - main
   pull_request:
+    branches:
+      - main
+
+# Do not let superseded commits consume the entire Actions queue.
+# A new push/PR update cancels the older run for the same ref.
+concurrency:
+  group: integrated-platform-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   python:
