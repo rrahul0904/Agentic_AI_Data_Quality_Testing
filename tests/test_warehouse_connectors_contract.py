@@ -305,7 +305,8 @@ def test_common_warehouse_adapter_metadata_and_permissions_contract():
     from agentic_data_platform.connectors.warehouse import ConnectorWarehouseAdapter
     from agentic_data_platform.connectors.sqlite import SQLiteConnector
 
-    adapter = ConnectorWarehouseAdapter(SQLiteConnector(":memory:"))
+    connection = sqlite3.connect(":memory:")
+    adapter = ConnectorWarehouseAdapter(SQLiteConnector(connection))
     metadata = adapter.metadata()
     assert metadata["status"] == "PASS"
     assert metadata["platform"] == "sqlite"
