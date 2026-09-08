@@ -40,6 +40,7 @@ def main() -> None:
         "llm_tokens": 0,
         "estimated_ai_cost_usd": 0.0,
         "mode": "DETERMINISTIC_LOCAL_BENCHMARK",
+        "static_read_cache": service.cache_metrics(),
     }
     print(json.dumps(result, indent=2, sort_keys=True))
     if result["root_cause_accuracy"] != 1.0 or result["first_divergence_accuracy"] != 1.0:
