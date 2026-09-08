@@ -92,6 +92,15 @@ CREATE TABLE IF NOT EXISTS incident_mappings (
   expression_json TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS asset_certifications (
+  certification_id TEXT PRIMARY KEY,
+  incident_id TEXT NOT NULL,
+  asset TEXT NOT NULL,
+  status TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  evidence_ids_json TEXT NOT NULL,
+  evaluated_at TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_incident_transition_incident ON incident_transitions(incident_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_incident_evidence_incident ON incident_evidence(incident_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_incident_agent_run_incident ON incident_agent_runs(incident_id, created_at);
@@ -232,6 +241,66 @@ class InvestigationStore:
                 (result.result_id, incident_id, result.role.value, result.status, json.dumps(payload, default=str, sort_keys=True), result.created_at),
             )
             self.connection.commit()
+
+    def save_certification(
+        self,
+        incident_id: str,
+        asset: str,
+        status: str,
+        reason: str,
+        *,
+        evidence_ids: list[str] | tuple[str, ...] = (),
+    ) -> dict[str, Any]:
+        if status not in {"UNKNOWN", "AT_RISK", "FAILED", "CERTIFIED"}:
+            raise ValueError(f"invalid certification status: {status}")
+        item = {
+            "certification_id": new_id("certification"),
+            "incident_id": incident_id,
+            "asset": asset,
+            "status": status,
+            "reason": reason,
+            "evidence_ids": list(evidence_ids),
+            "evaluated_at": utc_now(),
+        }
+        with self.lock:
+            self.connection.execute(
+                "INSERT INTO asset_certifications VALUES (?,?,?,?,?,?,?)",
+                (
+                    item["certification_id"],
+                    incident_id,
+                    asset,
+                    status,
+                    reason,
+                    json.dumps(item["evidence_ids"]),
+                    item["evaluated_at"],
+                ),
+            )
+            self.connection.commit()
+        return item
+
+    def certifications(self, incident_id: str) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "SELECT * FROM asset_certifications WHERE incident_id=? ORDER BY evaluated_at,rowid",
+            (incident_id,),
+        ).fetchall()
+        return [
+            {
+                "certification_id": row["certification_id"],
+                "incident_id": row["incident_id"],
+                "asset": row["asset"],
+                "status": row["status"],
+                "reason": row["reason"],
+                "evidence_ids": json.loads(row["evidence_ids_json"]),
+                "evaluated_at": row["evaluated_at"],
+            }
+            for row in rows
+        ]
+
+    def latest_certifications(self, incident_id: str) -> list[dict[str, Any]]:
+        latest: dict[str, dict[str, Any]] = {}
+        for item in self.certifications(incident_id):
+            latest[item["asset"]] = item
+        return sorted(latest.values(), key=lambda item: item["asset"])
 
     def save_mappings(self, incident_id: str, mappings: list[dict[str, Any]]) -> None:
         now = utc_now()

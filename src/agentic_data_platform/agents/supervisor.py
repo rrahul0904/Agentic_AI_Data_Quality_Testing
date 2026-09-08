@@ -208,6 +208,12 @@ class SupervisorAgent:
             self.store.transition(incident_id, IncidentState.FAILED, "No anomaly was proven; incident should not have been created.")
             return self._report(incident_id, scenario, results, evidence, [], None)
 
+        self.store.save_certification(
+            incident_id,
+            scenario.affected_asset,
+            "FAILED",
+            "Deterministic quality/anomaly gate failed; publication is not certified.",
+        )
         self.store.transition(incident_id, IncidentState.INVESTIGATING, "Deterministic anomaly criteria were met.")
         metadata_result = self._timed(AgentRole.METADATA, lambda: self.metadata.run(context))
         self._save(incident_id, metadata_result, results)
@@ -341,6 +347,16 @@ class SupervisorAgent:
             return self.get_report(incident_id)
 
         self.store.transition(incident_id, IncidentState.RECERTIFYING, "All required verification gates passed.")
+        certification_targets = execution.get("certification_targets") or [scenario.affected_asset]
+        evidence_ids = [item["evidence_id"] for item in self.store.evidence(incident_id)]
+        for asset in certification_targets:
+            self.store.save_certification(
+                incident_id,
+                str(asset),
+                "CERTIFIED",
+                "Original failure, first-divergence reconciliation, affected quality/dbt checks, pipeline execution and business metric all passed.",
+                evidence_ids=evidence_ids,
+            )
         self.store.update_outcome(incident_id, certification="CERTIFIED")
         self.store.transition(incident_id, IncidentState.RESOLVED, "Affected assets independently re-certified.")
         return self.get_report(incident_id)
@@ -413,4 +429,5 @@ class SupervisorAgent:
         report["hypotheses"] = self.store.hypotheses(incident_id)
         report["remediation"] = self.store.remediation(incident_id)
         report["mappings"] = self.store.mappings(incident_id)
+        report["certifications"] = self.store.latest_certifications(incident_id)
         return report
