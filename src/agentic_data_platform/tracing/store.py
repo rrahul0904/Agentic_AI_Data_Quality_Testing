@@ -3,6 +3,7 @@ import html, json, sqlite3, threading, time
 from pathlib import Path
 from typing import Any
 from agentic_data_platform.models import new_id, utc_now
+from agentic_data_platform.security.redaction import redact
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS trace_events (
@@ -28,7 +29,7 @@ class TraceStore:
         with self._lock:
             self._started[event_id] = time.perf_counter()
             self._conn.execute("INSERT INTO trace_events VALUES (?, ?, ?, ?, ?, ?, 'RUNNING', ?, NULL, NULL, ?)",
-                               (event_id, trace, session_id, parent_id, kind, name, utc_now(), json.dumps(payload or {}, default=str)))
+                               (event_id, trace, session_id, parent_id, kind, name, utc_now(), json.dumps(redact(payload or {}), default=str)))
             self._conn.commit()
         return event_id
     def finish(self, event_id: str, status: str, payload: dict[str, Any] | None = None) -> None:
@@ -37,7 +38,7 @@ class TraceStore:
             duration = (time.perf_counter() - started) * 1000 if started is not None else None
             row = self._conn.execute("SELECT payload_json FROM trace_events WHERE event_id = ?", (event_id,)).fetchone()
             if row is None: raise KeyError(f"trace event not found: {event_id}")
-            merged = json.loads(row["payload_json"] or "{}"); merged.update(payload or {})
+            merged = json.loads(row["payload_json"] or "{}"); merged.update(redact(payload or {}))
             self._conn.execute("UPDATE trace_events SET status=?, ended_at=?, duration_ms=?, payload_json=? WHERE event_id=?",
                                (status, utc_now(), duration, json.dumps(merged, default=str), event_id))
             self._conn.commit()
@@ -48,7 +49,7 @@ class TraceStore:
         if conditions: sql += " WHERE " + " AND ".join(conditions)
         sql += " ORDER BY started_at LIMIT ?"; params.append(max(1, min(limit, 5000)))
         rows = self._conn.execute(sql, tuple(params)).fetchall()
-        return [{**dict(row), "payload": json.loads(row["payload_json"] or "{}")} for row in rows]
+        return [{**dict(row), "payload": redact(json.loads(row["payload_json"] or "{}"))} for row in rows]
     def export_html(self, trace_id: str) -> str:
         rows = []
         for event in self.list(trace_id=trace_id, limit=5000):
@@ -71,7 +72,7 @@ class TraceStore:
             raise KeyError(f"trace event not found: {event_id}")
         return {
             **dict(row),
-            "payload": json.loads(row["payload_json"] or "{}"),
+            "payload": redact(json.loads(row["payload_json"] or "{}")),
         }
 
     def traces(self, *, limit: int = 100) -> list[dict[str, Any]]:

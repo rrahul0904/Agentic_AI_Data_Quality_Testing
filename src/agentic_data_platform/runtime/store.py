@@ -3,6 +3,7 @@ import json, sqlite3, threading
 from pathlib import Path
 from typing import Any
 from agentic_data_platform.models import new_id, utc_now
+from agentic_data_platform.security.redaction import redact, redact_string
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -45,7 +46,7 @@ class RuntimeStore:
         message_id, now = new_id("message"), utc_now()
         with self._lock:
             self._conn.execute("INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?)",
-                               (message_id, session_id, role, content, json.dumps(metadata or {}, default=str), now))
+                               (message_id, session_id, role, redact_string(content), json.dumps(redact(metadata or {}), default=str), now))
             self._conn.execute("UPDATE sessions SET updated_at=? WHERE session_id=?", (now, session_id)); self._conn.commit()
         return message_id
     def messages(self, session_id: str) -> list[dict[str, Any]]:
@@ -56,21 +57,36 @@ class RuntimeStore:
         gid=new_id("generation")
         with self._lock:
             self._conn.execute("INSERT INTO generations VALUES (?, ?, ?, ?, ?, ?, ?)",
-                               (gid,session_id,provider,model,finish_reason,json.dumps(usage,default=str),utc_now())); self._conn.commit()
+                               (gid,session_id,provider,model,finish_reason,json.dumps(redact(usage),default=str),utc_now())); self._conn.commit()
         return gid
     def start_tool_call(self, session_id: str, generation_id: str | None, tool: str, args: dict[str, Any], call_id: str | None=None) -> str:
         cid=call_id or new_id("tool_call")
         with self._lock:
             self._conn.execute("INSERT OR REPLACE INTO tool_calls VALUES (?, ?, ?, ?, ?, NULL, 'RUNNING', ?)",
-                               (cid,session_id,generation_id,tool,json.dumps(args,default=str),utc_now())); self._conn.commit()
+                               (cid,session_id,generation_id,tool,json.dumps(redact(args),default=str),utc_now())); self._conn.commit()
         return cid
     def finish_tool_call(self, tool_call_id: str, result: dict[str, Any], status: str) -> None:
         with self._lock:
             self._conn.execute("UPDATE tool_calls SET result_json=?,status=? WHERE tool_call_id=?",
-                               (json.dumps(result,default=str),status,tool_call_id)); self._conn.commit()
+                               (json.dumps(redact(result),default=str),status,tool_call_id)); self._conn.commit()
     def add_context_snapshot(self, session_id: str, token_count: int, metadata: dict[str, Any]) -> str:
         sid=new_id("context")
         with self._lock:
             self._conn.execute("INSERT INTO context_snapshots VALUES (?, ?, ?, ?, ?)",
                                (sid,session_id,token_count,json.dumps(metadata,default=str),utc_now())); self._conn.commit()
         return sid
+
+    def generations(self, session_id: str) -> list[dict[str, Any]]:
+        rows = self._conn.execute("SELECT * FROM generations WHERE session_id=? ORDER BY created_at,rowid", (session_id,)).fetchall()
+        return [{**dict(row), "usage": redact(json.loads(row["usage_json"] or "{}"))} for row in rows]
+
+    def tool_calls(self, session_id: str) -> list[dict[str, Any]]:
+        rows = self._conn.execute("SELECT * FROM tool_calls WHERE session_id=? ORDER BY created_at,rowid", (session_id,)).fetchall()
+        values = []
+        for row in rows:
+            item = dict(row)
+            item["args"] = redact(json.loads(item.pop("args_json") or "{}"))
+            raw_result = item.pop("result_json")
+            item["result"] = redact(json.loads(raw_result or "{}")) if raw_result else None
+            values.append(item)
+        return values

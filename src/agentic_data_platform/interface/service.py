@@ -10,6 +10,7 @@ from agentic_data_platform.platform.discovery import render_discovery
 from agentic_data_platform.providers import ProviderRegistry
 from agentic_data_platform.runtime.agent import AgentRuntime
 from agentic_data_platform.runtime.store import RuntimeStore
+from agentic_data_platform.runtime.replay import replay_session
 from agentic_data_platform.tools.builtin import build_tool_registry
 from agentic_data_platform.tools.registry import ToolInvocation, ToolRegistry
 from agentic_data_platform.tracing.store import TraceStore
@@ -109,6 +110,9 @@ class AgenticService:
 
     def replay_trace(self, trace_id: str) -> dict[str, Any]:
         return self.trace_store.replay(trace_id)
+
+    def session_replay(self, session_id: str) -> dict[str, Any]:
+        return replay_session(self.runtime_store, self.trace_store, session_id)
 
     def provider_status(self) -> list[dict[str, Any]]:
         return self.provider_registry.specs()

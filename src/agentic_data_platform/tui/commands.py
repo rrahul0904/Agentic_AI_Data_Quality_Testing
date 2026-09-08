@@ -93,6 +93,10 @@ def execute(line: str, service: AgenticService) -> dict[str, Any]:
             return {"status": "PASS", "mode": service.actor_mode.value.upper()}
         mode = service.set_mode(tail)
         return {"status": "PASS", "mode": mode.value.upper()}
+    if name == "sessions":
+        return {"status": "PASS", "result": service.session_replay(tail) if tail else {"sessions": service.sessions()}}
+    if name == "trace":
+        return {"status": "PASS", "result": service.replay_trace(tail) if tail else {"traces": service.traces()}}
     try:
         spec = COMMANDS[name]
     except KeyError as exc:
