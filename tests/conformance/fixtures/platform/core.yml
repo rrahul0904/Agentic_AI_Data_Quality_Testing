@@ -1,0 +1,36 @@
+- id: PLATFORM-SKILLS-001
+  capability: skills
+  tool: skill_catalog
+  input: {}
+  expected_properties:
+    - path: skills
+      length_at_least: 32
+
+- id: PLATFORM-PROVIDERS-001
+  capability: providers
+  tool: provider_list
+  input: {}
+  expected_properties:
+    - path: providers
+      length_at_least: 22
+
+- id: DBT-MANIFEST-001
+  capability: dbt_manifest
+  tool: dbt_manifest_summary
+  input:
+    project: "$PROJECT"
+  expected_properties:
+    - path: resource_counts.model
+      equals: 70
+
+- id: DATA-DIFF-DUCKDB-001
+  capability: data_diff
+  tool: data_diff_duckdb_demo
+  input: {}
+  expected_properties:
+    - path: status
+      equals: FAIL
+    - path: row_count.status
+      equals: PASS
+    - path: hash.status
+      equals: FAIL
