@@ -241,7 +241,7 @@ def root_cause_from_error(
 ) -> dict[str, Any]:
     lowered = error.casefold()
     rules = [
-        (("conn_id", "isn't defined"), "MISSING_CONNECTION", 0.99,
+        (("isn't defined", "connection is not defined", "missing connection"), "MISSING_CONNECTION", 0.99,
          "Create or restore the referenced Airflow connection through the approved secret-safe connection path."),
         (("authentication failed", "invalid username/password", "invalid credential"), "CREDENTIAL_FAILURE", 0.98,
          "Rotate or repair credentials in the configured secret backend; do not hard-code credentials in DAG code."),
