@@ -136,9 +136,6 @@ def deliver_github_review(
     if response["status"] == "FAIL":
         response["error_type"] = _error_type(result.get("http_status"))
     return response
-    if response["status"] == "FAIL":
-        response["error_type"] = _error_type(result.get("http_status"))
-    return response
 
 
 def deliver_gitlab_review(
@@ -192,3 +189,6 @@ def deliver_gitlab_review(
         "signature": review.get("signature"),
         **result,
     }
+    if response["status"] == "FAIL":
+        response["error_type"] = _error_type(result.get("http_status"))
+    return response
