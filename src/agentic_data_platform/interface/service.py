@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable
 
-from agentic_data_platform.models import ActorMode, Environment, Risk, ToolRequest
+from agentic_data_platform.models import ActorMode, Environment, ToolRequest
 from agentic_data_platform.platform.discovery import render_discovery
 from agentic_data_platform.providers import ProviderRegistry
 from agentic_data_platform.runtime.agent import AgentRuntime
