@@ -243,11 +243,36 @@ class PlatformDiscovery:
             "files": files,
         }
 
+    def _airflow_scan(self, project: Path) -> tuple[AirflowProject, list[Path]]:
+        """Scan every repository Airflow root without executing DAG code.
+
+        dbt and Airflow commonly live as siblings in a monorepo. Discovery may
+        select a nested dbt project as its primary project root, so Airflow
+        discovery must remain repository-scoped rather than dbt-root-scoped.
+        """
+
+        candidates = {
+            candidate
+            for candidate in (project / "airflow" / "dags", self.root / "airflow" / "dags")
+            if candidate.is_dir() and _usable(candidate)
+        }
+        candidates.update(
+            path
+            for path in self.root.rglob("dags")
+            if path.is_dir() and path.parent.name == "airflow" and _usable(path)
+        )
+        airflow = AirflowProject()
+        dag_files: list[Path] = []
+        for dags_dir in sorted(candidates, key=str):
+            scanned = AirflowProject.scan(dags_dir)
+            for dag_id, dag in scanned.dags.items():
+                airflow.dags.setdefault(dag_id, dag)
+            airflow.parse_errors.extend(scanned.parse_errors)
+            dag_files.extend(path for path in dags_dir.rglob("*.py") if _usable(path))
+        return airflow, sorted(set(dag_files), key=str)
+
     def _airflow_discovery(self, project: Path) -> dict[str, Any]:
-        airflow = AirflowProject.scan(project)
-        dag_files = [
-            path for path in (project / "airflow" / "dags").rglob("*.py")
-        ] if (project / "airflow" / "dags").is_dir() else []
+        airflow, dag_files = self._airflow_scan(project)
         text = "\n".join(
             path.read_text(encoding="utf-8", errors="ignore")
             for path in dag_files
@@ -367,8 +392,7 @@ class PlatformDiscovery:
 
     def inventory(self) -> dict[str, Any]:
         project = self._hospitality_root()
-        airflow_root = project / "airflow" / "dags"
-        airflow = AirflowProject.scan(project) if airflow_root.is_dir() else AirflowProject()
+        airflow, airflow_files = self._airflow_scan(project)
         program_root = self.root if (self.root / "shiftforge").exists() else self.root.parent
         workflows = program_root / ".github" / "workflows"
         ci_files = [path for path in workflows.glob("*.y*ml")] if workflows.is_dir() else []
@@ -379,7 +403,7 @@ class PlatformDiscovery:
             "project": str(self.root),
             "hospitality_project": str(project),
             "dbt": self._dbt(project),
-            "airflow": {"found": airflow_root.is_dir(), **airflow.summary()},
+            "airflow": {"found": bool(airflow_files), **airflow.summary()},
             "snowflake": self._snowflake(project),
             "sources": self._sources(project),
             "docker": {
