@@ -21,6 +21,7 @@ from agentic_data_platform.advanced_capabilities import (
     apply_file_edit,
     build_chart_spec,
     command_plan,
+    compare_document_extractions,
     document_extract,
     forecast_series,
     git_change_apply,
@@ -33,11 +34,14 @@ from agentic_data_platform.advanced_capabilities import (
     mode_contract,
     plan_file_edit,
     retrieval_search,
+    route_model_for_mode,
     run_command,
     sdk_contract,
     save_agent_definition,
     search_warehouse_objects,
     select_context,
+    snowflake_document_extract_plan,
+    snowflake_document_parse_plan,
     sql_playground,
     verify_immutable_plan,
 )
@@ -244,7 +248,9 @@ def test_anomaly_compare_uses_two_independent_detectors() -> None:
     assert result["status"] == "PASS"
     assert 6 in result["detectors"]["zscore"]
     assert 6 in result["detectors"]["mad"]
+    assert 6 in result["detectors"]["trend_residual"]
     assert 6 in result["consensus"]
+    assert result["detector_types"]["trend_residual"] == "model_based"
 
 
 def test_document_intelligence_extracts_fields_chunks_and_cost_evidence(tmp_path) -> None:
@@ -456,6 +462,7 @@ def test_registered_advanced_tools_inherit_plan_and_approval_boundary(tmp_path) 
     names = {definition.name for definition in registry.definitions()}
     expected = {
         "mode_contract",
+        "model_route",
         "immutable_plan",
         "workspace_edit_plan",
         "workspace_edit_apply",
@@ -474,6 +481,9 @@ def test_registered_advanced_tools_inherit_plan_and_approval_boundary(tmp_path) 
         "forecast_series",
         "anomaly_compare",
         "document_extract",
+        "document_snowflake_extract_plan",
+        "document_snowflake_parse_plan",
+        "document_compare",
         "embedded_agent_sdk_contract",
         "account_admin_plan",
         "gpu_job_plan",
@@ -600,3 +610,66 @@ def test_web_workbench_exposes_same_governed_advanced_tools_as_registry(tmp_path
     )
     assert denied.status_code == 403
     assert not (tmp_path / "should-not-exist.txt").exists()
+
+
+
+def test_code_mode_routes_to_lowest_cost_capable_model_under_budget() -> None:
+    routed = route_model_for_mode(
+        "code",
+        [
+            {"name": "premium-code", "capabilities": ["code"], "estimated_cost_usd": 0.18, "quality_score": 0.99},
+            {"name": "economy-code", "capabilities": ["code"], "estimated_cost_usd": 0.03, "quality_score": 0.82},
+            {"name": "cheap-no-code", "capabilities": ["chat"], "estimated_cost_usd": 0.001, "quality_score": 0.9},
+        ],
+        budget_usd=0.10,
+    )
+    assert routed["status"] == "PASS"
+    assert routed["selected"]["name"] == "economy-code"
+    assert routed["policy"] == "lowest_cost_capable_model"
+    assert routed["routing_fingerprint"]
+
+
+def test_snowflake_document_plans_use_current_ai_surfaces_and_are_read_only() -> None:
+    extraction = snowflake_document_extract_plan(
+        "@DB.SCHEMA.DOCS",
+        "invoice.pdf",
+        {"invoice_id": "Invoice number", "total": "Total amount"},
+        scores=True,
+    )
+    assert extraction["status"] == "PASS"
+    assert extraction["read_only"] is True
+    assert "AI_EXTRACT(" in extraction["sql"]
+    assert "TO_FILE('@DB.SCHEMA.DOCS', 'invoice.pdf')" in extraction["sql"]
+    assert "scores => TRUE" in extraction["sql"]
+    assert extraction["live"] == "NOT_RUN_EXTERNAL"
+
+    parsed = snowflake_document_parse_plan(
+        "@DB.SCHEMA.DOCS",
+        "contract.docx",
+        mode="LAYOUT",
+        page_split=True,
+    )
+    assert parsed["status"] == "PASS"
+    assert "AI_PARSE_DOCUMENT(" in parsed["sql"]
+    assert "'page_split', TRUE" in parsed["sql"]
+    assert parsed["read_only"] is True
+
+
+def test_document_comparison_records_accuracy_agreement_and_cost() -> None:
+    result = compare_document_extractions(
+        {
+            "fields": {"invoice_id": "INV-42", "total": "123.45"},
+            "estimated_cost_usd": 0.0,
+        },
+        {
+            "response": {"invoice_id": "INV-42", "total": "123.45"},
+        },
+        expected_fields={"invoice_id": "INV-42", "total": "123.45"},
+        provider_cost_usd=0.004,
+    )
+    assert result["status"] == "PASS"
+    assert result["agreement_rate"] == 1.0
+    assert result["local_accuracy"] == 1.0
+    assert result["provider_accuracy"] == 1.0
+    assert result["cost"] == {"local_usd": 0.0, "provider_usd": 0.004}
+    assert result["evaluation_fingerprint"]
