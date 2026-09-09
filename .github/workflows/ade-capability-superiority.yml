@@ -19,6 +19,7 @@ on:
       - 'src/agentic_data_platform/ide/**'
       - 'scripts/run_hosted_runner.py'
       - 'scripts/live_advanced_capabilities.py'
+      - 'deploy/hosted-runner/**'
       - '.github/workflows/ade-advanced-live-certification.yml'
       - 'src/agentic_data_platform/runtime/agent.py'
       - 'src/agentic_data_platform/connectors/snowflake.py'
@@ -38,6 +39,7 @@ on:
       - 'tests/test_semantic_adapters.py'
       - 'tests/test_cortex_agents.py'
       - 'tests/test_hosted_runner.py'
+      - 'tests/test_hosted_runner_deployment.py'
       - 'tests/test_notebook_agent.py'
       - 'tests/test_agentic_browser.py'
       - 'tests/test_snowflake_app_builder.py'
@@ -133,6 +135,7 @@ jobs:
           tests/test_semantic_adapters.py
           tests/test_cortex_agents.py
           tests/test_hosted_runner.py
+          tests/test_hosted_runner_deployment.py
           tests/test_notebook_agent.py
           tests/test_agentic_browser.py
           tests/test_snowflake_app_builder.py
