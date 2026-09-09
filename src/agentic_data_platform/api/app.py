@@ -711,6 +711,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
         },
         "snowflake-testing": {
             "copy-analyze": "snowflake_copy_analyze",
+            "failure-lab": "snowflake_failure_lab",
             "stages": "snowflake_stage_inventory",
             "stage-files": "snowflake_stage_files",
             "file-format": "snowflake_file_format",
