@@ -124,6 +124,7 @@ from agentic_data_platform.ai import AIWorkflowCompiler, SnowflakeAIWorkflowRunn
 from agentic_data_platform.ide import IDEBridge
 from agentic_data_platform import advanced_capabilities as advanced_caps
 from agentic_data_platform import workspace_files as workspace_files
+from agentic_data_platform import coding_workspace as coding_workspace
 from agentic_data_platform.training import (
     TrainingStore,
     import_markdown as training_import_markdown,
@@ -2771,6 +2772,101 @@ def build_tool_registry() -> ToolRegistry:
         risk=Risk.MUTATING,
         requires_approval=True,
     )
+    add(
+        "code_index",
+        Capability.DISCOVER,
+        lambda a: coding_workspace.code_index(
+            a.get("workspace") or str(_target(a)),
+            patterns=list(a.get("patterns") or ["**/*"]),
+            max_file_bytes=int(a.get("max_file_bytes", 1_000_000)),
+            limit=int(a.get("limit", 5000)),
+        ),
+        "Build a fingerprinted code index with language-aware symbols.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "code_search",
+        Capability.DISCOVER,
+        lambda a: coding_workspace.code_search(
+            a.get("workspace") or str(_target(a)),
+            str(a["query"]),
+            mode=str(a.get("mode") or "semantic"),
+            patterns=list(a.get("patterns") or ["**/*"]),
+            limit=int(a.get("limit", 20)),
+        ),
+        "Search code deterministically or with explainable local structural-semantic ranking.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "semantic_code_search",
+        Capability.DISCOVER,
+        lambda a: coding_workspace.semantic_code_search(
+            a.get("workspace") or str(_target(a)),
+            str(a["query"]),
+            patterns=list(a.get("patterns") or ["**/*"]),
+            limit=int(a.get("limit", 20)),
+        ),
+        "Run explainable structural-semantic code search with symbol/path/doc scoring evidence.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "python_repl_plan",
+        Capability.PLAN,
+        lambda a: coding_workspace.python_repl_plan(
+            a.get("workspace") or str(_target(a)),
+            str(a["code"]),
+            session_id=str(a.get("session_id") or "default"),
+            backend=str(a.get("backend") or "container"),
+            image=str(a.get("image") or "python:3.12-slim"),
+            timeout_seconds=int(a.get("timeout_seconds", 60)),
+            memory_mb=int(a.get("memory_mb", 512)),
+            network_enabled=bool(a.get("network_enabled", False)),
+        ),
+        "Plan a stateful Python REPL cell with exact code hash and explicit execution class.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "python_repl_run",
+        Capability.EXECUTE,
+        lambda a: coding_workspace.python_repl_run(
+            a.get("workspace") or str(_target(a)),
+            str(a["code"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+            session_id=str(a.get("session_id") or "default"),
+            backend=str(a.get("backend") or "container"),
+            image=str(a.get("image") or "python:3.12-slim"),
+            timeout_seconds=int(a.get("timeout_seconds", 60)),
+            memory_mb=int(a.get("memory_mb", 512)),
+            network_enabled=bool(a.get("network_enabled", False)),
+        ),
+        "Execute an approved stateful Python REPL cell in a container sandbox or labeled constrained fallback.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "python_repl_state",
+        Capability.DISCOVER,
+        lambda a: coding_workspace.python_repl_state(
+            a.get("workspace") or str(_target(a)),
+            str(a.get("session_id") or "default"),
+        ),
+        "Inspect persisted JSON-safe Python REPL state and history fingerprints.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "python_repl_reset",
+        Capability.EXECUTE,
+        lambda a: coding_workspace.python_repl_reset(
+            a.get("workspace") or str(_target(a)),
+            str(a.get("session_id") or "default"),
+        ),
+        "Reset one persisted Python REPL namespace and history.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+
     add(
         "workspace_file_read",
         Capability.DISCOVER,
