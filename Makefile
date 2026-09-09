@@ -236,7 +236,9 @@ capability-superiority-p1-check:
 		tests/test_coding_workspace.py \
 		tests/test_session_checkpoints.py \
 		tests/test_context_controls.py \
-		tests/test_rules_instructions.py
+		tests/test_rules_instructions.py \
+		tests/test_agent_teams.py \
+		tests/test_hosted_workspace_isolation.py
 
 .PHONY: advanced-live-e2e
 advanced-live-e2e:
