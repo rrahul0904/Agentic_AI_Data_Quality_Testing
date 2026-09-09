@@ -1297,6 +1297,51 @@ def build_tool_registry() -> ToolRegistry:
         platforms=frozenset({Platform.LOCAL}),
     )
     add(
+        "notebook_create_plan",
+        Capability.PLAN,
+        lambda a: {
+            key: value for key, value in _notebook_agent(a).plan_create(
+                a["path"],
+                list(a.get("cells") or []),
+                kernel_name=str(a.get("kernel_name") or "python3"),
+                display_name=str(a.get("display_name") or "Python 3"),
+                language=str(a.get("language") or "python"),
+            ).items()
+            if key != "notebook"
+        },
+        "Plan a new Jupyter notebook with exact content and approval fingerprints.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "notebook_create_apply",
+        Capability.EXECUTE,
+        lambda a: _notebook_agent(a).apply_create(
+            a["path"],
+            list(a.get("cells") or []),
+            approval_fingerprint=str(a.get("approval_fingerprint") or ""),
+            overwrite=bool(a.get("overwrite", False)),
+            kernel_name=str(a.get("kernel_name") or "python3"),
+            display_name=str(a.get("display_name") or "Python 3"),
+            language=str(a.get("language") or "python"),
+        ),
+        "Create an approved notebook and verify the exact resulting file hash.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "notebook_local_run",
+        Capability.EXECUTE,
+        lambda a: NotebookAgent.run_local(
+            a["path"],
+            timeout_seconds=int(a.get("timeout_seconds", 900)),
+        ),
+        "Execute an approved local Jupyter notebook in place with bounded timeout and output fingerprint.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
         "notebook_patch_plan",
         Capability.PLAN,
         lambda a: {
