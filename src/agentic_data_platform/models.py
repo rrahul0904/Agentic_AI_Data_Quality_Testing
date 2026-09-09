@@ -50,6 +50,7 @@ class ActorMode(str, Enum):
     """Operator boundary used by every deterministic tool invocation."""
 
     ANALYST = "analyst"
+    ASK = "ask"
     PLAN = "plan"
     BUILDER = "builder"
     ADMIN = "admin"
