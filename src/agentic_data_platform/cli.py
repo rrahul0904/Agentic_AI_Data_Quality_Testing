@@ -63,6 +63,27 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
         "runners": "hosted_runner_runners", "heartbeat": "hosted_runner_heartbeat",
         "run-once": "hosted_runner_run_once",
     },
+    "notebook": {
+        "inspect": "notebook_inspect", "patch-plan": "notebook_patch_plan",
+        "patch-apply": "notebook_patch_apply", "snowflake-plan": "notebook_snowflake_plan",
+        "snowflake-run": "notebook_snowflake_run",
+    },
+    "browser": {
+        "plan": "browser_plan", "read": "browser_read", "act": "browser_act",
+    },
+    "app": {
+        "plan": "app_build_plan", "validate": "app_build_validate",
+        "apply": "app_build_apply", "deploy": "app_deploy",
+    },
+    "ml": {
+        "models": "snowpark_model_list", "versions": "snowpark_model_versions",
+        "log-plan": "snowpark_model_log_plan",
+        "lifecycle-plan": "snowpark_model_lifecycle_plan",
+        "lifecycle-execute": "snowpark_model_lifecycle_execute",
+    },
+    "ai-workflow": {
+        "plan": "ai_workflow_plan", "run": "ai_workflow_run",
+    },
     "warehouse": {
         "status": "warehouse_status", "add": "connection_add", "remove": "connection_remove",
         "list": "connection_list", "show": "connection_show", "test": "connection_test",
