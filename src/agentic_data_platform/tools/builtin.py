@@ -115,6 +115,7 @@ from agentic_data_platform.search import UnifiedSemanticIndex
 from agentic_data_platform.semantic import CortexAnalystAdapter, SemanticRegistry, SnowflakeSemanticAdapter, build_analyst_request, evaluate_batch, evaluate_candidate, ingest_dbt_semantic_project, ingest_lookml_project
 from agentic_data_platform.cortex import CortexAgentClient
 from agentic_data_platform.runners import HostedRunnerStore
+from agentic_data_platform.runners import sandbox as sandbox_runner
 from agentic_data_platform.notebooks import NotebookAgent
 from agentic_data_platform.browser import AgentBrowser, plan_browser_actions
 from agentic_data_platform.apps import SnowflakeAppBuilder
@@ -2846,6 +2847,87 @@ def build_tool_registry() -> ToolRegistry:
         risk=Risk.MUTATING,
         requires_approval=True,
     )
+    add(
+        "sandbox_shell_plan",
+        Capability.PLAN,
+        lambda a: sandbox_runner.sandbox_shell_plan(
+            a.get("workspace") or str(_target(a)),
+            a["command"],
+            cwd=str(a.get("cwd") or "."),
+            image=str(a.get("image") or "python:3.12-slim"),
+            network_enabled=bool(a.get("network_enabled", False)),
+            workspace_write=bool(a.get("workspace_write", True)),
+            timeout_seconds=int(a.get("timeout_seconds", 120)),
+            max_output_bytes=int(a.get("max_output_bytes", 131072)),
+            memory_mb=int(a.get("memory_mb", 512)),
+            cpus=float(a.get("cpus", 1.0)),
+            pids_limit=int(a.get("pids_limit", 256)),
+            background=bool(a.get("background", False)),
+            docker_executable=str(a.get("docker_executable") or "docker"),
+        ),
+        "Plan a strong Docker-backed shell sandbox with network/resource/workspace policy.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "sandbox_shell_run",
+        Capability.EXECUTE,
+        lambda a: sandbox_runner.sandbox_shell_run(
+            a.get("workspace") or str(_target(a)),
+            a["command"],
+            approval_fingerprint=str(a["approval_fingerprint"]),
+            cwd=str(a.get("cwd") or "."),
+            image=str(a.get("image") or "python:3.12-slim"),
+            network_enabled=bool(a.get("network_enabled", False)),
+            workspace_write=bool(a.get("workspace_write", True)),
+            timeout_seconds=int(a.get("timeout_seconds", 120)),
+            max_output_bytes=int(a.get("max_output_bytes", 131072)),
+            memory_mb=int(a.get("memory_mb", 512)),
+            cpus=float(a.get("cpus", 1.0)),
+            pids_limit=int(a.get("pids_limit", 256)),
+            background=bool(a.get("background", False)),
+            docker_executable=str(a.get("docker_executable") or "docker"),
+        ),
+        "Run an approved Docker-backed sandbox; fail closed rather than downgrade when Docker is unavailable.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "sandbox_shell_status",
+        Capability.DISCOVER,
+        lambda a: sandbox_runner.sandbox_shell_status(
+            a.get("workspace") or str(_target(a)),
+            str(a["job_id"]),
+            docker_executable=a.get("docker_executable"),
+        ),
+        "Inspect a background container sandbox job.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "sandbox_shell_logs",
+        Capability.DISCOVER,
+        lambda a: sandbox_runner.sandbox_shell_logs(
+            a.get("workspace") or str(_target(a)),
+            str(a["job_id"]),
+            docker_executable=a.get("docker_executable"),
+        ),
+        "Read bounded logs for a background container sandbox job.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "sandbox_shell_kill",
+        Capability.EXECUTE,
+        lambda a: sandbox_runner.sandbox_shell_kill(
+            a.get("workspace") or str(_target(a)),
+            str(a["job_id"]),
+            docker_executable=a.get("docker_executable"),
+        ),
+        "Terminate and remove an approved background container sandbox job.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+
     add(
         "context_select",
         Capability.DISCOVER,
