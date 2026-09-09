@@ -3066,6 +3066,56 @@ def build_tool_registry() -> ToolRegistry:
         requires_approval=True,
     )
 
+    add(
+        "model_route",
+        Capability.PLAN,
+        lambda a: advanced_caps.route_model_for_mode(
+            str(a["mode"]),
+            list(a.get("candidates") or []),
+            required_capabilities=list(a.get("required_capabilities") or []),
+            budget_usd=float(a["budget_usd"]) if a.get("budget_usd") is not None else None,
+        ),
+        "Choose the lowest-cost capable model for code mode, or highest-quality eligible model for other modes, under an optional budget.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "document_snowflake_extract_plan",
+        Capability.PLAN,
+        lambda a: advanced_caps.snowflake_document_extract_plan(
+            str(a["stage"]),
+            str(a["document_path"]),
+            a.get("response_format") or {},
+            scores=bool(a.get("scores", True)),
+        ),
+        "Plan current Snowflake AI_EXTRACT document extraction with scores using a stage FILE object; execution stays read-only and externally certifiable.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "document_snowflake_parse_plan",
+        Capability.PLAN,
+        lambda a: advanced_caps.snowflake_document_parse_plan(
+            str(a["stage"]),
+            str(a["document_path"]),
+            mode=str(a.get("mode") or "LAYOUT"),
+            page_split=bool(a.get("page_split", True)),
+            extract_images=bool(a.get("extract_images", False)),
+        ),
+        "Plan current Snowflake AI_PARSE_DOCUMENT OCR/layout extraction with explicit error details.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "document_compare",
+        Capability.VERIFY,
+        lambda a: advanced_caps.compare_document_extractions(
+            dict(a["local_result"]),
+            dict(a["provider_result"]),
+            expected_fields=dict(a["expected_fields"]) if a.get("expected_fields") is not None else None,
+            provider_cost_usd=float(a["provider_cost_usd"]) if a.get("provider_cost_usd") is not None else None,
+        ),
+        "Compare local and provider document extraction field agreement, ground-truth accuracy and cost evidence.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+
     # Local-first semantic search spans code, dbt, Airflow, docs and warehouse metadata.
     add(
         "semantic_index_project",
