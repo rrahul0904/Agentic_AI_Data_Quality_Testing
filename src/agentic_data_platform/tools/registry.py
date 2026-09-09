@@ -99,6 +99,7 @@ class ToolRegistry:
                 "sandbox_shell_",
                 "git_",
                 "job_",
+                "python_repl_",
                 "session_todo_",
             )
             return name.startswith(coding_mutation_prefixes)
