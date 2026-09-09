@@ -181,10 +181,49 @@ parity-v2: conformance
 	PYTHONPATH=src $(PYTHON) scripts/generate_parity_ledger_v2.py
 
 
-.PHONY: snowflake-pipeline-test hospitality-generate hospitality-validate-files hospitality-bootstrap-snowflake hospitality-stage-internal hospitality-copy-load hospitality-upload-s3 hospitality-snowpipe-monitor hospitality-stream-check hospitality-dbt hospitality-reconcile hospitality-dq hospitality-certify hospitality-failure-fixtures hospitality-failure-certify hospitality-e2e-local hospitality-e2e-live hospitality-reset hospitality-teardown hospitality-test
+.PHONY: snowflake-pipeline-test
 snowflake-pipeline-test:
 	PYTHONPATH=src $(PYTHON) -m pytest -q tests/test_snowflake_pipeline_testing.py tests/test_snowflake_pipeline_surface.py tests/test_snowflake_failure_lab.py
 
+
+.PHONY: capability-superiority-check snowflake-governed-mutation-test
+capability-superiority-check:
+	PYTHONPATH=src $(PYTHON) scripts/check_capability_superiority.py --json
+	PYTHONPATH=src $(PYTHON) -m pytest -q tests/test_capability_superiority_ledger.py
+
+snowflake-governed-mutation-test:
+	PYTHONPATH=src $(PYTHON) -m pytest -q tests/test_snowflake_governed_mutation.py
+
+
+.PHONY: capability-superiority-p1-check
+capability-superiority-p1-check:
+	PYTHONPATH=src $(PYTHON) -m pytest -q \
+		tests/test_unified_semantic_search.py \
+		tests/test_parallel_subagents.py \
+		tests/test_enforceable_plugin_hooks.py \
+		tests/test_automation_scheduler.py \
+		tests/test_plugin_bundles.py \
+		tests/test_snowflake_managed_dbt.py \
+		tests/test_semantic_layer.py \
+		tests/test_semantic_adapters.py \
+		tests/test_cortex_agents.py \
+		tests/test_hosted_runner.py \
+		tests/test_hosted_runner_deployment.py \
+		tests/test_notebook_agent.py \
+		tests/test_agentic_browser.py \
+		tests/test_snowflake_app_builder.py \
+		tests/test_snowpark_model_registry.py \
+		tests/test_snowpark_ml_workflow.py \
+		tests/test_ai_workflows.py \
+		tests/test_ide_bridge.py \
+		tests/test_advanced_live_capabilities.py \
+		tests/test_advanced_capability_extensions.py
+
+.PHONY: advanced-live-e2e
+advanced-live-e2e:
+	PYTHONPATH=src $(PYTHON) scripts/live_advanced_capabilities.py
+
+.PHONY: hospitality-generate hospitality-validate-files hospitality-bootstrap-snowflake hospitality-stage-internal hospitality-copy-load hospitality-upload-s3 hospitality-snowpipe-monitor hospitality-stream-check hospitality-dbt hospitality-reconcile hospitality-dq hospitality-certify hospitality-failure-fixtures hospitality-failure-certify hospitality-e2e-local hospitality-e2e-live hospitality-reset hospitality-teardown hospitality-test
 hospitality-generate:
 	$(PYTHON) scripts/hospitality_testbed/generate_data.py --preset $${ADE_TESTBED_SCALE:-tiny} --seed $${ADE_TESTBED_SEED:-42}
 
