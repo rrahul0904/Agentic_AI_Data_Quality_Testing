@@ -929,6 +929,10 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             "termination": "session_termination", "retry-plan": "session_retry_plan",
             "tool-result-cap": "session_tool_result_cap", "overflow": "session_overflow",
         },
+        "rules": {
+            "list": "rule_list", "resolve": "rule_resolve", "show": "rule_show",
+            "save": "rule_save", "enable": "rule_enable", "remove": "rule_remove",
+        },
         "memory": {
             "save": "memory_save", "list": "memory_list", "search": "memory_search",
             "settings": "memory_settings", "personalization": "memory_personalization",
