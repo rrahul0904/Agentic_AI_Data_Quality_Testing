@@ -247,6 +247,43 @@ class HostedRunnerStore:
         params.append(max(1, min(int(limit), 1000)))
         return [self._job(row) for row in self.connection.execute(sql, tuple(params)).fetchall()]
 
+    def workspace_readiness(
+        self,
+        job_id: str,
+        *,
+        runner_id: str | None = None,
+    ) -> dict[str, Any]:
+        job = self.job(job_id)
+        policy = job["workspace_policy"]
+        candidates = (
+            [self.runner(runner_id)]
+            if runner_id is not None
+            else self.runners()
+        )
+        compatible = [
+            runner["runner_id"]
+            for runner in candidates
+            if ("*" in set(runner["capabilities"]) or job["tool_name"] in set(runner["capabilities"]))
+            and runner_satisfies_workspace_policy(runner, policy)
+        ]
+        if compatible:
+            status = "PASS"
+            reason = "at least one runner satisfies capability and workspace isolation policy"
+        elif policy.get("sandbox_required"):
+            status = "BLOCKED_ISOLATION"
+            reason = "no runner satisfies the required hosted workspace isolation contract"
+        else:
+            status = "NO_COMPATIBLE_RUNNER"
+            reason = "no runner advertises the required tool capability"
+        return {
+            "status": status,
+            "job_id": job_id,
+            "workspace_policy": policy,
+            "compatible_runner_ids": compatible,
+            "runner_count_checked": len(candidates),
+            "reason": reason,
+        }
+
     def cancel(self, job_id: str) -> dict[str, Any]:
         row = self.connection.execute("SELECT status FROM hosted_jobs WHERE job_id=?", (job_id,)).fetchone()
         if row is None:
@@ -329,7 +366,13 @@ class HostedRunnerStore:
         if job["status"] != "RUNNING" or job["lease_owner"] != runner_id:
             raise PermissionError("runner does not own active job lease")
         final = str(status).upper()
-        if final not in {"SUCCESS", "FAIL", "BLOCKED_APPROVAL"}:
+        if final not in {
+            "SUCCESS",
+            "FAIL",
+            "BLOCKED_APPROVAL",
+            "BLOCKED_POLICY",
+            "BLOCKED_ISOLATION",
+        }:
             raise ValueError("invalid hosted runner terminal status")
         if final == "FAIL" and job["attempts"] < job["max_attempts"]:
             final = "QUEUED"
@@ -358,6 +401,29 @@ class HostedRunnerStore:
         self.heartbeat(runner_id)
         job = self.lease(runner_id, lease_seconds=lease_seconds)
         if job is None:
+            runner = self.runner(runner_id)
+            capabilities = set(runner["capabilities"])
+            queued = self.connection.execute(
+                """
+                SELECT job_id FROM hosted_jobs
+                WHERE status='QUEUED' AND available_at <= ?
+                ORDER BY created_at
+                """,
+                (_iso(),),
+            ).fetchall()
+            for row in queued:
+                candidate = self.job(str(row["job_id"]))
+                if "*" not in capabilities and candidate["tool_name"] not in capabilities:
+                    continue
+                readiness = self.workspace_readiness(
+                    candidate["job_id"],
+                    runner_id=runner_id,
+                )
+                if readiness["status"] == "BLOCKED_ISOLATION":
+                    return {
+                        **readiness,
+                        "runner_id": runner_id,
+                    }
             return {"status": "IDLE", "runner_id": runner_id}
         try:
             definition = registry.describe(job["tool_name"])
@@ -380,13 +446,19 @@ class HostedRunnerStore:
             status = "SUCCESS" if str(result.get("status") or "PASS") not in {"FAIL", "ERROR"} else "FAIL"
             return self.complete(job["job_id"], runner_id, status=status, result=result)
         except PermissionError as exc:
-            result = {"status": "BLOCKED_APPROVAL", "error": str(exc)}
+            message = str(exc)
+            blocked_status = (
+                "BLOCKED_APPROVAL"
+                if "approval" in message.casefold()
+                else "BLOCKED_POLICY"
+            )
+            result = {"status": blocked_status, "error": message}
             return self.complete(
                 job["job_id"],
                 runner_id,
-                status="BLOCKED_APPROVAL",
+                status=blocked_status,
                 result=result,
-                error=str(exc),
+                error=message,
             )
         except Exception as exc:
             result = {"status": "FAIL", "error": f"{type(exc).__name__}: {exc}"}
