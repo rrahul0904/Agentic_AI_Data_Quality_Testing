@@ -66,6 +66,146 @@ class NotebookAgent:
             "cells": cells,
         }
 
+    def plan_create(
+        self,
+        path: str | Path,
+        cells: list[dict[str, Any]],
+        *,
+        kernel_name: str = "python3",
+        display_name: str = "Python 3",
+        language: str = "python",
+    ) -> dict[str, Any]:
+        target = Path(path).expanduser().resolve()
+        if target.suffix.casefold() != ".ipynb":
+            raise ValueError("notebook path must end in .ipynb")
+        rendered_cells: list[dict[str, Any]] = []
+        for index, item in enumerate(cells):
+            if not isinstance(item, dict):
+                raise ValueError(f"notebook cell {index} must be an object")
+            cell_type = str(item.get("cell_type") or "code").casefold()
+            if cell_type not in {"code", "markdown", "raw"}:
+                raise ValueError("cell_type must be code, markdown, or raw")
+            cell: dict[str, Any] = {
+                "cell_type": cell_type,
+                "metadata": dict(item.get("metadata") or {}),
+                "source": _source_lines(str(item.get("source") or "")),
+            }
+            if cell_type == "code":
+                cell["metadata"].setdefault("vscode", {"languageId": language})
+                cell.update({"execution_count": None, "outputs": []})
+            rendered_cells.append(cell)
+        notebook = {
+            "cells": rendered_cells,
+            "metadata": {
+                "kernelspec": {
+                    "display_name": str(display_name),
+                    "language": str(language),
+                    "name": str(kernel_name),
+                },
+                "language_info": {"name": str(language)},
+            },
+            "nbformat": 4,
+            "nbformat_minor": 5,
+        }
+        rendered = json.dumps(notebook, indent=1, ensure_ascii=False).encode("utf-8") + b"\n"
+        result_fingerprint = _hash_bytes(rendered)
+        approval_fingerprint = sha256(
+            (str(target) + "|" + result_fingerprint).encode("utf-8")
+        ).hexdigest()
+        return {
+            "status": "PASS",
+            "path": str(target),
+            "approval_fingerprint": approval_fingerprint,
+            "result_fingerprint": result_fingerprint,
+            "cell_count": len(rendered_cells),
+            "kernel": notebook["metadata"]["kernelspec"],
+            "notebook": notebook,
+        }
+
+    def apply_create(
+        self,
+        path: str | Path,
+        cells: list[dict[str, Any]],
+        *,
+        approval_fingerprint: str,
+        overwrite: bool = False,
+        kernel_name: str = "python3",
+        display_name: str = "Python 3",
+        language: str = "python",
+    ) -> dict[str, Any]:
+        plan = self.plan_create(
+            path,
+            cells,
+            kernel_name=kernel_name,
+            display_name=display_name,
+            language=language,
+        )
+        if approval_fingerprint != plan["approval_fingerprint"]:
+            return {
+                **{k: v for k, v in plan.items() if k != "notebook"},
+                "status": "BLOCKED_APPROVAL",
+                "reason": "notebook creation does not match approved fingerprint",
+            }
+        target = Path(plan["path"])
+        if target.exists() and not overwrite:
+            raise FileExistsError(f"notebook already exists: {target}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(plan["notebook"], indent=1, ensure_ascii=False) + "\n")
+        verified = _hash_bytes(target.read_bytes()) == plan["result_fingerprint"]
+        return {
+            **{k: v for k, v in plan.items() if k != "notebook"},
+            "status": "PASS" if verified else "FAIL",
+            "verified": verified,
+        }
+
+    @staticmethod
+    def run_local(
+        path: str | Path,
+        *,
+        timeout_seconds: int = 900,
+    ) -> dict[str, Any]:
+        target = Path(path).expanduser().resolve()
+        if target.suffix.casefold() != ".ipynb":
+            raise ValueError("notebook path must end in .ipynb")
+        if not target.is_file():
+            raise FileNotFoundError(target)
+        command = [
+            "jupyter",
+            "nbconvert",
+            "--to",
+            "notebook",
+            "--execute",
+            "--inplace",
+            str(target),
+            f"--ExecutePreprocessor.timeout={max(1, int(timeout_seconds))}",
+        ]
+        if shutil.which("jupyter") is None:
+            return {
+                "status": "SKIP_EXTERNAL",
+                "reason": "Jupyter executable is not installed",
+                "command": command,
+            }
+        before = _hash_bytes(target.read_bytes())
+        process = subprocess.run(
+            command,
+            cwd=target.parent,
+            text=True,
+            capture_output=True,
+            timeout=max(1, int(timeout_seconds)) + 30,
+            check=False,
+        )
+        after = _hash_bytes(target.read_bytes()) if target.is_file() else None
+        return {
+            "status": "PASS" if process.returncode == 0 else "FAIL",
+            "returncode": process.returncode,
+            "stdout": process.stdout[-8000:],
+            "stderr": process.stderr[-8000:],
+            "command": command,
+            "source_fingerprint": before,
+            "result_fingerprint": after,
+            "executed": process.returncode == 0,
+        }
+
     def plan_patch(
         self,
         path: str | Path,
