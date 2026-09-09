@@ -1,0 +1,96 @@
+name: ade-advanced-live-certification
+
+on:
+  workflow_dispatch:
+    inputs:
+      components:
+        description: "Comma-separated: semantic,analyst,cortex-agent,cortex-agent-run,model-registry,ai-workflow,notebook,streamlit,app-runtime"
+        required: true
+        default: "semantic,model-registry,ai-workflow"
+        type: string
+      allow_mutations:
+        description: "Explicitly permit selected Cortex-agent run / notebook / app deployment probes"
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: ade-advanced-live-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    environment: ade-advanced-live
+    env:
+      ADE_ADVANCED_LIVE_COMPONENTS: ${{ inputs.components }}
+      ADE_ADVANCED_LIVE_MUTATION_APPROVED: ${{ inputs.allow_mutations }}
+      ADE_ADVANCED_LIVE_OUTPUT: artifacts/advanced-live-certification.json
+
+      ADE_SNOWFLAKE_ACCOUNT: ${{ secrets.ADE_SNOWFLAKE_ACCOUNT }}
+      ADE_SNOWFLAKE_USER: ${{ secrets.ADE_SNOWFLAKE_USER }}
+      ADE_SNOWFLAKE_PASSWORD: ${{ secrets.ADE_SNOWFLAKE_PASSWORD }}
+      ADE_SNOWFLAKE_DATABASE: ${{ vars.ADE_SNOWFLAKE_DATABASE }}
+      ADE_SNOWFLAKE_SCHEMA: ${{ vars.ADE_SNOWFLAKE_SCHEMA }}
+      ADE_SNOWFLAKE_WAREHOUSE: ${{ vars.ADE_SNOWFLAKE_WAREHOUSE }}
+      ADE_SNOWFLAKE_ROLE: ${{ vars.ADE_SNOWFLAKE_ROLE }}
+
+      SNOWFLAKE_ACCOUNT: ${{ secrets.ADE_SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.ADE_SNOWFLAKE_USER }}
+      SNOWFLAKE_PASSWORD: ${{ secrets.ADE_SNOWFLAKE_PASSWORD }}
+      SNOWFLAKE_DATABASE: ${{ vars.ADE_SNOWFLAKE_DATABASE }}
+      SNOWFLAKE_SCHEMA: ${{ vars.ADE_SNOWFLAKE_SCHEMA }}
+      SNOWFLAKE_WAREHOUSE: ${{ vars.ADE_SNOWFLAKE_WAREHOUSE }}
+      SNOWFLAKE_ROLE: ${{ vars.ADE_SNOWFLAKE_ROLE }}
+
+      ADE_SNOWFLAKE_ACCOUNT_URL: ${{ secrets.ADE_SNOWFLAKE_ACCOUNT_URL }}
+      ADE_SNOWFLAKE_TOKEN: ${{ secrets.ADE_SNOWFLAKE_TOKEN }}
+
+      ADE_LIVE_SEMANTIC_VIEW: ${{ vars.ADE_LIVE_SEMANTIC_VIEW }}
+      ADE_LIVE_SEMANTIC_VIEWS: ${{ vars.ADE_LIVE_SEMANTIC_VIEWS }}
+      ADE_LIVE_ANALYST_QUESTION: ${{ vars.ADE_LIVE_ANALYST_QUESTION }}
+
+      ADE_LIVE_CORTEX_AGENT_DATABASE: ${{ vars.ADE_LIVE_CORTEX_AGENT_DATABASE }}
+      ADE_LIVE_CORTEX_AGENT_SCHEMA: ${{ vars.ADE_LIVE_CORTEX_AGENT_SCHEMA }}
+      ADE_LIVE_CORTEX_AGENT_NAME: ${{ vars.ADE_LIVE_CORTEX_AGENT_NAME }}
+      ADE_LIVE_CORTEX_AGENT_QUESTION: ${{ vars.ADE_LIVE_CORTEX_AGENT_QUESTION }}
+      ADE_LIVE_CORTEX_THREAD_ID: ${{ vars.ADE_LIVE_CORTEX_THREAD_ID }}
+      ADE_LIVE_CORTEX_BACKGROUND: ${{ vars.ADE_LIVE_CORTEX_BACKGROUND }}
+
+      ADE_LIVE_MODEL_DATABASE: ${{ vars.ADE_LIVE_MODEL_DATABASE }}
+      ADE_LIVE_MODEL_SCHEMA: ${{ vars.ADE_LIVE_MODEL_SCHEMA }}
+      ADE_LIVE_MODEL_NAME: ${{ vars.ADE_LIVE_MODEL_NAME }}
+
+      ADE_LIVE_NOTEBOOK_IDENTIFIER: ${{ vars.ADE_LIVE_NOTEBOOK_IDENTIFIER }}
+      ADE_LIVE_NOTEBOOK_PROJECT: ${{ vars.ADE_LIVE_NOTEBOOK_PROJECT }}
+      ADE_LIVE_NOTEBOOK_CWD: ${{ vars.ADE_LIVE_NOTEBOOK_CWD }}
+      ADE_LIVE_NOTEBOOK_TIMEOUT_SECONDS: ${{ vars.ADE_LIVE_NOTEBOOK_TIMEOUT_SECONDS }}
+      ADE_LIVE_SNOWFLAKE_CLI_CONNECTION: ${{ vars.ADE_LIVE_SNOWFLAKE_CLI_CONNECTION }}
+
+      ADE_LIVE_STREAMLIT_NAME: ${{ vars.ADE_LIVE_STREAMLIT_NAME }}
+      ADE_LIVE_STREAMLIT_RUNTIME: ${{ vars.ADE_LIVE_STREAMLIT_RUNTIME }}
+      ADE_LIVE_STREAMLIT_COMPUTE_POOL: ${{ vars.ADE_LIVE_STREAMLIT_COMPUTE_POOL }}
+      ADE_LIVE_APP_RUNTIME_NAME: ${{ vars.ADE_LIVE_APP_RUNTIME_NAME }}
+      ADE_LIVE_APP_RUNTIME_TARGET: ${{ vars.ADE_LIVE_APP_RUNTIME_TARGET }}
+      ADE_LIVE_APP_RUNTIME_URL: ${{ vars.ADE_LIVE_APP_RUNTIME_URL }}
+      ADE_LIVE_APP_TIMEOUT_SECONDS: ${{ vars.ADE_LIVE_APP_TIMEOUT_SECONDS }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install ADE and Snowflake live clients
+        run: |
+          python -m pip install -e ".[dev,warehouses]"
+          python -m pip install snowflake-cli
+      - name: Run advanced live certification
+        run: PYTHONPATH=src python scripts/live_advanced_capabilities.py --components "${{ inputs.components }}"
+      - name: Upload advanced live evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ade-advanced-live-certification
+          path: artifacts/advanced-live-certification.json
+          if-no-files-found: warn
