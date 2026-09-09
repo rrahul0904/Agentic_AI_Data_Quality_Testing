@@ -131,7 +131,7 @@ def test_drop_model_version_executes_only_with_destructive_confirmation_and_veri
 
 def test_ml_surfaces_exposed():
     assert set(DOMAIN_CLI_TOOLS["ml"]) == {
-        "models", "versions", "log-plan", "lifecycle-plan", "lifecycle-execute"
+        "models", "versions", "log-plan", "workflow-plan", "lifecycle-plan", "lifecycle-execute"
     }
     client = TestClient(create_app())
     assert set(client.get("/api/v1/domains").json()["ml"]) == set(DOMAIN_CLI_TOOLS["ml"])
