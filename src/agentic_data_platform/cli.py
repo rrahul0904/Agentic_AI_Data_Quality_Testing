@@ -35,6 +35,11 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
         "inspect": "schema_inspect", "tags": "schema_tags", "status": "metadata_status",
         "autocomplete": "autocomplete",
     },
+    "search": {
+        "index-project": "semantic_index_project",
+        "index-metadata": "semantic_index_metadata",
+        "query": "semantic_search",
+    },
     "warehouse": {
         "status": "warehouse_status", "add": "connection_add", "remove": "connection_remove",
         "list": "connection_list", "show": "connection_show", "test": "connection_test",
