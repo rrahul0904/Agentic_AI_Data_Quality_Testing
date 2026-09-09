@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from pathlib import Path
@@ -62,8 +63,18 @@ class SessionStore:
               state_json TEXT NOT NULL,
               updated_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS session_checkpoints (
+              checkpoint_id TEXT PRIMARY KEY,
+              session_id TEXT NOT NULL,
+              label TEXT,
+              snapshot_json TEXT NOT NULL,
+              snapshot_fingerprint TEXT NOT NULL,
+              metadata_json TEXT NOT NULL,
+              created_at TEXT NOT NULL
+            );
             CREATE INDEX IF NOT EXISTS idx_messages_session ON session_messages(session_id, sequence);
             CREATE INDEX IF NOT EXISTS idx_todos_session ON session_todos(session_id, status);
+            CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON session_checkpoints(session_id, created_at);
             """
         )
         todo_columns = {
@@ -521,3 +532,258 @@ class SessionStore:
         )
         self.connection.commit()
         return state
+
+    @staticmethod
+    def _snapshot_fingerprint(snapshot: Mapping[str, Any]) -> str:
+        canonical = json.dumps(snapshot, sort_keys=True, separators=(",", ":"), default=str)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    def history(
+        self,
+        session_id: str,
+        *,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        session = self.get(session_id)
+        messages = self.messages(session_id)
+        if limit is not None:
+            messages = messages[-max(1, int(limit)) :]
+        entries = [
+            {
+                "message_id": item["message_id"],
+                "sequence": item["sequence"],
+                "role": item["role"],
+                "content": item["content"],
+                "error": item["error"],
+                "metadata": item["metadata"],
+                "created_at": item["created_at"],
+            }
+            for item in messages
+        ]
+        return {
+            "status": "PASS",
+            "session": session,
+            "messages": entries,
+            "message_count": len(entries),
+            "history_fingerprint": self._snapshot_fingerprint(
+                {
+                    "session_id": session_id,
+                    "messages": entries,
+                    "status": session["status"],
+                }
+            ),
+        }
+
+    def create_checkpoint(
+        self,
+        session_id: str,
+        *,
+        label: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self.get(session_id)
+        snapshot = {
+            "session": self.get(session_id),
+            "messages": self.messages(session_id),
+            "todos": self.todos(session_id),
+            "reminders": self.reminders(session_id),
+            "state": self.state(session_id),
+        }
+        fingerprint = self._snapshot_fingerprint(snapshot)
+        checkpoint_id = new_id("checkpoint")
+        created_at = utc_now()
+        self.connection.execute(
+            """
+            INSERT INTO session_checkpoints(
+              checkpoint_id, session_id, label, snapshot_json,
+              snapshot_fingerprint, metadata_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                checkpoint_id,
+                session_id,
+                label,
+                json.dumps(snapshot, sort_keys=True, default=str),
+                fingerprint,
+                json.dumps(dict(metadata or {}), sort_keys=True, default=str),
+                created_at,
+            ),
+        )
+        self.connection.commit()
+        return self.checkpoint(checkpoint_id)
+
+    def checkpoint(self, checkpoint_id: str) -> dict[str, Any]:
+        row = self.connection.execute(
+            "SELECT * FROM session_checkpoints WHERE checkpoint_id=?",
+            (checkpoint_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"checkpoint not found: {checkpoint_id}")
+        value = dict(row)
+        value["snapshot"] = json.loads(value.pop("snapshot_json") or "{}")
+        value["metadata"] = json.loads(value.pop("metadata_json") or "{}")
+        return value
+
+    def checkpoints(
+        self,
+        session_id: str,
+        *,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        self.get(session_id)
+        rows = self.connection.execute(
+            """
+            SELECT checkpoint_id FROM session_checkpoints
+            WHERE session_id=?
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (session_id, max(1, min(int(limit), 1000))),
+        ).fetchall()
+        return [self.checkpoint(str(row["checkpoint_id"])) for row in rows]
+
+    def checkpoint_diff(
+        self,
+        from_checkpoint_id: str,
+        to_checkpoint_id: str,
+    ) -> dict[str, Any]:
+        before = self.checkpoint(from_checkpoint_id)
+        after = self.checkpoint(to_checkpoint_id)
+        if before["session_id"] != after["session_id"]:
+            raise ValueError("checkpoints must belong to the same session")
+
+        before_snapshot = before["snapshot"]
+        after_snapshot = after["snapshot"]
+        before_messages = {
+            item["message_id"]: item
+            for item in before_snapshot.get("messages", [])
+        }
+        after_messages = {
+            item["message_id"]: item
+            for item in after_snapshot.get("messages", [])
+        }
+        before_todos = {
+            item["todo_id"]: item
+            for item in before_snapshot.get("todos", [])
+        }
+        after_todos = {
+            item["todo_id"]: item
+            for item in after_snapshot.get("todos", [])
+        }
+
+        added_messages = [
+            after_messages[key]
+            for key in after_messages.keys() - before_messages.keys()
+        ]
+        removed_messages = [
+            before_messages[key]
+            for key in before_messages.keys() - after_messages.keys()
+        ]
+        changed_messages = [
+            {
+                "message_id": key,
+                "before": before_messages[key],
+                "after": after_messages[key],
+            }
+            for key in before_messages.keys() & after_messages.keys()
+            if before_messages[key] != after_messages[key]
+        ]
+
+        added_todos = [
+            after_todos[key]
+            for key in after_todos.keys() - before_todos.keys()
+        ]
+        removed_todos = [
+            before_todos[key]
+            for key in before_todos.keys() - after_todos.keys()
+        ]
+        changed_todos = [
+            {
+                "todo_id": key,
+                "before": before_todos[key],
+                "after": after_todos[key],
+            }
+            for key in before_todos.keys() & after_todos.keys()
+            if before_todos[key] != after_todos[key]
+        ]
+
+        before_state = dict(before_snapshot.get("state") or {})
+        after_state = dict(after_snapshot.get("state") or {})
+        state_keys = sorted(set(before_state) | set(after_state))
+        state_changes = [
+            {
+                "key": key,
+                "before": before_state.get(key),
+                "after": after_state.get(key),
+            }
+            for key in state_keys
+            if before_state.get(key) != after_state.get(key)
+        ]
+
+        diff = {
+            "session_id": before["session_id"],
+            "from_checkpoint_id": from_checkpoint_id,
+            "to_checkpoint_id": to_checkpoint_id,
+            "messages": {
+                "added": sorted(added_messages, key=lambda item: item["sequence"]),
+                "removed": sorted(removed_messages, key=lambda item: item["sequence"]),
+                "changed": changed_messages,
+            },
+            "todos": {
+                "added": added_todos,
+                "removed": removed_todos,
+                "changed": changed_todos,
+            },
+            "state_changes": state_changes,
+            "session_status": {
+                "before": before_snapshot.get("session", {}).get("status"),
+                "after": after_snapshot.get("session", {}).get("status"),
+            },
+        }
+        return {
+            "status": "PASS",
+            **diff,
+            "diff_fingerprint": self._snapshot_fingerprint(diff),
+        }
+
+    def checkpoint_review(
+        self,
+        session_id: str,
+    ) -> dict[str, Any]:
+        checkpoints = self.checkpoints(session_id, limit=2)
+        history = self.history(session_id)
+        latest = checkpoints[0] if checkpoints else None
+        previous = checkpoints[1] if len(checkpoints) > 1 else None
+        diff = (
+            self.checkpoint_diff(previous["checkpoint_id"], latest["checkpoint_id"])
+            if previous is not None and latest is not None
+            else None
+        )
+        review = {
+            "session_id": session_id,
+            "history_fingerprint": history["history_fingerprint"],
+            "latest_checkpoint": latest,
+            "previous_checkpoint": previous,
+            "diff": diff,
+            "open_todos": self.get(session_id)["open_todos"],
+        }
+        return {
+            "status": "PASS",
+            **review,
+            "review_fingerprint": self._snapshot_fingerprint(review),
+        }
+
+    def delete_checkpoint(self, checkpoint_id: str) -> dict[str, Any]:
+        current = self.checkpoint(checkpoint_id)
+        cursor = self.connection.execute(
+            "DELETE FROM session_checkpoints WHERE checkpoint_id=?",
+            (checkpoint_id,),
+        )
+        self.connection.commit()
+        return {
+            "status": "PASS",
+            "checkpoint_id": checkpoint_id,
+            "session_id": current["session_id"],
+            "removed": cursor.rowcount == 1,
+        }
+
