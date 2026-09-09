@@ -102,6 +102,13 @@ def plan_snowpark_ml_workflow(
         "approval_fingerprint": approval,
         "parameters": payload,
         "metric_name": metric_name,
+        "lineage": {
+            "source": payload["training_table"],
+            "target": f"{payload['registry_database']}.{payload['registry_schema']}.{payload['model_name']}:{payload['version_name']}",
+            "features": payload["input_cols"],
+            "label": payload["label_col"],
+            "prediction": payload["output_col"],
+        },
         "python": code,
     }
 
@@ -167,4 +174,5 @@ class EmbeddedSnowparkMLWorkflowRuntime:
             "model_name": params["model_name"],
             "version_name": params["version_name"],
             "model_version": str(model_version),
+            "lineage": dict(plan["lineage"]),
         }
