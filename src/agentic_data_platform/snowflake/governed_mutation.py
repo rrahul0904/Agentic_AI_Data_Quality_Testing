@@ -58,7 +58,118 @@ class MutationDescriptor:
 
 
 def _normalize(sql: str) -> str:
-    return _SPACE.sub(" ", _COMMENT.sub(" ", str(sql or ""))).strip().rstrip(";")
+    """Canonicalize SQL without changing quoted literal/identifier content.
+
+    Approval fingerprints must distinguish statements whose string literals differ.
+    SQL comments and insignificant whitespace are normalized only outside quoted
+    regions. This prevents values such as dbt ARGS='build --select model_a' from
+    being mistaken for a line comment.
+    """
+    text = str(sql or "")
+    output: list[str] = []
+    index = 0
+    pending_space = False
+    state = "normal"
+    dollar_tag: str | None = None
+
+    def flush_space() -> None:
+        nonlocal pending_space
+        if pending_space and output and output[-1] != " ":
+            output.append(" ")
+        pending_space = False
+
+    while index < len(text):
+        char = text[index]
+
+        if state == "single":
+            output.append(char)
+            if char == "'":
+                if index + 1 < len(text) and text[index + 1] == "'":
+                    output.append(text[index + 1])
+                    index += 2
+                    continue
+                state = "normal"
+            index += 1
+            continue
+
+        if state == "double":
+            output.append(char)
+            if char == '"':
+                if index + 1 < len(text) and text[index + 1] == '"':
+                    output.append(text[index + 1])
+                    index += 2
+                    continue
+                state = "normal"
+            index += 1
+            continue
+
+        if state == "dollar":
+            assert dollar_tag is not None
+            if text.startswith(dollar_tag, index):
+                output.append(dollar_tag)
+                index += len(dollar_tag)
+                state = "normal"
+                dollar_tag = None
+                continue
+            output.append(char)
+            index += 1
+            continue
+
+        if char.isspace():
+            pending_space = True
+            index += 1
+            continue
+
+        if text.startswith("--", index):
+            pending_space = True
+            newline = text.find("\n", index + 2)
+            if newline < 0:
+                break
+            index = newline + 1
+            continue
+
+        if text.startswith("/*", index):
+            pending_space = True
+            end = text.find("*/", index + 2)
+            if end < 0:
+                # Treat an unterminated trailing comment as comment text. The SQL
+                # parser/executor remains responsible for rejecting malformed SQL.
+                break
+            index = end + 2
+            continue
+
+        if char == "'":
+            flush_space()
+            output.append(char)
+            state = "single"
+            index += 1
+            continue
+
+        if char == '"':
+            flush_space()
+            output.append(char)
+            state = "double"
+            index += 1
+            continue
+
+        if char == "$":
+            match = re.match(r"\$[A-Za-z_][A-Za-z0-9_]*\$|\$\$", text[index:])
+            if match:
+                flush_space()
+                dollar_tag = match.group(0)
+                output.append(dollar_tag)
+                index += len(dollar_tag)
+                state = "dollar"
+                continue
+
+        flush_space()
+        output.append(char)
+        index += 1
+
+    canonical = "".join(output).strip()
+    if canonical.endswith(";"):
+        canonical = canonical[:-1].rstrip()
+    return canonical
 
 
 def _redact(sql: str) -> str:
