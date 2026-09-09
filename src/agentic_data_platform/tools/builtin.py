@@ -141,6 +141,7 @@ from agentic_data_platform.session import (
     session_overflow,
 )
 from agentic_data_platform.memory import MemoryStore
+from agentic_data_platform.rules import RuleStore
 from agentic_data_platform.tracing import TraceStore
 from agentic_data_platform.runtime.replay import replay_session
 from agentic_data_platform.runtime.store import RuntimeStore
@@ -253,6 +254,13 @@ def _memory_store(args: dict[str, Any]) -> MemoryStore:
     path = args.get("memory_database") or (_target(args) / ".ade" / "memory.db")
     return MemoryStore(path)
 
+
+
+def _rule_store(args: dict[str, Any]) -> RuleStore:
+    return RuleStore(
+        _target(args),
+        global_root=args.get("global_rules_root"),
+    )
 
 def _trace_store(args: dict[str, Any]) -> TraceStore:
     path = args.get("trace_database") or (_target(args) / ".ade" / "traces.db")
@@ -765,6 +773,13 @@ def build_tool_registry() -> ToolRegistry:
     add("session_retry_plan", Capability.PLAN, lambda a: session_retry_plan(int(a.get("attempt", 1)), error=a.get("error"), status_code=a.get("status_code"), max_attempts=int(a.get("max_attempts", 5)), base_seconds=float(a.get("base_seconds", 1.0)), max_seconds=float(a.get("max_seconds", 30.0))), "Classify retryability and bounded exponential backoff.", platforms=frozenset({Platform.LOCAL}))
     add("session_tool_result_cap", Capability.VERIFY, lambda a: session_cap_tool_result(a.get("value"), max_chars=int(a.get("max_chars", 20000))), "Cap oversized tool results while preserving head/tail evidence.", platforms=frozenset({Platform.LOCAL}))
     add("session_overflow", Capability.VERIFY, lambda a: session_overflow(session_model(a), a.get("messages") or (), requested_output_tokens=a.get("requested_output_tokens")), "Detect context-window overflow against normalized model limits.", platforms=frozenset({Platform.LOCAL}))
+
+    add("rule_list", Capability.DISCOVER, lambda a: {"rules": _rule_store(a).list(include_static=bool(a.get("include_static", True)))}, "List managed and legacy instruction rules with scope and fingerprints.", platforms=frozenset({Platform.LOCAL}))
+    add("rule_resolve", Capability.DISCOVER, lambda a: _rule_store(a).resolve(target_path=a.get("target_path")), "Resolve global/project/path-scoped rules by deterministic precedence.", platforms=frozenset({Platform.LOCAL}))
+    add("rule_show", Capability.DISCOVER, lambda a: _rule_store(a).inspect(a["name"], scope=a.get("scope")), "Inspect one rule and its immutable content fingerprint.", platforms=frozenset({Platform.LOCAL}))
+    add("rule_save", Capability.GENERATE, lambda a: _rule_store(a).save(a["name"], a["content"], scope=a.get("scope", "project"), priority=int(a.get("priority", 0)), apply_paths=list(a.get("apply_paths") or []), enabled=bool(a.get("enabled", True))), "Create or update a governed global/project instruction rule.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("rule_enable", Capability.GENERATE, lambda a: _rule_store(a).set_enabled(a["name"], bool(a.get("enabled", True)), scope=a.get("scope", "project")), "Enable or disable one managed instruction rule.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("rule_remove", Capability.GENERATE, lambda a: _rule_store(a).remove(a["name"], scope=a.get("scope", "project")), "Remove one managed instruction rule explicitly.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
 
     add("memory_save", Capability.GENERATE, lambda a: {"memory_id": _memory_store(a).save_memory(a["content"], scope=a.get("scope", "project"), project_id=a.get("project_id"), tags=list(a.get("tags") or ()), citations=list(a.get("citations") or ()), expires_at=a.get("expires_at"), kind=a.get("kind", "durable"))}, "Persist explicit durable project/global memory with provenance, disable controls and secret protection.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
     add("memory_list", Capability.DISCOVER, lambda a: {"memories": _memory_store(a).list_memories(scope=a.get("scope"), project_id=a.get("project_id"), limit=int(a.get("limit", 200)))}, "List bounded non-expired memories.", platforms=frozenset({Platform.LOCAL}))
