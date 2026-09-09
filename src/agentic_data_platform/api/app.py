@@ -754,6 +754,13 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
         "ai-workflow": {
             "plan": "ai_workflow_plan", "run": "ai_workflow_run",
         },
+        "ide": {
+            "workspace-plan": "ide_workspace_plan", "workspace-apply": "ide_workspace_apply",
+            "context": "ide_context", "open": "ide_open",
+            "edit-plan": "ide_edit_plan", "edit-apply": "ide_edit_apply",
+            "server-register": "ide_server_register", "servers": "ide_server_list",
+            "server-remove": "ide_server_remove",
+        },
         "data-diff": {
             "run": "data_diff", "plan": "data_diff_plan", "profile": "data_diff_profile",
             "join": "data_diff_join", "hash": "data_diff_hash", "cascade": "data_diff_cascade",
