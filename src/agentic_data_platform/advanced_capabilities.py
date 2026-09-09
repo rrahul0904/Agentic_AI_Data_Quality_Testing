@@ -666,3 +666,354 @@ def document_extract(
         "chunks": [{"index": index, "text": chunk, "sha256": _text_digest(chunk)} for index, chunk in enumerate(chunks)],
         "estimated_cost_usd": 0.0,
     }
+
+
+def _git(workspace: str | Path, args: list[str], *, timeout: int = 120) -> dict[str, Any]:
+    root = _root(workspace)
+    proc = subprocess.run(
+        ["git", *args],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+    return {"returncode": proc.returncode, "stdout": proc.stdout.strip(), "stderr": proc.stderr.strip()}
+
+
+def git_status(workspace: str | Path) -> dict[str, Any]:
+    result = _git(workspace, ["status", "--porcelain=v1", "--branch"])
+    return {"status": "PASS" if result["returncode"] == 0 else "FAIL", **result}
+
+
+def git_change_plan(
+    workspace: str | Path,
+    operation: str,
+    *,
+    branch: str | None = None,
+    message: str | None = None,
+    paths: list[str] | None = None,
+    verification_command: str | list[str] | None = None,
+) -> dict[str, Any]:
+    op = str(operation).casefold()
+    if op not in {"branch", "commit"}:
+        raise ValueError("operation must be branch or commit")
+    if op == "branch" and not branch:
+        raise ValueError("branch is required")
+    if branch and not re.fullmatch(r"[A-Za-z0-9._/-]+", branch):
+        raise ValueError("invalid branch name")
+    if op == "commit" and not message:
+        raise ValueError("commit message is required")
+    clean_paths = [
+        str(_path(workspace, item).relative_to(_root(workspace)))
+        for item in (paths or [])
+    ]
+    payload = {
+        "operation": op,
+        "branch": branch,
+        "message": message,
+        "paths": clean_paths,
+        "verification_command": verification_command,
+    }
+    return {
+        "status": "PASS",
+        "mode": "PLAN_ONLY",
+        **payload,
+        "approval_fingerprint": _digest(payload),
+        "force_push": False,
+        "push": "not_supported_by_design",
+    }
+
+
+def git_change_apply(
+    workspace: str | Path,
+    operation: str,
+    *,
+    approval_fingerprint: str,
+    branch: str | None = None,
+    message: str | None = None,
+    paths: list[str] | None = None,
+    verification_command: str | list[str] | None = None,
+) -> dict[str, Any]:
+    plan = git_change_plan(
+        workspace,
+        operation,
+        branch=branch,
+        message=message,
+        paths=paths,
+        verification_command=verification_command,
+    )
+    if approval_fingerprint != plan["approval_fingerprint"]:
+        return {"status": "STALE_APPROVAL", **plan}
+    if verification_command:
+        verification = run_command(workspace, verification_command)
+        if verification["status"] != "PASS":
+            return {"status": "BLOCKED_VERIFICATION", "verification": verification, **plan}
+    if plan["operation"] == "branch":
+        result = _git(workspace, ["switch", "-c", str(plan["branch"])])
+    else:
+        if not plan["paths"]:
+            return {"status": "FAIL", "reason": "explicit paths are required for commits", **plan}
+        staged = _git(workspace, ["add", "--", *plan["paths"]])
+        if staged["returncode"] != 0:
+            return {"status": "FAIL", "stage": "git-add", **staged}
+        result = _git(workspace, ["commit", "-m", str(plan["message"])])
+    head = _git(workspace, ["rev-parse", "HEAD"])
+    return {
+        "status": "PASS" if result["returncode"] == 0 else "FAIL",
+        "operation": plan["operation"],
+        "stdout": result["stdout"],
+        "stderr": result["stderr"],
+        "head": head["stdout"] if head["returncode"] == 0 else None,
+        "approval_fingerprint": plan["approval_fingerprint"],
+    }
+
+
+def audited_web_fetch(url: str, *, max_bytes: int = 262144, timeout_seconds: int = 15) -> dict[str, Any]:
+    import urllib.parse
+    import urllib.request
+
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("only absolute http/https URLs are allowed")
+    request = urllib.request.Request(url, headers={"User-Agent": "ADE-Research/1.0"})
+    with urllib.request.urlopen(request, timeout=max(1, min(int(timeout_seconds), 60))) as response:  # noqa: S310
+        raw = response.read(max(1024, min(int(max_bytes), 2_000_000)) + 1)
+        truncated = len(raw) > max_bytes
+        raw = raw[:max_bytes]
+        final_url = response.geturl()
+        content_type = response.headers.get("Content-Type", "")
+    body = raw.decode("utf-8", errors="replace")
+    fingerprint = hashlib.sha256(raw).hexdigest()
+    return {
+        "status": "PASS",
+        "source": {
+            "requested_url": url,
+            "final_url": final_url,
+            "content_type": content_type,
+            "retrieved_at": _utc_now(),
+        },
+        "content": body,
+        "content_sha256": fingerprint,
+        "truncated": truncated,
+        "citation": {"url": final_url, "content_sha256": fingerprint},
+    }
+
+
+def audited_web_search(query: str, *, endpoint_template: str | None = None) -> dict[str, Any]:
+    import urllib.parse
+
+    if not endpoint_template:
+        return {
+            "status": "SKIP_EXTERNAL",
+            "query": query,
+            "reason": "configure a search endpoint template containing {query}",
+            "source_policy": "all returned sources retain URL and retrieval fingerprint",
+        }
+    if "{query}" not in endpoint_template:
+        raise ValueError("endpoint_template must contain {query}")
+    url = endpoint_template.replace("{query}", urllib.parse.quote_plus(query))
+    evidence = audited_web_fetch(url)
+    return {
+        "status": evidence["status"],
+        "query": query,
+        "search_endpoint": url,
+        "evidence": evidence,
+        "source_policy": "URL + content fingerprint required",
+    }
+
+
+def retrieval_search(
+    query: str,
+    *,
+    documents: list[dict[str, Any]] | None = None,
+    backend: str = "local",
+    limit: int = 10,
+    account_url: str | None = None,
+    token: str | None = None,
+    service: str | None = None,
+    columns: list[str] | None = None,
+) -> dict[str, Any]:
+    import urllib.parse
+    import urllib.request
+
+    key = str(backend).casefold()
+    if key == "local":
+        terms = set(re.findall(r"[a-z0-9_]+", query.casefold()))
+        ranked: list[tuple[int, dict[str, Any]]] = []
+        for doc in documents or []:
+            text = str(doc.get("text") or doc.get("content") or "")
+            score = len(terms & set(re.findall(r"[a-z0-9_]+", text.casefold())))
+            if score:
+                ranked.append((score, doc))
+        ranked.sort(key=lambda row: -row[0])
+        return {
+            "status": "PASS",
+            "backend": "local",
+            "results": [{"score": score, **doc} for score, doc in ranked[: max(1, int(limit))]],
+        }
+    if key != "cortex_search":
+        raise ValueError("backend must be local or cortex_search")
+    if not account_url or not token or not service:
+        return {
+            "status": "SKIP_EXTERNAL",
+            "backend": "cortex_search",
+            "reason": "account_url, token, and service are required",
+        }
+    parts = service.split(".")
+    if len(parts) != 3:
+        raise ValueError("service must be DATABASE.SCHEMA.SERVICE")
+    database, schema, name = [urllib.parse.quote(part, safe="") for part in parts]
+    endpoint = (
+        f"{account_url.rstrip('/')}/api/v2/databases/{database}/schemas/{schema}"
+        f"/cortex-search-services/{name}:query"
+    )
+    payload = json.dumps(
+        {"query": query, "columns": columns or [], "limit": int(limit)}
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        endpoint,
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
+        body = json.loads(response.read().decode("utf-8"))
+    return {
+        "status": "PASS",
+        "backend": "cortex_search",
+        "service": service,
+        "results": body.get("results") or body.get("data") or [],
+        "evidence_fingerprint": _digest(body),
+    }
+
+
+class EmbeddedAgentSession:
+    def __init__(
+        self,
+        registry: Any,
+        *,
+        environment: str = "dev",
+        actor_mode: str = "builder",
+        approval_callback: Any | None = None,
+    ) -> None:
+        self.registry = registry
+        self.environment = environment
+        self.actor_mode = actor_mode
+        self.approval_callback = approval_callback
+
+    def invoke(self, tool: str, args: dict[str, Any] | None = None, *, run_id: str = "embedded") -> dict[str, Any]:
+        from agentic_data_platform.models import ActorMode, Environment, Platform, Risk, ToolRequest
+        from agentic_data_platform.tools.registry import ToolInvocation
+
+        definition = self.registry.describe(tool)
+        envelope = {
+            "tool": tool,
+            "risk": definition.risk.value,
+            "args_fingerprint": _digest(args or {}),
+            "environment": self.environment,
+        }
+        needs_approval = definition.risk is not Risk.READ_ONLY or definition.requires_approval
+        approved = False
+        if needs_approval:
+            if self.approval_callback is None:
+                return {"status": "AWAITING_APPROVAL", "approval": envelope}
+            approved = bool(self.approval_callback(envelope))
+            if not approved:
+                return {"status": "REJECTED", "approval": envelope}
+        request = ToolRequest(
+            tool=tool,
+            operation=tool,
+            environment=Environment(self.environment),
+            risk=definition.risk,
+            args=args or {},
+            platform=Platform.LOCAL if Platform.LOCAL in definition.supported_platforms else None,
+        )
+        return self.registry.invoke(
+            ToolInvocation(
+                request=request,
+                run_id=run_id,
+                approved=approved,
+                actor_mode=ActorMode(self.actor_mode),
+            )
+        )
+
+
+def sdk_contract() -> dict[str, Any]:
+    return {
+        "status": "PASS",
+        "class": "agentic_data_platform.advanced_capabilities.EmbeddedAgentSession",
+        "approval_callbacks": "per-tool",
+        "backends": ["local", "hosted-runner"],
+        "policy": "ToolRegistry inherited",
+        "evidence": "run_id + tool result + approval envelope",
+    }
+
+
+def account_admin_plan(sql: str, *, environment: str = "dev") -> dict[str, Any]:
+    from agentic_data_platform.snowflake.governed_mutation import plan_snowflake_mutation
+
+    plan = plan_snowflake_mutation(sql, environment=environment)
+    return {
+        **plan,
+        "administration": True,
+        "independent_verification_required": True,
+        "cross_cloud_extension": "same plan envelope can wrap other warehouse admin adapters",
+    }
+
+
+def gpu_job_plan(
+    *,
+    backend: str,
+    image: str,
+    command: str | list[str],
+    gpu_count: int = 1,
+    max_runtime_seconds: int = 3600,
+    hourly_cost_usd: float = 0.0,
+    max_cost_usd: float = 25.0,
+) -> dict[str, Any]:
+    key = str(backend).casefold().replace("-", "_")
+    if key not in {"snowflake", "kubernetes", "local_cuda"}:
+        raise ValueError("backend must be snowflake, kubernetes, or local_cuda")
+    runtime = max(1, int(max_runtime_seconds))
+    estimated = max(0.0, float(hourly_cost_usd)) * runtime / 3600 * max(1, int(gpu_count))
+    payload = {
+        "backend": key,
+        "image": image,
+        "command": _argv(command),
+        "gpu_count": max(1, int(gpu_count)),
+        "max_runtime_seconds": runtime,
+        "estimated_max_cost_usd": round(estimated, 6),
+        "max_cost_usd": float(max_cost_usd),
+    }
+    blocked = estimated > float(max_cost_usd)
+    return {
+        "status": "BLOCKED_COST" if blocked else "PASS",
+        "mode": "PLAN_ONLY",
+        **payload,
+        "approval_fingerprint": _digest(payload),
+        "portable": True,
+    }
+
+
+def gpu_job_run(workspace: str | Path, plan: dict[str, Any], *, approval_fingerprint: str) -> dict[str, Any]:
+    if plan.get("status") != "PASS":
+        return {"status": "BLOCKED_POLICY", "reason": "job plan is not executable"}
+    if approval_fingerprint != plan.get("approval_fingerprint"):
+        return {"status": "STALE_APPROVAL"}
+    if plan.get("backend") != "local_cuda":
+        return {
+            "status": "NOT_RUN_EXTERNAL",
+            "backend": plan.get("backend"),
+            "reason": "external GPU execution requires the configured backend runner",
+            "approval_fingerprint": approval_fingerprint,
+        }
+    return run_command(
+        workspace,
+        list(plan["command"]),
+        timeout_seconds=int(plan["max_runtime_seconds"]),
+    )
