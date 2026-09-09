@@ -248,6 +248,19 @@ class AutomationService:
         params.append(max(1, min(int(limit), 1000)))
         return [self._public(row) for row in self.connection.execute(sql, tuple(params)).fetchall()]
 
+    def set_approved(self, automation_id: str, approved: bool) -> dict[str, Any]:
+        if self.connection.execute(
+            "SELECT 1 FROM automations WHERE automation_id=?",
+            (automation_id,),
+        ).fetchone() is None:
+            raise KeyError(f"automation not found: {automation_id}")
+        self.connection.execute(
+            "UPDATE automations SET approved=?, updated_at=? WHERE automation_id=?",
+            (int(bool(approved)), utc_now(), automation_id),
+        )
+        self.connection.commit()
+        return self.get(automation_id)
+
     def set_enabled(self, automation_id: str, enabled: bool, *, now: datetime | None = None) -> dict[str, Any]:
         current = _utc(now)
         existing = self.get(automation_id)
