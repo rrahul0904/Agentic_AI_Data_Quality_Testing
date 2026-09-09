@@ -123,7 +123,7 @@ def mode_contract(mode: str, *, budget_usd: float | None = None) -> dict[str, An
             ],
         },
         "ask": {
-            "actor_mode": "plan",
+            "actor_mode": "ask",
             "purpose": "question_answer_exploration",
             "read_tools": True,
             "workspace_mutations": False,
