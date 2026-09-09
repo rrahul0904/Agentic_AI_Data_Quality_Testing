@@ -78,7 +78,7 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
     },
     "ml": {
         "models": "snowpark_model_list", "versions": "snowpark_model_versions",
-        "log-plan": "snowpark_model_log_plan",
+        "log-plan": "snowpark_model_log_plan", "workflow-plan": "snowpark_ml_workflow_plan",
         "lifecycle-plan": "snowpark_model_lifecycle_plan",
         "lifecycle-execute": "snowpark_model_lifecycle_execute",
     },
