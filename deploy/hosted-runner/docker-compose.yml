@@ -1,0 +1,22 @@
+services:
+  ade-hosted-runner:
+    build:
+      context: ../..
+      dockerfile: deploy/hosted-runner/Dockerfile
+    restart: unless-stopped
+    environment:
+      ADE_PROJECT_ROOT: /workspace
+    volumes:
+      - ade-runner-state:/data
+      - ../../:/workspace
+    command:
+      - python
+      - scripts/run_hosted_runner.py
+      - --project
+      - /workspace
+      - --database
+      - /data/hosted-runner.db
+      - --json
+
+volumes:
+  ade-runner-state:
