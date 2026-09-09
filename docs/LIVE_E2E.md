@@ -32,3 +32,49 @@ Configure a supported provider credential plus `ADE_LIVE_AGENT_MODEL`, then run 
 ## GitHub Actions
 
 `.github/workflows/live-e2e.yml` is manually dispatched and intentionally fails closed if required secrets are absent. Final COMPLETE status requires this live workflow to be green.
+
+## Advanced Snowflake/Cortex capabilities
+
+The advanced capability wave has a separate protected workflow:
+
+`.github/workflows/ade-advanced-live-certification.yml`
+
+Dispatch it manually against the GitHub environment `ade-advanced-live`. The workflow installs the Snowflake CLI only for the live job and writes structured evidence to:
+
+`artifacts/advanced-live-certification.json`
+
+Supported components are:
+
+- `semantic`: DESCRIBE a real Snowflake semantic view and ingest its dimensions/facts/metrics/verified queries into a temporary ADE semantic registry.
+- `analyst`: send a real Cortex Analyst request against one or more configured semantic views.
+- `cortex-agent`: describe a real Cortex Agent object.
+- `cortex-agent-run`: execute a real Cortex Agent request.
+- `model-registry`: list real Snowflake Model Registry models and optionally versions for one configured model.
+- `ai-workflow`: execute a read-only ADE workflow using current Snowflake AI functions against literal test input.
+- `notebook`: execute a configured Snowflake notebook through `snow notebook execute`.
+- `streamlit`: generate and deploy an isolated ADE Streamlit certification app.
+- `app-runtime`: generate and deploy an isolated App Runtime app and optionally probe its `/healthz` endpoint.
+
+The default dispatch is read-only:
+
+`semantic,model-registry,ai-workflow`
+
+The following components are treated as externally mutating and fail closed unless the manual dispatch sets `allow_mutations=true`:
+
+- `cortex-agent-run`
+- `notebook`
+- `streamlit`
+- `app-runtime`
+
+Missing credentials, object identifiers, privileges, CLI availability, or explicit mutation approval are reported as `BLOCKED_EXTERNAL`. They are never converted into a PASS.
+
+Required credential secrets for the protected environment are:
+
+- `ADE_SNOWFLAKE_ACCOUNT`
+- `ADE_SNOWFLAKE_USER`
+- `ADE_SNOWFLAKE_PASSWORD`
+- `ADE_SNOWFLAKE_ACCOUNT_URL` and `ADE_SNOWFLAKE_TOKEN` when Cortex REST APIs are selected
+
+Non-secret database/schema/warehouse/object identifiers should be stored as GitHub environment variables using the names documented in `.env.example`.
+
+Local CI certifies request construction, policy boundaries, adapters, generated project manifests, notebook/file fingerprints, hosted runner behavior and regression safety. It does **not** substitute for this live workflow.
