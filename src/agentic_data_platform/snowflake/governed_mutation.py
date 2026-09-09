@@ -169,7 +169,7 @@ def _describe(sql: str) -> MutationDescriptor:
         return MutationDescriptor(
             "EXECUTE_DBT_PROJECT",
             "DBT_PROJECT",
-            _clean_identifier(match.group(1)),
+            None,
             "data_change",
             False,
         )
