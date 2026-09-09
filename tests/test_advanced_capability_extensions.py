@@ -701,7 +701,6 @@ def test_gpu_job_plans_materialize_snowflake_and_kubernetes_gpu_contracts(tmp_pa
         max_cost_usd=10.0,
         compute_pool="SYSTEM_COMPUTE_POOL_GPU",
         job_name="ade_training_job",
-        connection="ci",
     )
     assert snowflake["status"] == "PASS"
     assert snowflake["service_spec"]["spec"]["containers"][0]["resources"]["limits"]["nvidia.com/gpu"] == 2
@@ -730,6 +729,5 @@ def test_gpu_job_plans_materialize_snowflake_and_kubernetes_gpu_contracts(tmp_pa
         snowflake,
         approval_fingerprint=snowflake["approval_fingerprint"],
     )
-    assert external["status"] in {"BLOCKED_EXTERNAL", "PASS", "FAIL"}
-    if external["status"] == "BLOCKED_EXTERNAL":
-        assert external["artifact"]
+    assert external["status"] == "BLOCKED_EXTERNAL"
+    assert external["artifact"]
