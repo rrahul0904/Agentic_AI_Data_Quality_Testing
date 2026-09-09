@@ -764,6 +764,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
         },
         "advanced": {
             "mode": "mode_contract",
+            "model-route": "model_route",
             "plan-create": "immutable_plan",
             "plan-verify": "immutable_plan_verify",
             "edit-plan": "workspace_edit_plan",
@@ -790,6 +791,9 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             "forecast": "forecast_series",
             "anomaly": "anomaly_compare",
             "document-extract": "document_extract",
+            "document-snowflake-extract-plan": "document_snowflake_extract_plan",
+            "document-snowflake-parse-plan": "document_snowflake_parse_plan",
+            "document-compare": "document_compare",
             "sdk-contract": "embedded_agent_sdk_contract",
             "account-admin-plan": "account_admin_plan",
             "gpu-plan": "gpu_job_plan",
