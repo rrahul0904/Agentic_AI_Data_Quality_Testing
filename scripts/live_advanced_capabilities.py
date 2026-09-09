@@ -253,7 +253,13 @@ def main() -> int:
     for component in components:
         try:
             report["components"][component] = handlers[component]()
-        except (ExternalConnectionUnavailable, RuntimeError, OSError, ValueError) as exc:
+        except ExternalConnectionUnavailable as exc:
+            report["components"][component] = {
+                "status": "BLOCKED_EXTERNAL",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+            failed = True
+        except (RuntimeError, OSError, ValueError) as exc:
             text = str(exc)
             blocked = "BLOCKED_EXTERNAL" in text
             report["components"][component] = {
