@@ -231,7 +231,8 @@ capability-superiority-p1-check:
 		tests/test_memory_personalization.py \
 		tests/test_todo_management.py \
 		tests/test_coco_modes.py \
-		tests/test_workspace_files.py
+		tests/test_workspace_files.py \
+		tests/test_git_parity.py
 
 .PHONY: advanced-live-e2e
 advanced-live-e2e:
