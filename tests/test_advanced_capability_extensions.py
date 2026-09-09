@@ -442,3 +442,61 @@ def test_gpu_job_planning_has_cost_guardrail_and_portable_local_execution(tmp_pa
     run = gpu_job_run(tmp_path, plan, approval_fingerprint=plan["approval_fingerprint"])
     assert run["status"] == "PASS"
     assert "gpu-plan-ok" in run["stdout"]
+
+
+
+def test_registered_advanced_tools_inherit_plan_and_approval_boundary(tmp_path) -> None:
+    from agentic_data_platform.models import ActorMode, Environment, Risk, ToolRequest
+    from agentic_data_platform.tools.builtin import build_tool_registry
+    from agentic_data_platform.tools.registry import ToolInvocation
+
+    registry = build_tool_registry()
+    names = {definition.name for definition in registry.definitions()}
+    expected = {
+        "mode_contract",
+        "immutable_plan",
+        "workspace_edit_plan",
+        "workspace_edit_apply",
+        "shell_plan",
+        "shell_run",
+        "git_change_plan",
+        "git_change_apply",
+        "web_fetch_audited",
+        "web_search_audited",
+        "retrieval_search",
+        "context_select",
+        "custom_agent_validate",
+        "warehouse_object_search",
+        "sql_playground",
+        "chart_build",
+        "forecast_series",
+        "anomaly_compare",
+        "document_extract",
+        "embedded_agent_sdk_contract",
+        "account_admin_plan",
+        "gpu_job_plan",
+        "gpu_job_run",
+    }
+    assert expected <= names
+
+    request = ToolRequest(
+        tool="workspace_edit_apply",
+        operation="workspace_edit_apply",
+        environment=Environment.DEV,
+        risk=Risk.MUTATING,
+        args={
+            "workspace": str(tmp_path),
+            "path": "blocked.txt",
+            "content": "cannot run from plan mode",
+            "approval_fingerprint": "irrelevant",
+        },
+    )
+    with pytest.raises(PermissionError, match="plan mode cannot invoke"):
+        registry.invoke(
+            ToolInvocation(
+                request=request,
+                run_id="plan-boundary",
+                approved=True,
+                actor_mode=ActorMode.PLAN,
+            )
+        )
