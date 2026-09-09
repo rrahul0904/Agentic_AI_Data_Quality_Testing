@@ -705,6 +705,11 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             "inspect": "schema_inspect", "tags": "schema_tags", "status": "metadata_status",
             "autocomplete": "autocomplete",
         },
+        "search": {
+            "index-project": "semantic_index_project",
+            "index-metadata": "semantic_index_metadata",
+            "query": "semantic_search",
+        },
         "data-diff": {
             "run": "data_diff", "plan": "data_diff_plan", "profile": "data_diff_profile",
             "join": "data_diff_join", "hash": "data_diff_hash", "cascade": "data_diff_cascade",
