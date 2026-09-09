@@ -131,7 +131,7 @@
     {
       "id": "modes.ask",
       "reference": "Read-only ask/explain mode",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "phase": "P1",
       "target_score": 2,
       "superiority_advantages": [
@@ -142,12 +142,30 @@
       "classification": "COCO_CORE",
       "release_blocking": true,
       "certification_track": "COCO_PARITY_CERTIFICATION",
-      "known_limitation": "Explicit Ask runtime/tool-policy certification was missing before this branch update."
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_REQUIRED",
+        "tests": [
+          "tests/test_advanced_capability_extensions.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/advanced_capabilities.py",
+          "src/agentic_data_platform/models.py",
+          "src/agentic_data_platform/tools/registry.py",
+          "src/agentic_data_platform/tools/builtin.py",
+          "src/agentic_data_platform/runtime/agent.py",
+          "src/agentic_data_platform/api/app.py"
+        ],
+        "evidence": [
+          "GitHub Actions ade-capability-superiority run 34412344854 targeted-certification PASS",
+          "Certified implementation head dda2ea163eceb1b9700534d25842658004044aac"
+        ]
+      }
     },
     {
       "id": "modes.edit",
       "reference": "Scoped edit/refactor mode",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "phase": "P2",
       "target_score": 2,
       "superiority_advantages": [
@@ -158,7 +176,25 @@
       "classification": "COCO_CORE",
       "release_blocking": true,
       "certification_track": "COCO_PARITY_CERTIFICATION",
-      "known_limitation": "Selected-region implementation is on branch and awaits exact-head deterministic certification."
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_REQUIRED",
+        "tests": [
+          "tests/test_advanced_capability_extensions.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/advanced_capabilities.py",
+          "src/agentic_data_platform/models.py",
+          "src/agentic_data_platform/tools/registry.py",
+          "src/agentic_data_platform/tools/builtin.py",
+          "src/agentic_data_platform/runtime/agent.py",
+          "src/agentic_data_platform/api/app.py"
+        ],
+        "evidence": [
+          "GitHub Actions ade-capability-superiority run 34412344854 targeted-certification PASS",
+          "Certified implementation head dda2ea163eceb1b9700534d25842658004044aac"
+        ]
+      }
     },
     {
       "id": "modes.code",
