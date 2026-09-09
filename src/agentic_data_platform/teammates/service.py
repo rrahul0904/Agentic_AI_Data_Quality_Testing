@@ -49,6 +49,7 @@ class TeammateStore:
             "verification_json": "TEXT NOT NULL DEFAULT '[]'",
             "model": "TEXT NOT NULL DEFAULT 'inherit'",
             "system_prompt": "TEXT NOT NULL DEFAULT ''",
+            "actor_mode": "TEXT NOT NULL DEFAULT 'analyst'",
         }
         for column, ddl in migrations.items():
             if column not in columns:
@@ -95,6 +96,7 @@ class TeammateStore:
         verification: Iterable[Mapping[str, Any] | str] = (),
         model: str = "inherit",
         system_prompt: str = "",
+        actor_mode: str = "analyst",
     ) -> dict[str, Any]:
         if not name.strip():
             raise ValueError("teammate name is required")
@@ -107,8 +109,8 @@ class TeammateStore:
             INSERT INTO teammates(
               teammate_id,name,description,integration_ids_json,memory_enabled,
               privacy,created_at,updated_at,role,allowed_tools_json,budgets_json,
-              verification_json,model,system_prompt
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+              verification_json,model,system_prompt,actor_mode
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 teammate_id,
@@ -125,6 +127,7 @@ class TeammateStore:
                 json.dumps(list(verification), sort_keys=True, default=str),
                 str(model or "inherit"),
                 str(system_prompt or ""),
+                str(actor_mode or "analyst"),
             ),
         )
         self.connection.commit()
@@ -145,6 +148,7 @@ class TeammateStore:
         verification: Iterable[Mapping[str, Any] | str] | None = None,
         model: str | None = None,
         system_prompt: str | None = None,
+        actor_mode: str | None = None,
     ) -> dict[str, Any]:
         current = self.get(teammate_id)
         if privacy is not None and privacy not in {"private", "public"}:
@@ -154,7 +158,7 @@ class TeammateStore:
             UPDATE teammates SET
               name=?, description=?, integration_ids_json=?, memory_enabled=?,
               privacy=?, role=?, allowed_tools_json=?, budgets_json=?,
-              verification_json=?, model=?, system_prompt=?, updated_at=?
+              verification_json=?, model=?, system_prompt=?, actor_mode=?, updated_at=?
             WHERE teammate_id=?
             """,
             (
@@ -185,6 +189,7 @@ class TeammateStore:
                 ),
                 str(model) if model is not None else current["model"],
                 str(system_prompt) if system_prompt is not None else current["system_prompt"],
+                str(actor_mode) if actor_mode is not None else current["actor_mode"],
                 utc_now(),
                 teammate_id,
             ),
@@ -412,6 +417,7 @@ class TeammateManager:
                     verification=args.get("verification") or (),
                     model=str(args.get("model") or "inherit"),
                     system_prompt=str(args.get("system_prompt") or ""),
+                    actor_mode=str(args.get("actor_mode") or "analyst"),
                 ),
             }
         if operation == "edit":
@@ -432,6 +438,7 @@ class TeammateManager:
                     "verification",
                     "model",
                     "system_prompt",
+                    "actor_mode",
                 )
                 if key in args and args[key] is not None
             }
