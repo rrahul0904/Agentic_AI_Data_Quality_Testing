@@ -55,6 +55,7 @@ on:
       - 'tests/test_shell_sandbox.py'
       - 'tests/test_memory_personalization.py'
       - 'tests/test_todo_management.py'
+      - 'tests/test_coco_modes.py'
       - 'tests/test_snowflake_managed_dbt.py'
       - '.github/workflows/ade-capability-superiority.yml'
       - 'Makefile'
@@ -158,6 +159,7 @@ jobs:
           tests/test_shell_sandbox.py
           tests/test_memory_personalization.py
           tests/test_todo_management.py
+          tests/test_coco_modes.py
           scripts/live_advanced_capabilities.py
           scripts/run_hosted_runner.py
           tests/test_capability_superiority_ledger.py
