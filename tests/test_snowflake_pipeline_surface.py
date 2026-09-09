@@ -11,6 +11,7 @@ from agentic_data_platform.tools.registry import ToolInvocation
 
 EXPECTED_TOOLS = {
     "snowflake_copy_analyze",
+    "snowflake_failure_lab",
     "snowflake_stage_inventory",
     "snowflake_stage_files",
     "snowflake_file_format",
@@ -61,6 +62,14 @@ def test_snowflake_pipeline_api_domain_and_static_copy_analysis():
     domains = client.get("/api/v1/domains")
     assert domains.status_code == 200
     assert set(item["tool"] for item in domains.json()["snowflake-testing"].values()) == EXPECTED_TOOLS
+
+    failure = client.post(
+        "/api/v1/snowflake-testing/failure-lab",
+        json={"args": {"scenario": "invalid_timestamp"}},
+    )
+    assert failure.status_code == 200
+    assert failure.json()["status"] == "PASS"
+    assert failure.json()["mutation_executed"] is False
 
     response = client.post(
         "/api/v1/snowflake-testing/copy-analyze",
