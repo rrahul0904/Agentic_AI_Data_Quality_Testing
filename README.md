@@ -244,7 +244,7 @@ Quality capabilities include persistent evidence, summaries, recent results, ass
 
 ### Snowflake ingestion pipeline testing
 
-Snowflake-specific verification now covers Snowpipe inventory/status, Stream staleness and pending-data checks, static `COPY INTO` analysis, `COPY_HISTORY`, `VALIDATE(...)`, and post-load row-count/null/duplicate/freshness checks. The normal product surface remains read-only; unavailable Snowflake credentials report `SKIP_EXTERNAL`.
+Snowflake-specific verification now covers Snowpipe inventory/status and `VALIDATE_PIPE_LOAD`, Stream staleness and pending-data checks, static `COPY INTO` analysis, `COPY_HISTORY`, `VALIDATE(...)`, and post-load row-count/null/duplicate/freshness checks. The normal product surface remains read-only; unavailable Snowflake credentials report `SKIP_EXTERNAL`.
 
 ```bash
 ade snowflake-test copy-analyze --args '{"sql":"COPY INTO RAW.RESERVATION FROM @LANDING ON_ERROR=ABORT_STATEMENT"}'
