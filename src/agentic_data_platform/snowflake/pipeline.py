@@ -22,6 +22,13 @@ def _literal(value: str) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
 
+def _information_schema(object_name: str) -> str:
+    parts = [part.strip() for part in str(object_name).split(".") if part.strip()]
+    if len(parts) == 3:
+        return f"{identifier(parts[0])}.INFORMATION_SCHEMA"
+    return "INFORMATION_SCHEMA"
+
+
 def _value(row: dict[str, Any], key: str, default: Any = None) -> Any:
     target = key.casefold()
     for name, value in row.items():
@@ -176,15 +183,25 @@ class SnowflakePipelineTester:
             "mode": _value(row, "mode"),
         }
 
-    def copy_history(self, table_name: str, *, hours: int = 24, limit: int = 100) -> dict[str, Any]:
+    def copy_history(
+        self,
+        table_name: str,
+        *,
+        pipe_name: str | None = None,
+        hours: int = 24,
+        limit: int = 100,
+    ) -> dict[str, Any]:
         hours = max(1, min(int(hours), 24 * 14))
         limit = max(1, min(int(limit), 1000))
-        table_literal = _literal(_qualified_identifier(table_name))
+        qualified_table = _qualified_identifier(table_name)
+        table_literal = _literal(qualified_table)
+        pipe_arg = f", PIPE_NAME => {_literal(_qualified_identifier(pipe_name))}" if pipe_name else ""
         sql = (
             "SELECT FILE_NAME, STAGE_LOCATION, LAST_LOAD_TIME, STATUS, ROW_COUNT, ROW_PARSED, "
-            "ERROR_COUNT, FIRST_ERROR_MESSAGE, FIRST_ERROR_LINE_NUMBER, FIRST_ERROR_COLUMN_NAME "
-            "FROM TABLE(INFORMATION_SCHEMA.COPY_HISTORY("
-            f"TABLE_NAME => {table_literal}, START_TIME => DATEADD('hour', -{hours}, CURRENT_TIMESTAMP()))) "
+            "ERROR_COUNT, FIRST_ERROR_MESSAGE, FIRST_ERROR_LINE_NUMBER, FIRST_ERROR_COLUMN_NAME, "
+            "PIPE_CATALOG_NAME, PIPE_SCHEMA_NAME, PIPE_NAME, BYTES_BILLED "
+            f"FROM TABLE({_information_schema(qualified_table)}.COPY_HISTORY("
+            f"TABLE_NAME => {table_literal}, START_TIME => DATEADD('hour', -{hours}, CURRENT_TIMESTAMP()){pipe_arg})) "
             "ORDER BY LAST_LOAD_TIME DESC "
             f"LIMIT {limit}"
         )
@@ -194,13 +211,32 @@ class SnowflakePipelineTester:
         loaded_rows = sum(int(_value(row, "row_count", 0) or 0) for row in rows)
         return {
             "status": "FAIL" if failed or errors else "PASS",
-            "table": _qualified_identifier(table_name),
+            "table": qualified_table,
+            "pipe": _qualified_identifier(pipe_name) if pipe_name else None,
             "hours": hours,
             "file_count": len(rows),
             "failed_file_count": len(failed),
             "error_count": errors,
             "loaded_row_count": loaded_rows,
             "history": rows,
+        }
+
+    def validate_pipe_load(self, pipe_name: str, *, hours: int = 24, limit: int = 100) -> dict[str, Any]:
+        hours = max(1, min(int(hours), 24 * 14))
+        limit = max(1, min(int(limit), 1000))
+        pipe = _qualified_identifier(pipe_name)
+        sql = (
+            f"SELECT * FROM TABLE({_information_schema(pipe)}.VALIDATE_PIPE_LOAD("
+            f"PIPE_NAME => {_literal(pipe)}, START_TIME => DATEADD('hour', -{hours}, CURRENT_TIMESTAMP()))) "
+            f"LIMIT {limit}"
+        )
+        rows = self._rows(sql)
+        return {
+            "status": "FAIL" if rows else "PASS",
+            "pipe": pipe,
+            "hours": hours,
+            "error_count": len(rows),
+            "errors": rows,
         }
 
     def validate_copy(self, table_name: str, *, job_id: str = "_last", limit: int = 100) -> dict[str, Any]:
@@ -298,7 +334,9 @@ class SnowflakePipelineTester:
         if stream_name:
             components["stream"] = self.stream_status(stream_name)
         if target_table:
-            components["copy_history"] = self.copy_history(target_table, hours=history_hours)
+            components["copy_history"] = self.copy_history(target_table, pipe_name=pipe_name, hours=history_hours)
+            if pipe_name:
+                components["pipe_validation"] = self.validate_pipe_load(pipe_name, hours=history_hours)
             components["quality"] = self.table_quality(
                 target_table,
                 key_columns=key_columns,
