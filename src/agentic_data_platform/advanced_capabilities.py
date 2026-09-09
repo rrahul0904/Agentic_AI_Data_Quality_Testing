@@ -969,7 +969,123 @@ def _git(workspace: str | Path, args: list[str], *, timeout: int = 120) -> dict[
 
 def git_status(workspace: str | Path) -> dict[str, Any]:
     result = _git(workspace, ["status", "--porcelain=v1", "--branch"])
-    return {"status": "PASS" if result["returncode"] == 0 else "FAIL", **result}
+    head = _git(workspace, ["rev-parse", "HEAD"])
+    return {
+        "status": "PASS" if result["returncode"] == 0 else "FAIL",
+        **result,
+        "head": head["stdout"] if head["returncode"] == 0 else None,
+    }
+
+
+def git_diff(
+    workspace: str | Path,
+    *,
+    staged: bool = False,
+    ref: str | None = None,
+    paths: list[str] | None = None,
+) -> dict[str, Any]:
+    args = ["diff"]
+    if staged:
+        args.append("--cached")
+    if ref:
+        args.append(str(ref))
+    clean_paths = [
+        str(_path(workspace, item).relative_to(_root(workspace)))
+        for item in (paths or [])
+    ]
+    if clean_paths:
+        args.extend(["--", *clean_paths])
+    result = _git(workspace, args)
+    return {
+        "status": "PASS" if result["returncode"] == 0 else "FAIL",
+        **result,
+        "diff_fingerprint": _text_digest(result["stdout"]),
+    }
+
+
+def git_log(workspace: str | Path, *, limit: int = 20) -> dict[str, Any]:
+    result = _git(
+        workspace,
+        [
+            "log",
+            f"-{max(1, min(int(limit), 200))}",
+            "--date=iso-strict",
+            "--pretty=format:%H%x09%an%x09%ad%x09%s",
+        ],
+    )
+    commits = []
+    if result["returncode"] == 0:
+        for line in result["stdout"].splitlines():
+            parts = line.split("\t", 3)
+            if len(parts) == 4:
+                commits.append(
+                    {"sha": parts[0], "author": parts[1], "date": parts[2], "subject": parts[3]}
+                )
+    return {
+        "status": "PASS" if result["returncode"] == 0 else "FAIL",
+        "commits": commits,
+        "stderr": result["stderr"],
+        "history_fingerprint": _digest(commits),
+    }
+
+
+def git_remotes(workspace: str | Path) -> dict[str, Any]:
+    result = _git(workspace, ["remote", "-v"])
+    remotes: list[dict[str, str]] = []
+    if result["returncode"] == 0:
+        for line in result["stdout"].splitlines():
+            parts = line.split()
+            if len(parts) >= 3:
+                remotes.append(
+                    {
+                        "name": parts[0],
+                        "url": parts[1],
+                        "direction": parts[2].strip("()"),
+                    }
+                )
+    return {
+        "status": "PASS" if result["returncode"] == 0 else "FAIL",
+        "remotes": remotes,
+        "stderr": result["stderr"],
+    }
+
+
+def git_review_evidence(workspace: str | Path, *, commit: str = "HEAD") -> dict[str, Any]:
+    show = _git(
+        workspace,
+        ["show", "--stat", "--format=%H%n%P%n%an%n%ad%n%s", "--date=iso-strict", commit],
+    )
+    names = _git(workspace, ["diff-tree", "--no-commit-id", "--name-only", "-r", commit])
+    status = git_status(workspace)
+    return {
+        "status": "PASS" if show["returncode"] == 0 and names["returncode"] == 0 else "FAIL",
+        "commit": commit,
+        "changed_files": [line for line in names["stdout"].splitlines() if line],
+        "summary": show["stdout"],
+        "working_tree": status,
+        "evidence_fingerprint": _digest(
+            {"show": show["stdout"], "files": names["stdout"], "head": status.get("head")}
+        ),
+    }
+
+
+_GIT_MUTATIONS = {
+    "branch",
+    "switch",
+    "commit",
+    "restore",
+    "revert",
+    "fetch",
+    "pull",
+    "push",
+}
+_GIT_FORBIDDEN = {
+    "force_push",
+    "hard_reset",
+    "branch_delete",
+    "history_rewrite",
+    "rebase",
+}
 
 
 def git_change_plan(
@@ -979,27 +1095,45 @@ def git_change_plan(
     branch: str | None = None,
     message: str | None = None,
     paths: list[str] | None = None,
+    commit: str | None = None,
+    remote: str | None = None,
     verification_command: str | list[str] | None = None,
 ) -> dict[str, Any]:
-    op = str(operation).casefold()
-    if op not in {"branch", "commit"}:
-        raise ValueError("operation must be branch or commit")
-    if op == "branch" and not branch:
+    op = str(operation).casefold().replace("-", "_")
+    if op in _GIT_FORBIDDEN:
+        return {
+            "status": "BLOCKED_POLICY",
+            "operation": op,
+            "reason": "destructive/history-rewriting Git operations are disabled by default",
+        }
+    if op not in _GIT_MUTATIONS:
+        raise ValueError(f"operation must be one of {sorted(_GIT_MUTATIONS)}")
+    if op in {"branch", "switch", "pull", "push"} and not branch:
         raise ValueError("branch is required")
     if branch and not re.fullmatch(r"[A-Za-z0-9._/-]+", branch):
         raise ValueError("invalid branch name")
     if op == "commit" and not message:
         raise ValueError("commit message is required")
+    if op == "revert" and not commit:
+        raise ValueError("commit is required for revert")
+    if op in {"restore", "commit"} and not paths:
+        raise ValueError(f"explicit paths are required for {op}")
+    if remote and not re.fullmatch(r"[A-Za-z0-9._/-]+", remote):
+        raise ValueError("invalid remote name")
     clean_paths = [
         str(_path(workspace, item).relative_to(_root(workspace)))
         for item in (paths or [])
     ]
+    head = _git(workspace, ["rev-parse", "HEAD"])
     payload = {
         "operation": op,
         "branch": branch,
         "message": message,
         "paths": clean_paths,
+        "commit": commit,
+        "remote": remote or "origin",
         "verification_command": verification_command,
+        "expected_head": head["stdout"] if head["returncode"] == 0 else None,
     }
     return {
         "status": "PASS",
@@ -1007,7 +1141,7 @@ def git_change_plan(
         **payload,
         "approval_fingerprint": _digest(payload),
         "force_push": False,
-        "push": "not_supported_by_design",
+        "destructive_operations": "blocked_by_default",
     }
 
 
@@ -1019,6 +1153,8 @@ def git_change_apply(
     branch: str | None = None,
     message: str | None = None,
     paths: list[str] | None = None,
+    commit: str | None = None,
+    remote: str | None = None,
     verification_command: str | list[str] | None = None,
 ) -> dict[str, Any]:
     plan = git_change_plan(
@@ -1027,33 +1163,60 @@ def git_change_apply(
         branch=branch,
         message=message,
         paths=paths,
+        commit=commit,
+        remote=remote,
         verification_command=verification_command,
     )
+    if plan["status"] != "PASS":
+        return plan
     if approval_fingerprint != plan["approval_fingerprint"]:
         return {**plan, "status": "STALE_APPROVAL"}
+    verification = None
     if verification_command:
         verification = run_command(workspace, verification_command)
         if verification["status"] != "PASS":
             return {**plan, "status": "BLOCKED_VERIFICATION", "verification": verification}
-    if plan["operation"] == "branch":
+
+    op = plan["operation"]
+    if op == "branch":
         result = _git(workspace, ["switch", "-c", str(plan["branch"])])
-    else:
-        if not plan["paths"]:
-            return {**plan, "status": "FAIL", "reason": "explicit paths are required for commits"}
+    elif op == "switch":
+        result = _git(workspace, ["switch", str(plan["branch"])])
+    elif op == "commit":
         staged = _git(workspace, ["add", "--", *plan["paths"]])
         if staged["returncode"] != 0:
             return {"status": "FAIL", "stage": "git-add", **staged}
         result = _git(workspace, ["commit", "-m", str(plan["message"])])
+    elif op == "restore":
+        result = _git(workspace, ["restore", "--", *plan["paths"]])
+    elif op == "revert":
+        result = _git(workspace, ["revert", "--no-edit", str(plan["commit"])])
+    elif op == "fetch":
+        result = _git(workspace, ["fetch", str(plan["remote"])])
+    elif op == "pull":
+        result = _git(
+            workspace,
+            ["pull", "--ff-only", str(plan["remote"]), str(plan["branch"])],
+        )
+    else:
+        result = _git(
+            workspace,
+            ["push", str(plan["remote"]), f"HEAD:{plan['branch']}"],
+        )
+
     head = _git(workspace, ["rev-parse", "HEAD"])
+    evidence = git_review_evidence(workspace) if head["returncode"] == 0 else None
     return {
         "status": "PASS" if result["returncode"] == 0 else "FAIL",
-        "operation": plan["operation"],
+        "operation": op,
         "stdout": result["stdout"],
         "stderr": result["stderr"],
         "head": head["stdout"] if head["returncode"] == 0 else None,
         "approval_fingerprint": plan["approval_fingerprint"],
+        "verification": verification,
+        "review_evidence": evidence,
+        "force_push": False,
     }
-
 
 def audited_web_fetch(url: str, *, max_bytes: int = 262144, timeout_seconds: int = 15) -> dict[str, Any]:
     import urllib.parse
