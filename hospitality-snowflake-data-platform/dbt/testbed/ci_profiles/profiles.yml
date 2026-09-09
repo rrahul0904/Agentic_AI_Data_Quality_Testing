@@ -11,4 +11,3 @@ hospitality_testbed:
       warehouse: "{{ env_var('ADE_SNOWFLAKE_WAREHOUSE', 'ADE_HOSPITALITY_TESTBED_WH') }}"
       schema: STAGING
       threads: 4
-
