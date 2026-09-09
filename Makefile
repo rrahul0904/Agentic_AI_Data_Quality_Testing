@@ -179,3 +179,8 @@ certification-live:
 
 parity-v2: conformance
 	PYTHONPATH=src $(PYTHON) scripts/generate_parity_ledger_v2.py
+
+
+.PHONY: snowflake-pipeline-test
+snowflake-pipeline-test:
+	PYTHONPATH=src $(PYTHON) -m pytest -q tests/test_snowflake_pipeline_testing.py tests/test_snowflake_pipeline_surface.py tests/test_snowflake_failure_lab.py
