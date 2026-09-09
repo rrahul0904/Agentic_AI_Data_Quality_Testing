@@ -74,6 +74,9 @@ class ToolRegistry:
         args = dict(request.args)
         args["_run_id"] = invocation.run_id
         args["_dry_run"] = invocation.dry_run
+        args["_approved"] = invocation.approved
+        args["_environment"] = request.environment.value
+        args["_actor_mode"] = invocation.actor_mode.value
         return definition.handler(args)
 
     def definitions(self) -> tuple[ToolDefinition, ...]:
