@@ -709,6 +709,17 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             "run": "data_diff", "plan": "data_diff_plan", "profile": "data_diff_profile",
             "join": "data_diff_join", "hash": "data_diff_hash", "cascade": "data_diff_cascade",
         },
+        "snowflake-testing": {
+            "copy-analyze": "snowflake_copy_analyze",
+            "pipes": "snowflake_pipe_inventory",
+            "pipe-status": "snowflake_pipe_status",
+            "streams": "snowflake_stream_inventory",
+            "stream-status": "snowflake_stream_status",
+            "copy-history": "snowflake_copy_history",
+            "copy-validate": "snowflake_copy_validate",
+            "quality": "snowflake_table_quality",
+            "health": "snowflake_pipeline_health",
+        },
         "finops": {
             "history": "finops_query_history", "expensive": "finops_expensive_queries",
             "errors": "finops_query_errors", "patterns": "finops_query_patterns",
