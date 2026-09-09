@@ -164,11 +164,11 @@ def test_approval_fingerprint_ignores_comments_only_outside_literals():
 
 def test_approval_fingerprint_preserves_dollar_quoted_content():
     first = plan_snowflake_mutation(
-        "CALL HOTEL.RAW.PROC($--literal one$)",
+        "CALL HOTEL.RAW.PROC($body$--literal one$body$)",
         environment="dev",
     )
     second = plan_snowflake_mutation(
-        "CALL HOTEL.RAW.PROC($--literal two$)",
+        "CALL HOTEL.RAW.PROC($body$--literal two$body$)",
         environment="dev",
     )
 
