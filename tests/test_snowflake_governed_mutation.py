@@ -15,6 +15,8 @@ from agentic_data_platform.tools.registry import ToolInvocation
 class MutationFixture:
     def __init__(self) -> None:
         self.created = False
+        self.columns = {"ID"}
+        self.row_count = 3
         self.statements: list[str] = []
 
     def __call__(self, sql: str):
@@ -33,8 +35,35 @@ class MutationFixture:
             self.created = False
             return {"columns": (), "rows": (), "query_id": "q-drop"}
 
+        if lowered.startswith("desc table"):
+            return {
+                "columns": ("name", "type"),
+                "rows": tuple({"name": column, "type": "VARCHAR"} for column in sorted(self.columns)),
+            }
+
         if lowered.startswith("alter table"):
+            if "add column source_system" in lowered:
+                self.columns.add("SOURCE_SYSTEM")
             return {"columns": (), "rows": (), "query_id": "q-alter"}
+
+        if lowered.startswith("truncate"):
+            self.row_count = 0
+            return {"columns": (), "rows": (), "query_id": "q-truncate"}
+
+        if lowered.startswith("select count(*) as row_count"):
+            return {"columns": ("ROW_COUNT",), "rows": ({"ROW_COUNT": self.row_count},)}
+
+        if lowered.startswith("grant "):
+            return {"columns": (), "rows": (), "query_id": "q-grant"}
+
+        if lowered.startswith("revoke "):
+            return {"columns": (), "rows": (), "query_id": "q-revoke"}
+
+        if lowered.startswith("use "):
+            return {"columns": (), "rows": (), "query_id": "q-use"}
+
+        if lowered.startswith("call "):
+            return {"columns": (), "rows": (), "query_id": "q-call"}
 
         if lowered.startswith("insert into"):
             return {"columns": (), "rows": (), "query_id": "q-insert"}
@@ -42,7 +71,10 @@ class MutationFixture:
         if "query_history_by_session" in lowered:
             return {
                 "columns": ("QUERY_ID", "EXECUTION_STATUS"),
-                "rows": ({"QUERY_ID": "q-insert", "EXECUTION_STATUS": "SUCCESS"},),
+                "rows": tuple(
+                    {"QUERY_ID": query_id, "EXECUTION_STATUS": "SUCCESS"}
+                    for query_id in ("q-insert", "q-grant", "q-revoke", "q-use", "q-call")
+                ),
             }
 
         raise AssertionError(f"unexpected SQL: {sql}")
@@ -193,6 +225,72 @@ def test_destructive_drop_requires_second_confirmation_and_verifies_absence():
     assert result["verified"] is True
     assert fixture.created is False
 
+
+
+def test_alter_table_verifies_the_requested_column_change():
+    connector, fixture = _connector()
+    fixture.created = True
+    executor = GovernedSnowflakeMutationExecutor(connector)
+    sql = "ALTER TABLE HOTEL.RAW.RESERVATIONS ADD COLUMN SOURCE_SYSTEM VARCHAR(50)"
+    plan = executor.plan(sql, environment="dev")
+
+    result = executor.execute(
+        sql,
+        environment="dev",
+        approval_fingerprint=plan["approval_fingerprint"],
+        approved=True,
+    )
+
+    assert result["status"] == "PASS"
+    assert "SOURCE_SYSTEM" in fixture.columns
+    assert any(item["kind"] == "column_presence" and item["passed"] for item in result["verification"])
+
+
+def test_truncate_requires_destructive_confirmation_and_verifies_zero_rows():
+    connector, fixture = _connector()
+    fixture.created = True
+    executor = GovernedSnowflakeMutationExecutor(connector)
+    sql = "TRUNCATE TABLE HOTEL.RAW.RESERVATIONS"
+    plan = executor.plan(sql, environment="dev")
+
+    blocked = executor.execute(
+        sql,
+        environment="dev",
+        approval_fingerprint=plan["approval_fingerprint"],
+        approved=True,
+    )
+    assert blocked["status"] == "BLOCKED_APPROVAL"
+
+    result = executor.execute(
+        sql,
+        environment="dev",
+        approval_fingerprint=plan["approval_fingerprint"],
+        approved=True,
+        confirm_destructive=True,
+    )
+    assert result["status"] == "PASS"
+    assert fixture.row_count == 0
+    assert any(item["kind"] == "row_count" and item["passed"] for item in result["verification"])
+
+
+def test_security_session_and_procedure_statements_are_governed():
+    grant = plan_snowflake_mutation(
+        "GRANT SELECT ON TABLE HOTEL.RAW.RESERVATIONS TO ROLE ANALYST",
+        environment="dev",
+    )
+    revoke = plan_snowflake_mutation(
+        "REVOKE SELECT ON TABLE HOTEL.RAW.RESERVATIONS FROM ROLE ANALYST",
+        environment="dev",
+    )
+    use = plan_snowflake_mutation("USE ROLE ANALYST", environment="dev")
+    call = plan_snowflake_mutation("CALL HOTEL.RAW.REPAIR_PIPELINE()", environment="dev")
+
+    assert grant["risk_level"] == "security_change"
+    assert grant["destructive"] is False
+    assert revoke["risk_level"] == "security_change"
+    assert revoke["destructive"] is True
+    assert use["statement_type"] == "USE"
+    assert call["statement_type"] == "CALL"
 
 def test_mutation_dry_run_does_not_execute():
     connector, fixture = _connector()
