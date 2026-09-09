@@ -132,6 +132,7 @@ from agentic_data_platform.tracing import TraceStore
 from agentic_data_platform.runtime.replay import replay_session
 from agentic_data_platform.runtime.store import RuntimeStore
 from agentic_data_platform.jobs import BackgroundJobEngine
+from agentic_data_platform.automations import AutomationService
 from agentic_data_platform.review import (
     change_impact as review_change_impact,
     deliver_github_review,
@@ -256,6 +257,11 @@ def _job_engine(args: dict[str, Any]) -> BackgroundJobEngine:
         engine = BackgroundJobEngine(path, max_workers=int(args.get("max_workers", 4)))
         _JOB_ENGINES[path] = engine
     return engine
+
+
+def _automation_service(args: dict[str, Any]) -> AutomationService:
+    path = args.get("automation_database") or (_target(args) / ".ade" / "automations.db")
+    return AutomationService(path)
 
 
 def _dbt(args: dict[str, Any]) -> DbtManifestGraph:
@@ -670,6 +676,80 @@ def build_tool_registry() -> ToolRegistry:
     add("job_list", Capability.DISCOVER, lambda a: {"jobs": _job_engine(a).list(limit=int(a.get("limit", 100)))}, "List persistent background jobs.", platforms=frozenset({Platform.LOCAL}))
     add("job_show", Capability.DISCOVER, lambda a: _job_engine(a).get(a["job_id"]), "Show one background job.", platforms=frozenset({Platform.LOCAL}))
     add("job_cancel", Capability.GENERATE, lambda a: {"job_id": a["job_id"], "cancelled": _job_engine(a).cancel(a["job_id"])}, "Cancel a queued background job when cancellation is still possible.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+
+    def automation_create_handler(a: dict[str, Any]) -> dict[str, Any]:
+        return _automation_service(a).create(
+            name=str(a.get("name") or a["tool_name"]),
+            tool_name=str(a["tool_name"]),
+            args=dict(a.get("args") or {}),
+            schedule=dict(a["schedule"]),
+            actor_mode=ActorMode(str(a.get("_actor_mode") or "analyst")),
+            environment=Environment(str(a.get("_environment") or "dev")),
+            approved=False,
+            enabled=bool(a.get("enabled", True)),
+        )
+
+    def automation_run_due_handler(a: dict[str, Any]) -> dict[str, Any]:
+        return _automation_service(a).run_due(
+            registry,
+            limit=int(a.get("limit", 100)),
+        )
+
+    add(
+        "automation_create",
+        Capability.GENERATE,
+        automation_create_handler,
+        "Create a persistent unattended ADE automation. Future mutating execution is not approved by schedule creation.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "automation_list",
+        Capability.DISCOVER,
+        lambda a: {"automations": _automation_service(a).list(limit=int(a.get("limit", 100)), enabled=a.get("enabled"))},
+        "List persistent ADE automations and their run evidence.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "automation_show",
+        Capability.DISCOVER,
+        lambda a: _automation_service(a).get(a["automation_id"]),
+        "Show one persistent ADE automation.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "automation_enable",
+        Capability.GENERATE,
+        lambda a: _automation_service(a).set_enabled(a["automation_id"], bool(a.get("enabled", True))),
+        "Enable or disable a persistent ADE automation.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "automation_approve",
+        Capability.EXECUTE,
+        lambda a: _automation_service(a).set_approved(a["automation_id"], bool(a.get("approved", True))),
+        "Explicitly approve or revoke unattended execution authority for an automation.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "automation_run_due",
+        Capability.EXECUTE,
+        automation_run_due_handler,
+        "Run all due automations once through normal ADE ToolRegistry policy and persist run evidence.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "automation_delete",
+        Capability.GENERATE,
+        lambda a: {"automation_id": a["automation_id"], "deleted": _automation_service(a).delete(a["automation_id"])},
+        "Delete one persistent ADE automation definition.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
 
     def training_store(a: dict[str, Any]) -> TrainingStore:
         return TrainingStore(
