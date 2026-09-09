@@ -133,6 +133,7 @@ from agentic_data_platform.runtime.replay import replay_session
 from agentic_data_platform.runtime.store import RuntimeStore
 from agentic_data_platform.jobs import BackgroundJobEngine
 from agentic_data_platform.automations import AutomationService
+from agentic_data_platform.plugins import PluginBundleService
 from agentic_data_platform.review import (
     change_impact as review_change_impact,
     deliver_github_review,
@@ -262,6 +263,10 @@ def _job_engine(args: dict[str, Any]) -> BackgroundJobEngine:
 def _automation_service(args: dict[str, Any]) -> AutomationService:
     path = args.get("automation_database") or (_target(args) / ".ade" / "automations.db")
     return AutomationService(path)
+
+
+def _plugin_bundle_service(args: dict[str, Any]) -> PluginBundleService:
+    return PluginBundleService(_target(args))
 
 
 def _dbt(args: dict[str, Any]) -> DbtManifestGraph:
@@ -747,6 +752,52 @@ def build_tool_registry() -> ToolRegistry:
         Capability.GENERATE,
         lambda a: {"automation_id": a["automation_id"], "deleted": _automation_service(a).delete(a["automation_id"])},
         "Delete one persistent ADE automation definition.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+
+    add(
+        "plugin_bundle_validate",
+        Capability.VERIFY,
+        lambda a: _plugin_bundle_service(a).validate(a["source"]),
+        "Validate an ADE plugin bundle manifest, contribution paths, hook rules and checksums without installing it.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "plugin_bundle_install",
+        Capability.GENERATE,
+        lambda a: _plugin_bundle_service(a).install(a["source"], overwrite=bool(a.get("overwrite", False))),
+        "Install a validated project-scoped ADE plugin bundle without executing installer code.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "plugin_bundle_list",
+        Capability.DISCOVER,
+        lambda a: {"plugins": _plugin_bundle_service(a).list()},
+        "List project-scoped ADE plugin bundles and activation state.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "plugin_bundle_show",
+        Capability.DISCOVER,
+        lambda a: _plugin_bundle_service(a).inspect(a["name"]),
+        "Inspect one installed ADE plugin bundle.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "plugin_bundle_activate",
+        Capability.GENERATE,
+        lambda a: _plugin_bundle_service(a).activate(a["name"], overwrite=bool(a.get("overwrite", False))),
+        "Activate a plugin bundle and materialize skills, agents, commands and MCP declarations for the project.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "plugin_bundle_remove",
+        Capability.GENERATE,
+        lambda a: _plugin_bundle_service(a).remove(a["name"]),
+        "Remove an installed ADE plugin bundle package.",
         platforms=frozenset({Platform.LOCAL}),
         risk=Risk.MUTATING,
     )
