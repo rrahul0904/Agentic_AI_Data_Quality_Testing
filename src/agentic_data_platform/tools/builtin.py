@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
-from agentic_data_platform.models import ActorMode, Capability, Environment, Platform, Risk, ToolRequest
+from agentic_data_platform.models import ActorMode, Capability, Environment, InteractionMode, Platform, Risk, ToolRequest
 from agentic_data_platform.migration.shiftforge_adapter import ShiftForgeAdapter
 from agentic_data_platform.platform.airflow import AirflowProject
 from agentic_data_platform.airflow_compat import AirflowAdapter, AirflowControlPlane
@@ -1340,12 +1340,14 @@ def build_tool_registry() -> ToolRegistry:
             tool_name=str(a["tool_name"]),
             args=dict(a.get("args") or {}),
             actor_mode=ActorMode(str(a.get("actor_mode") or a.get("_actor_mode") or "analyst")),
+            interaction_mode=InteractionMode(str(a.get("interaction_mode") or a.get("_interaction_mode") or "agent")),
             environment=Environment(str(a.get("environment") or a.get("_environment") or "dev")),
             approved=bool(a.get("approved", False)),
             delay_seconds=int(a.get("delay_seconds", 0)),
             max_attempts=int(a.get("max_attempts", 3)),
+            workspace_policy=dict(a.get("workspace_policy") or {}),
         ),
-        "Submit a durable hosted ADE tool job; queued approval state is preserved exactly.",
+        "Submit a durable hosted ADE job with actor/interaction policy and explicit workspace isolation contract.",
         platforms=frozenset({Platform.LOCAL}),
         risk=Risk.MUTATING,
     )
@@ -1361,6 +1363,16 @@ def build_tool_registry() -> ToolRegistry:
         Capability.DISCOVER,
         lambda a: _hosted_runner_store(a).job(str(a["job_id"])),
         "Inspect one hosted ADE runner job and evidence.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "hosted_runner_workspace_readiness",
+        Capability.DISCOVER,
+        lambda a: _hosted_runner_store(a).workspace_readiness(
+            str(a["job_id"]),
+            runner_id=a.get("runner_id"),
+        ),
+        "Check whether registered runners satisfy one job's workspace isolation and capability contract.",
         platforms=frozenset({Platform.LOCAL}),
     )
     add(
