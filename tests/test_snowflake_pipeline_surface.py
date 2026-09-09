@@ -11,15 +11,23 @@ from agentic_data_platform.tools.registry import ToolInvocation
 
 EXPECTED_TOOLS = {
     "snowflake_copy_analyze",
+    "snowflake_stage_inventory",
+    "snowflake_stage_files",
+    "snowflake_file_format",
     "snowflake_pipe_inventory",
     "snowflake_pipe_status",
     "snowflake_pipe_validate",
     "snowflake_stream_inventory",
     "snowflake_stream_status",
+    "snowflake_stream_backlog",
     "snowflake_copy_history",
     "snowflake_copy_validate",
+    "snowflake_schema_drift",
+    "snowflake_ingestion_latency",
     "snowflake_table_quality",
+    "snowflake_reconcile_load",
     "snowflake_pipeline_health",
+    "snowflake_pipeline_rca",
 }
 
 
@@ -38,6 +46,14 @@ def test_snowflake_pipeline_cli_domain_is_complete():
     ])
     assert parsed.command == "snowflake-test"
     assert parsed.operation == "copy-analyze"
+
+    parsed_rca = build_parser().parse_args([
+        "snowflake-test",
+        "rca",
+        "--args",
+        '{"stage_name":"HOTEL.RAW.LANDING","target_table":"HOTEL.RAW.RESERVATION"}',
+    ])
+    assert parsed_rca.operation == "rca"
 
 
 def test_snowflake_pipeline_api_domain_and_static_copy_analysis():
@@ -58,20 +74,25 @@ def test_live_snowflake_tools_skip_external_without_credentials(monkeypatch):
     for name in ("ADE_SNOWFLAKE_ACCOUNT", "ADE_SNOWFLAKE_USER", "ADE_SNOWFLAKE_PASSWORD"):
         monkeypatch.delenv(name, raising=False)
     registry = build_tool_registry()
-    definition = registry.describe("snowflake_pipe_inventory")
-    request = ToolRequest(
-        "snowflake_pipe_inventory",
-        "snowflake_pipe_inventory",
-        Environment.DEV,
-        definition.risk,
-        args={},
-    )
-    result = registry.invoke(
-        ToolInvocation(
-            request,
-            run_id="snowflake-pipeline-no-credentials",
-            actor_mode=ActorMode.ANALYST,
+    for tool_name, args in (
+        ("snowflake_pipe_inventory", {}),
+        ("snowflake_stage_inventory", {}),
+        ("snowflake_pipeline_rca", {"stage_name": "HOTEL.RAW.LANDING"}),
+    ):
+        definition = registry.describe(tool_name)
+        request = ToolRequest(
+            tool_name,
+            tool_name,
+            Environment.DEV,
+            definition.risk,
+            args=args,
         )
-    )
-    assert result["status"] == "SKIP_EXTERNAL"
-    assert result["platform"] == "snowflake"
+        result = registry.invoke(
+            ToolInvocation(
+                request,
+                run_id=f"snowflake-pipeline-no-credentials-{tool_name}",
+                actor_mode=ActorMode.ANALYST,
+            )
+        )
+        assert result["status"] == "SKIP_EXTERNAL"
+        assert result["platform"] == "snowflake"
