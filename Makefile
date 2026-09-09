@@ -184,3 +184,12 @@ parity-v2: conformance
 .PHONY: snowflake-pipeline-test
 snowflake-pipeline-test:
 	PYTHONPATH=src $(PYTHON) -m pytest -q tests/test_snowflake_pipeline_testing.py tests/test_snowflake_pipeline_surface.py tests/test_snowflake_failure_lab.py
+
+
+.PHONY: capability-superiority-check snowflake-governed-mutation-test
+capability-superiority-check:
+	PYTHONPATH=src $(PYTHON) scripts/check_capability_superiority.py --json
+	PYTHONPATH=src $(PYTHON) -m pytest -q tests/test_capability_superiority_ledger.py
+
+snowflake-governed-mutation-test:
+	PYTHONPATH=src $(PYTHON) -m pytest -q tests/test_snowflake_governed_mutation.py
