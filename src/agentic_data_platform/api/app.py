@@ -713,6 +713,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             "copy-analyze": "snowflake_copy_analyze",
             "pipes": "snowflake_pipe_inventory",
             "pipe-status": "snowflake_pipe_status",
+            "pipe-validate": "snowflake_pipe_validate",
             "streams": "snowflake_stream_inventory",
             "stream-status": "snowflake_stream_status",
             "copy-history": "snowflake_copy_history",
