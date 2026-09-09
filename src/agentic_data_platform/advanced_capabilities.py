@@ -1035,22 +1035,122 @@ def gpu_job_plan(
     max_runtime_seconds: int = 3600,
     hourly_cost_usd: float = 0.0,
     max_cost_usd: float = 25.0,
+    compute_pool: str | None = None,
+    job_name: str | None = None,
+    connection: str | None = None,
+    namespace: str = "default",
+    replicas: int = 1,
 ) -> dict[str, Any]:
     key = str(backend).casefold().replace("-", "_")
     if key not in {"snowflake", "kubernetes", "local_cuda"}:
         raise ValueError("backend must be snowflake, kubernetes, or local_cuda")
     runtime = max(1, int(max_runtime_seconds))
-    estimated = max(0.0, float(hourly_cost_usd)) * runtime / 3600 * max(1, int(gpu_count))
+    gpu_total = max(1, int(gpu_count))
+    replica_count = max(1, int(replicas))
+    estimated = (
+        max(0.0, float(hourly_cost_usd))
+        * runtime
+        / 3600
+        * gpu_total
+        * replica_count
+    )
+    argv = _argv(command)
+    if key == "snowflake" and not compute_pool:
+        raise ValueError("compute_pool is required for Snowflake GPU jobs")
+    if key == "kubernetes" and not re.fullmatch(r"[a-z0-9]([-a-z0-9.]*[a-z0-9])?", namespace):
+        raise ValueError("invalid Kubernetes namespace")
+    safe_job_name = job_name or f"ade-gpu-{_digest({'image': image, 'command': argv})[:10]}"
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,120}", safe_job_name):
+        raise ValueError("invalid job_name")
     payload = {
         "backend": key,
         "image": image,
-        "command": _argv(command),
-        "gpu_count": max(1, int(gpu_count)),
+        "command": argv,
+        "gpu_count": gpu_total,
+        "replicas": replica_count,
         "max_runtime_seconds": runtime,
         "estimated_max_cost_usd": round(estimated, 6),
         "max_cost_usd": float(max_cost_usd),
+        "compute_pool": compute_pool,
+        "job_name": safe_job_name,
+        "connection": connection,
+        "namespace": namespace,
     }
     blocked = estimated > float(max_cost_usd)
+    if key == "snowflake":
+        spec = {
+            "spec": {
+                "containers": [
+                    {
+                        "name": "main",
+                        "image": image,
+                        "args": argv,
+                        "resources": {
+                            "requests": {"nvidia.com/gpu": gpu_total},
+                            "limits": {"nvidia.com/gpu": gpu_total},
+                        },
+                    }
+                ]
+            }
+        }
+        payload["service_spec"] = spec
+        payload["execution_contract"] = {
+            "cli": [
+                "snow",
+                "spcs",
+                "service",
+                "execute-job",
+                safe_job_name,
+                "--compute-pool",
+                str(compute_pool),
+                "--spec-path",
+                "<materialized-spec>",
+                "--replicas",
+                str(replica_count),
+                "--async",
+            ],
+            "verification": [
+                "snow spcs service status",
+                "Snowflake DESCRIBE SERVICE / SHOW SERVICE INSTANCES",
+            ],
+        }
+    elif key == "kubernetes":
+        payload["job_manifest"] = {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {"name": safe_job_name, "namespace": namespace},
+            "spec": {
+                "parallelism": replica_count,
+                "completions": replica_count,
+                "activeDeadlineSeconds": runtime,
+                "backoffLimit": 0,
+                "template": {
+                    "spec": {
+                        "restartPolicy": "Never",
+                        "containers": [
+                            {
+                                "name": "main",
+                                "image": image,
+                                "args": argv,
+                                "resources": {
+                                    "requests": {"nvidia.com/gpu": gpu_total},
+                                    "limits": {"nvidia.com/gpu": gpu_total},
+                                },
+                            }
+                        ],
+                    }
+                },
+            },
+        }
+        payload["execution_contract"] = {
+            "cli": ["kubectl", "apply", "-f", "<materialized-manifest>", "-n", namespace],
+            "verification": ["kubectl wait --for=condition=complete", "kubectl get job -o json"],
+        }
+    else:
+        payload["execution_contract"] = {
+            "cli": argv,
+            "verification": "bounded process exit code and captured output",
+        }
     return {
         "status": "BLOCKED_COST" if blocked else "PASS",
         "mode": "PLAN_ONLY",
@@ -1060,25 +1160,133 @@ def gpu_job_plan(
     }
 
 
+def _materialize_gpu_payload(workspace: str | Path, plan: dict[str, Any]) -> Path:
+    root = _root(workspace)
+    directory = root / ".ade" / "gpu"
+    directory.mkdir(parents=True, exist_ok=True)
+    fingerprint = str(plan["approval_fingerprint"])
+    if plan["backend"] == "snowflake":
+        path = directory / f"{fingerprint}.json"
+        path.write_text(json.dumps(plan["service_spec"], indent=2), encoding="utf-8")
+        return path
+    if plan["backend"] == "kubernetes":
+        path = directory / f"{fingerprint}.json"
+        path.write_text(json.dumps(plan["job_manifest"], indent=2), encoding="utf-8")
+        return path
+    raise ValueError("local_cuda does not require a materialized specification")
+
+
 def gpu_job_run(workspace: str | Path, plan: dict[str, Any], *, approval_fingerprint: str) -> dict[str, Any]:
+    import shutil
+
     if plan.get("status") != "PASS":
         return {"status": "BLOCKED_POLICY", "reason": "job plan is not executable"}
     if approval_fingerprint != plan.get("approval_fingerprint"):
         return {"status": "STALE_APPROVAL"}
-    if plan.get("backend") != "local_cuda":
+    backend = str(plan.get("backend"))
+    if backend == "local_cuda":
+        result = run_command(
+            workspace,
+            list(plan["command"]),
+            timeout_seconds=int(plan["max_runtime_seconds"]),
+        )
         return {
-            "status": "NOT_RUN_EXTERNAL",
-            "backend": plan.get("backend"),
-            "reason": "external GPU execution requires the configured backend runner",
-            "approval_fingerprint": approval_fingerprint,
+            **result,
+            "backend": backend,
+            "job_name": plan.get("job_name"),
+            "verification": "bounded process exit code and captured output",
         }
-    return run_command(
-        workspace,
-        list(plan["command"]),
-        timeout_seconds=int(plan["max_runtime_seconds"]),
-    )
 
+    artifact = _materialize_gpu_payload(workspace, plan)
+    if backend == "snowflake":
+        if shutil.which("snow") is None:
+            return {
+                "status": "BLOCKED_EXTERNAL",
+                "backend": backend,
+                "reason": "Snowflake CLI is not installed",
+                "artifact": str(artifact),
+            }
+        connection = plan.get("connection")
+        if not connection:
+            return {
+                "status": "BLOCKED_EXTERNAL",
+                "backend": backend,
+                "reason": "Snowflake CLI connection is required",
+                "artifact": str(artifact),
+            }
+        command = [
+            "snow",
+            "spcs",
+            "service",
+            "execute-job",
+            str(plan["job_name"]),
+            "--compute-pool",
+            str(plan["compute_pool"]),
+            "--spec-path",
+            str(artifact),
+            "--replicas",
+            str(plan["replicas"]),
+            "--async",
+            "--connection",
+            str(connection),
+        ]
+        execution = run_command(
+            workspace,
+            command,
+            timeout_seconds=min(int(plan["max_runtime_seconds"]), 900),
+            max_output_bytes=262144,
+        )
+        return {
+            **execution,
+            "backend": backend,
+            "job_name": plan["job_name"],
+            "artifact": str(artifact),
+            "live": "PASS" if execution["status"] == "PASS" else "FAIL",
+            "verification_required": True,
+        }
 
+    if backend == "kubernetes":
+        if shutil.which("kubectl") is None:
+            return {
+                "status": "BLOCKED_EXTERNAL",
+                "backend": backend,
+                "reason": "kubectl is not installed",
+                "artifact": str(artifact),
+            }
+        namespace = str(plan["namespace"])
+        apply_result = run_command(
+            workspace,
+            ["kubectl", "apply", "-f", str(artifact), "-n", namespace],
+            timeout_seconds=120,
+            max_output_bytes=262144,
+        )
+        if apply_result["status"] != "PASS":
+            return {**apply_result, "backend": backend, "artifact": str(artifact)}
+        verify_result = run_command(
+            workspace,
+            [
+                "kubectl",
+                "get",
+                "job",
+                str(plan["job_name"]),
+                "-n",
+                namespace,
+                "-o",
+                "json",
+            ],
+            timeout_seconds=60,
+            max_output_bytes=262144,
+        )
+        return {
+            "status": "PASS" if verify_result["status"] == "PASS" else "VERIFY_FAILED",
+            "backend": backend,
+            "job_name": plan["job_name"],
+            "artifact": str(artifact),
+            "apply": apply_result,
+            "verification": verify_result,
+        }
+
+    return {"status": "BLOCKED_POLICY", "reason": f"unsupported backend: {backend}"}
 
 def _supervisor(workspace: str | Path):
     from agentic_data_platform.agents import InvestigationStore, SupervisorAgent
