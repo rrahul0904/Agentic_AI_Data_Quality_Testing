@@ -169,7 +169,9 @@ class IDEBridge:
         approval_fingerprint: str,
         overwrite: bool = False,
     ) -> dict[str, Any]:
-        if approval_fingerprint != plan.get("approval_fingerprint"):
+        files = {str(key): str(value) for key, value in dict(plan.get("files") or {}).items()}
+        expected = _hash(json.dumps(files, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+        if approval_fingerprint != expected or plan.get("approval_fingerprint") != expected:
             return {"status": "BLOCKED_APPROVAL", "reason": "IDE workspace plan fingerprint mismatch"}
         written = []
         for relative, content in dict(plan.get("files") or {}).items():
