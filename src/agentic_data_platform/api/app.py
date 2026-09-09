@@ -812,6 +812,11 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             "enable": "automation_enable", "approve": "automation_approve",
             "run-due": "automation_run_due", "delete": "automation_delete",
         },
+        "plugins": {
+            "validate": "plugin_bundle_validate", "install": "plugin_bundle_install",
+            "list": "plugin_bundle_list", "show": "plugin_bundle_show",
+            "activate": "plugin_bundle_activate", "remove": "plugin_bundle_remove",
+        },
     }
 
     @app.get("/api/v1/domains")
