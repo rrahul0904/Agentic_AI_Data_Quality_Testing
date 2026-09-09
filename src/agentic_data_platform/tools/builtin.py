@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import os
 from pathlib import Path
 from typing import Any, Callable
@@ -115,6 +115,8 @@ from agentic_data_platform.search import UnifiedSemanticIndex
 from agentic_data_platform.semantic import CortexAnalystAdapter, SemanticRegistry, SnowflakeSemanticAdapter, build_analyst_request, evaluate_batch, evaluate_candidate, ingest_dbt_semantic_project, ingest_lookml_project
 from agentic_data_platform.cortex import CortexAgentClient
 from agentic_data_platform.runners import HostedRunnerStore
+from agentic_data_platform.agents.parallel import RuntimeSubagentExecutor, SubagentTask
+from agentic_data_platform.agents.teams import TeamCoordinator, TeamStore
 from agentic_data_platform.runners import sandbox as sandbox_runner
 from agentic_data_platform.notebooks import NotebookAgent
 from agentic_data_platform.browser import AgentBrowser, plan_browser_actions
@@ -143,6 +145,7 @@ from agentic_data_platform.session import (
 from agentic_data_platform.memory import MemoryStore
 from agentic_data_platform.rules import RuleStore
 from agentic_data_platform.tracing import TraceStore
+from agentic_data_platform.runtime.agent import AgentRuntime
 from agentic_data_platform.runtime.replay import replay_session
 from agentic_data_platform.runtime.store import RuntimeStore
 from agentic_data_platform.jobs import BackgroundJobEngine
@@ -207,7 +210,7 @@ from agentic_data_platform.connections.driver_install import (
 from agentic_data_platform.connections.dbt_profiles import discover_dbt_profiles
 from agentic_data_platform.connections.ssh_tunnel import SSHTunnelManager, TunnelConfig
 from agentic_data_platform.onboarding import materialize_sample
-from agentic_data_platform.teammates import TeammateManager
+from agentic_data_platform.teammates import TeammateManager, TeammateStore
 from agentic_data_platform.tools.feedback import submit_feedback
 from agentic_data_platform.tools.parity_utils import (
     PostConnectSuggestions,
@@ -235,6 +238,16 @@ _SSH_TUNNELS = SSHTunnelManager()
 
 def _target(args: dict[str, Any]) -> Path:
     return Path(args.get("project") or args.get("project_path") or args.get("target_dir") or ".").expanduser().resolve()
+
+
+def _teammate_store(args: dict[str, Any]) -> TeammateStore:
+    path = args.get("teammate_database") or (_target(args) / ".ade" / "teammates.db")
+    return TeammateStore(path)
+
+
+def _team_store(args: dict[str, Any]) -> TeamStore:
+    path = args.get("team_database") or (_target(args) / ".ade" / "teammates.db")
+    return TeamStore(path)
 
 
 def _session_store(args: dict[str, Any]) -> SessionStore:
@@ -621,6 +634,79 @@ def build_tool_registry() -> ToolRegistry:
         }
 
     add("sample_setup", Capability.GENERATE, lambda a: materialize_sample(home=a.get("home"), preferred_target_name=a.get("preferred_target_name", "agentic-data-sample-dbt"), allow_in_place_upgrade=bool(a.get("allow_in_place_upgrade", False)), install_alongside=bool(a.get("install_alongside", False))), "Materialize or safely reuse the shipped dbt + DuckDB starter sample.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    def team_set_members_handler(a: dict[str, Any]) -> dict[str, Any]:
+        teammates = _teammate_store(a)
+        member_ids = [str(item) for item in a.get("teammate_ids") or []]
+        for teammate_id in member_ids:
+            teammates.get(teammate_id)
+        return _team_store(a).set_members(str(a["team_id"]), member_ids)
+
+    def team_plan_handler(a: dict[str, Any]) -> dict[str, Any]:
+        coordinator = TeamCoordinator(
+            _team_store(a),
+            _teammate_store(a),
+            lambda _: {"status": "UNUSED"},
+        )
+        return coordinator.plan(str(a["team_id"]), list(a.get("tasks") or []))
+
+    def team_run_handler(a: dict[str, Any]) -> dict[str, Any]:
+        provider_name = str(a.get("provider") or "").strip()
+        default_model = str(a.get("model") or "").strip()
+        if not provider_name or not default_model:
+            raise ValueError("team execution requires configured provider and model")
+        runtime = AgentRuntime(
+            registry,
+            RuntimeStore(
+                a.get("runtime_database")
+                or (_target(a) / ".ade" / "runtime.db")
+            ),
+            _trace_store(a),
+        )
+        providers = ProviderRegistry()
+        base_executor = RuntimeSubagentExecutor(
+            runtime,
+            lambda _: providers.create(provider_name),
+            parent_session_id=a.get("parent_session_id"),
+            project_root=_target(a),
+            environment=Environment(
+                str(a.get("_environment") or a.get("environment") or "dev")
+            ),
+            approved_tools={str(item) for item in a.get("approved_tools") or []},
+        )
+
+        def execute_team_task(task: SubagentTask) -> dict[str, Any]:
+            definition = task.definition
+            if definition.model in {"inherit", "auto", ""}:
+                definition = replace(definition, model=default_model)
+            return base_executor(
+                SubagentTask(
+                    definition,
+                    task.prompt,
+                    metadata=dict(task.metadata),
+                )
+            )
+
+        coordinator = TeamCoordinator(
+            _team_store(a),
+            _teammate_store(a),
+            execute_team_task,
+        )
+        return coordinator.run(
+            dict(a["plan"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+        )
+
+    add("team_list", Capability.DISCOVER, lambda a: {"teams": _team_store(a).list()}, "List persistent agent teams and member fingerprints.", platforms=frozenset({Platform.LOCAL}))
+    add("team_show", Capability.DISCOVER, lambda a: _team_store(a).get(str(a["team_id"])), "Inspect one persistent agent team and ordered membership.", platforms=frozenset({Platform.LOCAL}))
+    add("team_create", Capability.GENERATE, lambda a: _team_store(a).create(str(a["name"]), description=a.get("description"), supervisor_prompt=str(a.get("supervisor_prompt") or ""), max_parallel=int(a.get("max_parallel", 4))), "Create a persistent agent team.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("team_edit", Capability.GENERATE, lambda a: _team_store(a).edit(str(a["team_id"]), name=a.get("name"), description=a.get("description"), supervisor_prompt=a.get("supervisor_prompt"), max_parallel=a.get("max_parallel")), "Edit a persistent team supervisor contract.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("team_set_members", Capability.GENERATE, team_set_members_handler, "Set ordered team membership after validating teammate identities.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("team_delete", Capability.GENERATE, lambda a: _team_store(a).delete(str(a["team_id"])), "Delete one persistent team definition.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("team_plan", Capability.PLAN, team_plan_handler, "Build a fingerprint-bound dependency DAG from persistent teammate policies.", platforms=frozenset({Platform.LOCAL}))
+    add("team_run", Capability.EXECUTE, team_run_handler, "Execute an approved team DAG through real scoped AgentRuntime subagents using a configured provider/model.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING, requires_approval=True)
+    add("team_runs", Capability.DISCOVER, lambda a: {"runs": _team_store(a).runs(str(a["team_id"]), limit=int(a.get("limit", 100)))}, "List durable team run evidence.", platforms=frozenset({Platform.LOCAL}))
+    add("team_run_show", Capability.DISCOVER, lambda a: _team_store(a).run(str(a["run_id"])), "Inspect one durable team run and evidence fingerprint.", platforms=frozenset({Platform.LOCAL}))
+
     add("datamate_manager", Capability.EXECUTE, lambda a: TeammateManager(_target(a), database=a.get("teammate_database"), global_root=a.get("teammate_global_root")).execute(a["operation"], a), "Manage local AI teammates and their MCP integrations using the Datamate lifecycle operations.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
     add("feedback_submit", Capability.EXECUTE, lambda a: submit_feedback(title=a["title"], category=a["category"], description=a["description"], include_context=bool(a.get("include_context", False)), repository=a.get("repository", "rrahul0904/Agentic_AI_Data_Quality_Testing"), session_id=a.get("session_id")), "Submit user feedback as a GitHub issue when gh is installed and authenticated.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
 
