@@ -41,6 +41,10 @@ _UPDATE = re.compile(r"(?is)^\s*UPDATE\s+([^\s(;]+)")
 _DELETE = re.compile(r"(?is)^\s*DELETE\s+FROM\s+([^\s(;]+)")
 _MERGE = re.compile(r"(?is)^\s*MERGE\s+INTO\s+([^\s(;]+)")
 _COPY = re.compile(r"(?is)^\s*COPY\s+INTO\s+([^\s(;]+)")
+_GRANT = re.compile(r"(?is)^\s*GRANT\b")
+_REVOKE = re.compile(r"(?is)^\s*REVOKE\b")
+_USE = re.compile(r"(?is)^\s*USE\s+(ROLE|WAREHOUSE|DATABASE|SCHEMA)\s+([^\s;]+)")
+_CALL = re.compile(r"(?is)^\s*CALL\s+([^\s(;]+)")
 
 
 @dataclass(frozen=True)
@@ -139,6 +143,32 @@ def _describe(sql: str) -> MutationDescriptor:
             destructive,
         )
 
+    match = _USE.match(normalized)
+    if match:
+        return MutationDescriptor(
+            "USE",
+            match.group(1).upper(),
+            _clean_identifier(match.group(2)),
+            "session_change",
+            False,
+        )
+
+    match = _CALL.match(normalized)
+    if match:
+        return MutationDescriptor(
+            "CALL",
+            "PROCEDURE",
+            _clean_identifier(match.group(1)),
+            "procedure_call",
+            False,
+        )
+
+    if _GRANT.match(normalized):
+        return MutationDescriptor("GRANT", "PRIVILEGE", None, "security_change", False)
+
+    if _REVOKE.match(normalized):
+        return MutationDescriptor("REVOKE", "PRIVILEGE", None, "security_change", True)
+
     ast = parse_sql(normalized, "snowflake")
     if not ast.ddl_operations and not ast.dml_operations:
         raise ValueError("statement is read-only; use the read-only SQL tool instead")
@@ -193,7 +223,29 @@ def _show_command(descriptor: MutationDescriptor) -> str | None:
     return command
 
 
-def _verification_plan(descriptor: MutationDescriptor) -> list[dict[str, Any]]:
+def _alter_table_expectation(sql: str) -> list[dict[str, Any]]:
+    normalized = _normalize(sql)
+    target_match = _ALTER.match(normalized)
+    if not target_match or target_match.group(1).upper() != "TABLE":
+        return []
+    target = _clean_identifier(target_match.group(2))
+    add = re.search(r"(?is)\bADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?([\w$\"]+)", normalized)
+    drop = re.search(r"(?is)\bDROP\s+(?:COLUMN\s+)?(?:IF\s+EXISTS\s+)?([\w$\"]+)", normalized)
+    rename = re.search(r"(?is)\bRENAME\s+COLUMN\s+([\w$\"]+)\s+TO\s+([\w$\"]+)", normalized)
+    checks: list[dict[str, Any]] = []
+    if add:
+        checks.append({"kind": "column_presence", "sql": f"DESC TABLE {target}", "column": _clean_identifier(add.group(1)), "expect_present": True})
+    if drop:
+        checks.append({"kind": "column_presence", "sql": f"DESC TABLE {target}", "column": _clean_identifier(drop.group(1)), "expect_present": False})
+    if rename:
+        checks.extend([
+            {"kind": "column_presence", "sql": f"DESC TABLE {target}", "column": _clean_identifier(rename.group(1)), "expect_present": False},
+            {"kind": "column_presence", "sql": f"DESC TABLE {target}", "column": _clean_identifier(rename.group(2)), "expect_present": True},
+        ])
+    return checks
+
+
+def _verification_plan(descriptor: MutationDescriptor, sql: str) -> list[dict[str, Any]]:
     checks: list[dict[str, Any]] = []
     show = _show_command(descriptor)
     if show:
@@ -204,7 +256,29 @@ def _verification_plan(descriptor: MutationDescriptor) -> list[dict[str, Any]]:
                 "expect_present": descriptor.statement_type != "DROP",
             }
         )
-    if descriptor.statement_type in {"INSERT", "UPDATE", "DELETE", "MERGE", "COPY_INTO"}:
+
+    if descriptor.statement_type == "ALTER" and descriptor.object_type == "TABLE":
+        checks.extend(_alter_table_expectation(sql))
+
+    if descriptor.statement_type == "TRUNCATE" and descriptor.target:
+        checks.append(
+            {
+                "kind": "row_count",
+                "sql": f"SELECT COUNT(*) AS ROW_COUNT FROM {descriptor.target}",
+                "expected": 0,
+            }
+        )
+
+    if descriptor.statement_type == "DELETE" and descriptor.destructive and descriptor.target:
+        checks.append(
+            {
+                "kind": "row_count",
+                "sql": f"SELECT COUNT(*) AS ROW_COUNT FROM {descriptor.target}",
+                "expected": 0,
+            }
+        )
+
+    if descriptor.statement_type in {"INSERT", "UPDATE", "DELETE", "MERGE", "COPY_INTO", "CALL", "GRANT", "REVOKE", "USE"}:
         checks.append(
             {
                 "kind": "query_status",
@@ -275,7 +349,9 @@ def plan_snowflake_mutation(sql: str, *, environment: str = "dev") -> dict[str, 
         "blocked": blocked,
         "block_reason": block_reason,
         "required_controls": controls,
-        "verification_plan": _verification_plan(descriptor),
+        "verification_plan": _verification_plan(descriptor, sql),
+        "blast_radius_review_required": descriptor.destructive or descriptor.statement_type in {"ALTER", "CREATE_OR_REPLACE", "GRANT", "REVOKE"},
+        "dependency_analysis_required": descriptor.destructive or descriptor.statement_type in {"ALTER", "CREATE_OR_REPLACE"},
         "rollback_guidance": (
             "Use Snowflake Time Travel/UNDROP or a tested replacement strategy where supported; "
             "validate dependencies before destructive execution."
@@ -356,6 +432,16 @@ class GovernedSnowflakeMutationExecutor:
                 passed = True
                 if item["kind"] == "object_presence":
                     passed = bool(rows) is bool(item["expect_present"])
+                elif item["kind"] == "column_presence":
+                    expected = str(item.get("column") or "").casefold()
+                    present = any(
+                        str(row.get("name") or row.get("NAME") or "").casefold() == expected
+                        for row in rows
+                    )
+                    passed = present is bool(item["expect_present"])
+                elif item["kind"] == "row_count":
+                    row_count = int((rows[0].get("ROW_COUNT") or rows[0].get("row_count") or 0)) if rows else -1
+                    passed = row_count == int(item["expected"])
                 elif item["kind"] == "query_status":
                     mutation_query_id = result.query_id
                     if mutation_query_id:
