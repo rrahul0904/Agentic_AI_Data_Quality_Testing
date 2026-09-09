@@ -7,6 +7,7 @@ Agentic Data Engineering OS includes a read-only Snowflake ingestion testing sur
 The first implementation verifies:
 
 - Snowpipe inventory and `SYSTEM$PIPE_STATUS`
+- `VALIDATE_PIPE_LOAD` error inspection for Snowpipe
 - Stream inventory, staleness and `SYSTEM$STREAM_HAS_DATA`
 - static `COPY INTO` command analysis
 - `INFORMATION_SCHEMA.COPY_HISTORY`
@@ -32,6 +33,7 @@ With Snowflake credentials configured:
 ```bash
 ade snowflake-test pipes --args '{"schema":"HOTEL.RAW"}'
 ade snowflake-test pipe-status --args '{"pipe_name":"HOTEL.RAW.RES_PIPE"}'
+ade snowflake-test pipe-validate --args '{"pipe_name":"HOTEL.RAW.RES_PIPE","hours":24}'
 ade snowflake-test streams --args '{"schema":"HOTEL.RAW"}'
 ade snowflake-test stream-status --args '{"stream_name":"HOTEL.RAW.RES_STREAM"}'
 ade snowflake-test copy-history --args '{"table_name":"HOTEL.RAW.RESERVATION","hours":24}'
@@ -48,6 +50,7 @@ The same governed tools are exposed through the domain API:
 POST /api/v1/snowflake-testing/copy-analyze
 POST /api/v1/snowflake-testing/pipes
 POST /api/v1/snowflake-testing/pipe-status
+POST /api/v1/snowflake-testing/pipe-validate
 POST /api/v1/snowflake-testing/streams
 POST /api/v1/snowflake-testing/stream-status
 POST /api/v1/snowflake-testing/copy-history
