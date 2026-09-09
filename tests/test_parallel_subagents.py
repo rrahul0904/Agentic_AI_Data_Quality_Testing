@@ -86,12 +86,12 @@ def test_runtime_subagent_registry_is_hard_scoped_to_allowed_tools(tmp_path):
     registry = ToolRegistry()
     for name in ("semantic_search", "snowflake_pipeline_rca", "snowflake_mutation_execute"):
         registry.register(ToolDefinition(
-            name,
-            Capability.DISCOVER,
-            Risk.READ_ONLY,
-            lambda args: {"status": "PASS"},
-            name,
-            frozenset({Platform.LOCAL}),
+            name=name,
+            capability=Capability.DISCOVER,
+            risk=Risk.READ_ONLY,
+            supported_platforms=frozenset({Platform.LOCAL}),
+            handler=lambda args: {"status": "PASS"},
+            description=name,
         ))
 
     runtime = AgentRuntime(
