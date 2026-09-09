@@ -214,4 +214,5 @@ capability-superiority-p1-check:
 		tests/test_snowpark_model_registry.py \
 		tests/test_snowpark_ml_workflow.py \
 		tests/test_ai_workflows.py \
-		tests/test_ide_bridge.py
+		tests/test_ide_bridge.py \
+		tests/test_advanced_live_capabilities.py
