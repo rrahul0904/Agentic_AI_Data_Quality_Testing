@@ -77,6 +77,7 @@ def plan_model_lifecycle(
         "action": action,
         "model_name": model,
         "version_name": version_name,
+        "sql": sql,
     }
 
 
