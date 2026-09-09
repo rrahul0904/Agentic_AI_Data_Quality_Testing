@@ -154,6 +154,7 @@ def test_hosted_runner_surfaces_are_exposed():
         "submit",
         "jobs",
         "job",
+        "workspace-readiness",
         "cancel",
         "register",
         "runners",
