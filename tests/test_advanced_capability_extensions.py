@@ -418,7 +418,7 @@ def test_git_branch_and_commit_are_approval_bound_and_never_force_push(tmp_path)
     _git_init(tmp_path)
     branch_plan = git_change_plan(tmp_path, "branch", branch="feature/verified-edit")
     assert branch_plan["force_push"] is False
-    assert branch_plan["push"] == "not_supported_by_design"
+    assert branch_plan["destructive_operations"] == "blocked_by_default"
     branch_result = git_change_apply(
         tmp_path,
         "branch",
