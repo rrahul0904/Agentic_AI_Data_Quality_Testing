@@ -3041,6 +3041,31 @@ def build_tool_registry() -> ToolRegistry:
         requires_approval=True,
     )
 
+    add(
+        "agent_recovery_plan",
+        Capability.PLAN,
+        lambda a: advanced_caps.agent_recovery_plan(
+            a.get("workspace") or str(_target(a)),
+            scenario_id=str(a.get("scenario_id") or "watermark_defect"),
+        ),
+        "Run an evidence-grounded multi-agent investigation through first divergence, RCA, impact and a bounded recovery proposal without external mutation.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "agent_recovery_execute",
+        Capability.EXECUTE,
+        lambda a: advanced_caps.agent_recovery_execute(
+            a.get("workspace") or str(_target(a)),
+            str(a["incident_id"]),
+            approved=bool(a.get("_approved", False)),
+            approved_by=str(a.get("approved_by") or "ade-toolregistry"),
+        ),
+        "Execute an explicitly approved selective recovery in the local proving ground, independently verify it, and re-certify affected assets.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+
     # Local-first semantic search spans code, dbt, Airflow, docs and warehouse metadata.
     add(
         "semantic_index_project",
