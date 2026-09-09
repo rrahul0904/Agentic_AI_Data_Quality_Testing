@@ -56,6 +56,16 @@ class ActorMode(str, Enum):
     ADMIN = "admin"
 
 
+class InteractionMode(str, Enum):
+    """End-user CoCo-style interaction mode, independent of actor authorization."""
+
+    AGENT = "agent"
+    PLAN = "plan"
+    ASK = "ask"
+    EDIT = "edit"
+    CODE = "code"
+
+
 class Capability(str, Enum):
     DISCOVER = "discover"
     PLAN = "plan"
