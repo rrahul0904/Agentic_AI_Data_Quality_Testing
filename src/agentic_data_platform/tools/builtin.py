@@ -113,6 +113,7 @@ from agentic_data_platform.metadata.index import MetadataIndex
 from agentic_data_platform.metadata.service import MetadataService
 from agentic_data_platform.search import UnifiedSemanticIndex
 from agentic_data_platform.semantic import CortexAnalystAdapter, SemanticRegistry, SnowflakeSemanticAdapter, build_analyst_request, evaluate_batch, evaluate_candidate
+from agentic_data_platform.cortex import CortexAgentClient
 from agentic_data_platform.training import (
     TrainingStore,
     import_markdown as training_import_markdown,
@@ -280,6 +281,15 @@ def _snowflake_semantic_adapter(args: dict[str, Any]) -> SnowflakeSemanticAdapte
     if not isinstance(connector, SnowflakeConnector):
         raise TypeError("semantic Snowflake sync requires SnowflakeConnector")
     return SnowflakeSemanticAdapter(connector)
+
+
+def _cortex_agent_client(args: dict[str, Any]) -> CortexAgentClient:
+    return CortexAgentClient(
+        account_url=args.get("account_url"),
+        token=args.get("token"),
+        role=args.get("role"),
+        timeout_seconds=int(args.get("timeout_seconds", 120)),
+    )
 
 
 def _dbt(args: dict[str, Any]) -> DbtManifestGraph:
@@ -970,6 +980,161 @@ def build_tool_registry() -> ToolRegistry:
         ),
         "Run a live Cortex Analyst request when Snowflake REST credentials are configured.",
         platforms=frozenset({Platform.SNOWFLAKE}),
+    )
+
+    add(
+        "cortex_agent_create_plan",
+        Capability.PLAN,
+        lambda a: _cortex_agent_client(a).plan_create(
+            str(a["database"]),
+            str(a["schema"]),
+            dict(a["specification"]),
+            create_mode=str(a.get("create_mode") or "errorIfExists"),
+        ),
+        "Plan creation of a Snowflake Cortex Agent object without sending the request.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "cortex_agent_create",
+        Capability.EXECUTE,
+        lambda a: _cortex_agent_client(a).create(
+            str(a["database"]), str(a["schema"]), dict(a["specification"]),
+            create_mode=str(a.get("create_mode") or "errorIfExists"),
+        ),
+        "Create a Snowflake Cortex Agent object through the current REST API.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "cortex_agent_list",
+        Capability.DISCOVER,
+        lambda a: _cortex_agent_client(a).list(
+            str(a["database"]), str(a["schema"]),
+            like=a.get("like"), limit=a.get("limit"),
+        ),
+        "List Cortex Agent objects in a Snowflake database/schema.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+    )
+    add(
+        "cortex_agent_show",
+        Capability.DISCOVER,
+        lambda a: _cortex_agent_client(a).describe(str(a["database"]), str(a["schema"]), str(a["name"])),
+        "Describe a Snowflake Cortex Agent object.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+    )
+    add(
+        "cortex_agent_update",
+        Capability.EXECUTE,
+        lambda a: _cortex_agent_client(a).update(
+            str(a["database"]), str(a["schema"]), str(a["name"]), dict(a["specification"]),
+        ),
+        "Update a Snowflake Cortex Agent object.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "cortex_agent_delete",
+        Capability.EXECUTE,
+        lambda a: _cortex_agent_client(a).delete(
+            str(a["database"]), str(a["schema"]), str(a["name"]),
+            if_exists=bool(a.get("if_exists", True)),
+        ),
+        "Delete a Snowflake Cortex Agent object.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+        risk=Risk.DESTRUCTIVE,
+        requires_approval=True,
+    )
+    add(
+        "cortex_thread_create",
+        Capability.EXECUTE,
+        lambda a: _cortex_agent_client(a).create_thread(origin_application=str(a.get("origin_application") or "ade")),
+        "Create a Cortex Agent conversation thread.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "cortex_thread_list",
+        Capability.DISCOVER,
+        lambda a: _cortex_agent_client(a).list_threads(page_size=int(a.get("page_size", 50))),
+        "List Cortex Agent threads for the Snowflake user.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+    )
+    add(
+        "cortex_thread_show",
+        Capability.DISCOVER,
+        lambda a: _cortex_agent_client(a).describe_thread(
+            a["thread_id"],
+            page_size=int(a.get("page_size", 50)),
+            last_message_id=a.get("last_message_id"),
+            message_type=a.get("message_type"),
+        ),
+        "Describe a Cortex Agent thread and messages.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+    )
+    add(
+        "cortex_thread_update",
+        Capability.EXECUTE,
+        lambda a: _cortex_agent_client(a).update_thread(a["thread_id"], thread_name=str(a["thread_name"])),
+        "Rename a Cortex Agent thread.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "cortex_thread_delete",
+        Capability.EXECUTE,
+        lambda a: _cortex_agent_client(a).delete_thread(a["thread_id"]),
+        "Delete a Cortex Agent thread and its messages.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+        risk=Risk.DESTRUCTIVE,
+        requires_approval=True,
+    )
+    add(
+        "cortex_agent_run_plan",
+        Capability.PLAN,
+        lambda a: {
+            "status": "PASS",
+            "request": CortexAgentClient.build_run_request(
+                str(a["question"]),
+                thread_id=a.get("thread_id"),
+                parent_message_id=a.get("parent_message_id", 0),
+                tool_names=[str(item) for item in a.get("tool_names") or []],
+                background=bool(a.get("background", False)),
+                stream=bool(a.get("stream", False)),
+            ),
+        },
+        "Build a Cortex Agent run request without invoking the remote agent.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "cortex_agent_run",
+        Capability.EXECUTE,
+        lambda a: _cortex_agent_client(a).run(
+            str(a["database"]), str(a["schema"]), str(a["name"]), str(a["question"]),
+            thread_id=a.get("thread_id"),
+            parent_message_id=a.get("parent_message_id", 0),
+            tool_names=[str(item) for item in a.get("tool_names") or []],
+            background=bool(a.get("background", False)),
+            stream=bool(a.get("stream", False)),
+        ),
+        "Run an approved Cortex Agent request; background runs require a thread.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "cortex_agent_feedback",
+        Capability.EXECUTE,
+        lambda a: _cortex_agent_client(a).feedback(
+            str(a["database"]), str(a["schema"]), str(a["name"]), dict(a["feedback"]),
+        ),
+        "Submit end-user feedback for a Cortex Agent response.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
     )
 
     def training_store(a: dict[str, Any]) -> TrainingStore:
