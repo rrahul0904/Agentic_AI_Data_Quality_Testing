@@ -107,6 +107,7 @@ from agentic_data_platform.sql.parity import (
     translate_sql as sql_translate_impl,
 )
 from agentic_data_platform.connectors.factory import ExternalConnectionUnavailable, connector_from_args
+from agentic_data_platform.snowflake import SnowflakePipelineTester, analyze_copy_command
 from agentic_data_platform.metadata.index import MetadataIndex
 from agentic_data_platform.metadata.service import MetadataService
 from agentic_data_platform.training import (
@@ -289,6 +290,19 @@ def _quality(args: dict[str, Any]) -> SQLiteQualityStore:
     store = SQLiteQualityStore(args.get("database", ":memory:"))
     store.initialize()
     return store
+
+
+def _snowflake_pipeline_tester(args: dict[str, Any]) -> SnowflakePipelineTester:
+    connector = connector_from_args({**args, "platform": "snowflake"})
+    return SnowflakePipelineTester(connector)
+
+
+def _snowflake_pipeline_call(args: dict[str, Any], method: str, **kwargs: Any) -> dict[str, Any]:
+    try:
+        tester = _snowflake_pipeline_tester(args)
+        return getattr(tester, method)(**kwargs)
+    except ExternalConnectionUnavailable as exc:
+        return {"status": "SKIP_EXTERNAL", "platform": "snowflake", "reason": str(exc)}
 
 
 def _connection_store(args: dict[str, Any]) -> ConnectionStore:
@@ -1573,6 +1587,18 @@ def build_tool_registry() -> ToolRegistry:
     add("data_diff_cascade", Capability.VERIFY, lambda a: production_diff(a, "CASCADE"), "Run profile then bounded hash/detail cascade diff.", platforms=frozenset({Platform.LOCAL}))
 
     add("data_diff_duckdb_demo", Capability.VERIFY, lambda a: duckdb_demo_diff(), "Run a real in-memory DuckDB source-target data-diff fixture.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
+
+    # Snowflake ingestion-pipeline verification. These tools are read-only.
+    add("snowflake_copy_analyze", Capability.VERIFY, lambda a: analyze_copy_command(a["sql"]), "Statically analyze a Snowflake COPY INTO command for testability and load-risk options.", platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}))
+    add("snowflake_pipe_inventory", Capability.DISCOVER, lambda a: _snowflake_pipeline_call(a, "pipe_inventory", schema=a.get("schema")), "Inventory Snowpipe definitions in the selected Snowflake scope.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_pipe_status", Capability.VERIFY, lambda a: _snowflake_pipeline_call(a, "pipe_status", pipe_name=a["pipe_name"]), "Verify Snowpipe runtime status with SYSTEM$PIPE_STATUS.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_stream_inventory", Capability.DISCOVER, lambda a: _snowflake_pipeline_call(a, "stream_inventory", schema=a.get("schema")), "Inventory Snowflake Streams and flag stale streams.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_stream_status", Capability.VERIFY, lambda a: _snowflake_pipeline_call(a, "stream_status", stream_name=a["stream_name"]), "Verify stream staleness and pending-data state.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_copy_history", Capability.VERIFY, lambda a: _snowflake_pipeline_call(a, "copy_history", table_name=a["table_name"], hours=int(a.get("hours", 24)), limit=int(a.get("limit", 100))), "Inspect INFORMATION_SCHEMA.COPY_HISTORY for failed files, errors and loaded row counts.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_copy_validate", Capability.VERIFY, lambda a: _snowflake_pipeline_call(a, "validate_copy", table_name=a["table_name"], job_id=str(a.get("job_id", "_last")), limit=int(a.get("limit", 100))), "Read Snowflake VALIDATE results for a COPY job without executing a new load.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_table_quality", Capability.VERIFY, lambda a: _snowflake_pipeline_call(a, "table_quality", table_name=a["table_name"], key_columns=a.get("key_columns", ()), not_null_columns=a.get("not_null_columns", ()), freshness_column=a.get("freshness_column"), max_age_minutes=a.get("max_age_minutes"), min_rows=int(a.get("min_rows", 1))), "Run post-load row-count, null, duplicate-key and freshness checks on a Snowflake target table.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_pipeline_health", Capability.VERIFY, lambda a: _snowflake_pipeline_call(a, "pipeline_health", pipe_name=a.get("pipe_name"), stream_name=a.get("stream_name"), target_table=a.get("target_table"), key_columns=a.get("key_columns", ()), not_null_columns=a.get("not_null_columns", ()), freshness_column=a.get("freshness_column"), max_age_minutes=a.get("max_age_minutes"), history_hours=int(a.get("history_hours", 24))), "Roll up Snowpipe, Stream, COPY history and target-table DQ into one pipeline health verdict.", platforms=frozenset({Platform.SNOWFLAKE}))
+
 
     # Advanced dbt artifact intelligence.
     add("dbt_incremental_analysis", Capability.DBT, lambda a: dbt_incremental_analysis_impl(_dbt(a)), "Analyze incremental model keys, strategies and schema-change risk.")
