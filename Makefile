@@ -186,10 +186,19 @@ snowflake-pipeline-test:
 	PYTHONPATH=src $(PYTHON) -m pytest -q tests/test_snowflake_pipeline_testing.py tests/test_snowflake_pipeline_surface.py tests/test_snowflake_failure_lab.py
 
 
-.PHONY: capability-superiority-check snowflake-governed-mutation-test
+.PHONY: capability-superiority-check coco-certification-reports coco-parity-check snowflake-extension-check snowflake-governed-mutation-test
 capability-superiority-check:
 	PYTHONPATH=src $(PYTHON) scripts/check_capability_superiority.py --json
 	PYTHONPATH=src $(PYTHON) -m pytest -q tests/test_capability_superiority_ledger.py
+
+coco-certification-reports:
+	PYTHONPATH=src $(PYTHON) scripts/generate_coco_certification.py
+
+coco-parity-check: capability-superiority-check coco-certification-reports
+	PYTHONPATH=src $(PYTHON) scripts/check_capability_superiority.py --scope coco --require-coco-parity --json
+
+snowflake-extension-check: capability-superiority-check coco-certification-reports
+	PYTHONPATH=src $(PYTHON) scripts/check_capability_superiority.py --scope extensions --json
 
 snowflake-governed-mutation-test:
 	PYTHONPATH=src $(PYTHON) -m pytest -q tests/test_snowflake_governed_mutation.py
