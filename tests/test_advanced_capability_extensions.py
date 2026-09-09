@@ -12,6 +12,8 @@ import pytest
 
 from agentic_data_platform.advanced_capabilities import (
     EmbeddedAgentSession,
+    agent_recovery_execute,
+    agent_recovery_plan,
     account_admin_plan,
     anomaly_compare,
     audited_web_fetch,
@@ -500,3 +502,101 @@ def test_registered_advanced_tools_inherit_plan_and_approval_boundary(tmp_path) 
                 actor_mode=ActorMode.PLAN,
             )
         )
+
+
+
+def test_agent_recovery_lifecycle_is_plan_approve_execute_verify_recertify(tmp_path) -> None:
+    planned = agent_recovery_plan(tmp_path, scenario_id="watermark_defect")
+    assert planned["status"] == "PASS"
+    assert planned["phase"] == "AWAITING_APPROVAL"
+    assert planned["external_mutation"] is False
+    assert planned["approval_required"] is True
+    assert planned["first_divergence"] == "source→raw"
+    assert planned["root_cause"] == "WATERMARK_ADVANCED_BEYOND_EXTRACT"
+    assert planned["evidence_count"] > 0
+
+    blocked = agent_recovery_execute(tmp_path, planned["incident_id"], approved=False)
+    assert blocked["status"] == "AWAITING_APPROVAL"
+
+    resolved = agent_recovery_execute(
+        tmp_path,
+        planned["incident_id"],
+        approved=True,
+        approved_by="capability-certification",
+    )
+    assert resolved["status"] == "PASS"
+    assert resolved["state"] == "RESOLVED"
+    assert resolved["external_mutation"] is False
+    assert resolved["airflow_actions"][0]["operation"] == "bounded_backfill"
+    assert resolved["dbt_selector"] == "stg_postgres_payment_transaction+"
+    assert resolved["verification"]["status"] == "PASS"
+    assert resolved["verification"]["affected_dbt_tests"] == "PASS"
+    assert resolved["verification"]["pipeline_execution"] == "PASS"
+    assert resolved["certification"] == "CERTIFIED"
+
+
+def test_web_workbench_exposes_same_governed_advanced_tools_as_registry(tmp_path) -> None:
+    from fastapi.testclient import TestClient
+
+    from agentic_data_platform.api.app import create_app
+    from agentic_data_platform.persistence.sqlite import SQLiteControlPlaneRepository
+
+    repository = SQLiteControlPlaneRepository(tmp_path / "control-plane.db")
+    client = TestClient(create_app(repository))
+
+    domains = client.get("/api/v1/domains")
+    assert domains.status_code == 200
+    advanced = domains.json()["advanced"]
+    expected_operations = {
+        "mode",
+        "plan-create",
+        "plan-verify",
+        "edit-plan",
+        "edit-apply",
+        "shell-plan",
+        "shell-run",
+        "git-plan",
+        "git-apply",
+        "web-fetch",
+        "web-search",
+        "retrieval-search",
+        "context-select",
+        "agent-validate",
+        "agent-recovery-plan",
+        "agent-recovery-execute",
+        "object-search",
+        "sql-playground",
+        "chart-build",
+        "forecast",
+        "anomaly",
+        "document-extract",
+        "sdk-contract",
+        "account-admin-plan",
+        "gpu-plan",
+        "gpu-run",
+    }
+    assert expected_operations <= set(advanced)
+
+    plan_mode = client.post(
+        "/api/v1/advanced/mode",
+        json={"args": {"mode": "plan"}, "actor_mode": "analyst", "environment": "dev"},
+    )
+    assert plan_mode.status_code == 200
+    assert plan_mode.json()["mode"] == "plan"
+
+    denied = client.post(
+        "/api/v1/advanced/edit-apply",
+        json={
+            "args": {
+                "workspace": str(tmp_path),
+                "path": "should-not-exist.txt",
+                "content": "blocked",
+                "approval_fingerprint": "irrelevant",
+            },
+            "actor_mode": "plan",
+            "environment": "dev",
+            "approved": True,
+        },
+    )
+    assert denied.status_code == 403
+    assert not (tmp_path / "should-not-exist.txt").exists()
