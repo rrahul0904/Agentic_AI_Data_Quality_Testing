@@ -15,6 +15,7 @@ from agentic_data_platform.agents.roles import agent_roster
 from agentic_data_platform.agents.recovery import RecoveryAction, SelectiveRecoveryPlan, build_selective_recovery_plan
 from agentic_data_platform.agents.scenarios import FailureScenario, InvestigationScenario, benchmark_catalog, get_scenario, scenario_catalog
 from agentic_data_platform.agents.store import InvestigationStore
+from agentic_data_platform.agents.teams import TeamCoordinator, TeamStore, TeamTask
 from agentic_data_platform.agents.supervisor import SupervisorAgent
 
 __all__ = [
@@ -37,6 +38,9 @@ __all__ = [
     "benchmark_catalog",
     "InvestigationStore",
     "SupervisorAgent",
+    "TeamCoordinator",
+    "TeamStore",
+    "TeamTask",
     "agent_roster",
     "get_scenario",
     "scenario_catalog",
