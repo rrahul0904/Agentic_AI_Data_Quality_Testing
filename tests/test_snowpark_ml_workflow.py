@@ -76,6 +76,9 @@ def test_snowpark_ml_classification_plan_generates_train_evaluate_register_code(
     assert "registry.log_model" in plan["python"]
     assert plan["parameters"]["input_cols"] == ["AGE", "SPEND", "STAYS"]
     assert len(plan["approval_fingerprint"]) == 64
+    assert plan["lineage"]["source"] == "HOTEL.FEATURES.CHURN_TRAINING"
+    assert plan["lineage"]["target"] == "HOTEL.ML.CHURN_MODEL:V3"
+    assert plan["lineage"]["features"] == ["AGE", "SPEND", "STAYS"]
 
 
 def test_snowpark_ml_regression_plan_uses_mean_squared_error():
@@ -148,6 +151,8 @@ def test_snowpark_ml_embedded_runtime_trains_evaluates_and_registers():
     assert metric_calls[0]["y_true_col_names"] == ["CHURNED"]
     assert registry.calls[0]["metrics"] == {"accuracy": 0.875}
     assert registry.calls[0]["sample_input_data"].name == "source_train_sample"
+    assert result["lineage"]["source"] == "HOTEL.FEATURES.CHURN_TRAINING"
+    assert result["lineage"]["target"] == "HOTEL.ML.CHURN_MODEL:V3"
 
 
 def test_snowpark_ml_plan_rejects_unsafe_identifiers_and_invalid_train_fraction():
