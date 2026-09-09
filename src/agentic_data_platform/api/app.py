@@ -718,6 +718,11 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             "plan": "snowflake_mutation_plan",
             "execute": "snowflake_mutation_execute",
         },
+        "dbt-managed": {
+            "commands": "snowflake_managed_dbt_commands",
+            "plan": "snowflake_managed_dbt_plan",
+            "execute": "snowflake_managed_dbt_execute",
+        },
         "snowflake-testing": {
             "copy-analyze": "snowflake_copy_analyze",
             "failure-lab": "snowflake_failure_lab",
