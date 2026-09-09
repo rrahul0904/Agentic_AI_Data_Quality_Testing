@@ -1511,7 +1511,7 @@ def build_tool_registry() -> ToolRegistry:
         if not isinstance(connector, SnowflakeConnector):
             raise TypeError("model lifecycle execution requires SnowflakeConnector")
         return GovernedSnowflakeMutationExecutor(connector).execute(
-            plan["statement"],
+            plan["sql"],
             environment=str(a.get("_environment") or "dev"),
             approval_fingerprint=plan["approval_fingerprint"],
             approved=bool(a.get("_approved")),
