@@ -1281,10 +1281,6 @@ def gpu_job_plan(
         * replica_count
     )
     argv = _argv(command)
-    if key == "snowflake" and not compute_pool:
-        raise ValueError("compute_pool is required for Snowflake GPU jobs")
-    if key == "kubernetes" and not re.fullmatch(r"[a-z0-9]([-a-z0-9.]*[a-z0-9])?", namespace):
-        raise ValueError("invalid Kubernetes namespace")
     safe_job_name = job_name or f"ade-gpu-{_digest({'image': image, 'command': argv})[:10]}"
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,120}", safe_job_name):
         raise ValueError("invalid job_name")
@@ -1303,6 +1299,18 @@ def gpu_job_plan(
         "namespace": namespace,
     }
     blocked = estimated > float(max_cost_usd)
+    if blocked:
+        return {
+            "status": "BLOCKED_COST",
+            "mode": "PLAN_ONLY",
+            **payload,
+            "approval_fingerprint": _digest(payload),
+            "portable": True,
+        }
+    if key == "snowflake" and not compute_pool:
+        raise ValueError("compute_pool is required for Snowflake GPU jobs")
+    if key == "kubernetes" and not re.fullmatch(r"[a-z0-9]([-a-z0-9.]*[a-z0-9])?", namespace):
+        raise ValueError("invalid Kubernetes namespace")
     if key == "snowflake":
         spec = {
             "spec": {
@@ -1378,7 +1386,7 @@ def gpu_job_plan(
             "verification": "bounded process exit code and captured output",
         }
     return {
-        "status": "BLOCKED_COST" if blocked else "PASS",
+        "status": "PASS",
         "mode": "PLAN_ONLY",
         **payload,
         "approval_fingerprint": _digest(payload),
