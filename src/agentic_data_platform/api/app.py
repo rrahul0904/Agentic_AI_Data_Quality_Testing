@@ -807,6 +807,11 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             "submit": "job_submit", "list": "job_list", "show": "job_show",
             "cancel": "job_cancel",
         },
+        "automations": {
+            "create": "automation_create", "list": "automation_list", "show": "automation_show",
+            "enable": "automation_enable", "approve": "automation_approve",
+            "run-due": "automation_run_due", "delete": "automation_delete",
+        },
     }
 
     @app.get("/api/v1/domains")
