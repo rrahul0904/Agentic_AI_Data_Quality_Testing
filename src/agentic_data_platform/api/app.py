@@ -769,6 +769,8 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             "plan-verify": "immutable_plan_verify",
             "edit-plan": "workspace_edit_plan",
             "edit-apply": "workspace_edit_apply",
+            "region-edit-plan": "workspace_region_edit_plan",
+            "region-edit-apply": "workspace_region_edit_apply",
             "shell-plan": "shell_plan",
             "shell-run": "shell_run",
             "shell-status": "shell_status",
