@@ -8,6 +8,7 @@ import json
 import math
 from pathlib import Path
 import re
+import sys
 from typing import Any, Iterable
 
 from agentic_data_platform.advanced_capabilities import run_command
@@ -376,6 +377,7 @@ def python_repl_plan(
         f"/workspace/{state_rel}" if key == "container" else str(state_path),
         f"/workspace/{history_rel}" if key == "container" else str(history_path),
     )
+    python_executable = "python" if key == "container" else sys.executable
     payload = {
         "backend": key,
         "session_id": _safe_session_id(session_id),
@@ -386,7 +388,7 @@ def python_repl_plan(
         "timeout_seconds": max(1, min(int(timeout_seconds), 600)),
         "memory_mb": max(64, min(int(memory_mb), 8192)),
         "network_enabled": bool(network_enabled),
-        "command": ["python", "-I", "-c", wrapper],
+        "command": [python_executable, "-I", "-c", wrapper],
     }
     plan = {
         "status": "PASS",
