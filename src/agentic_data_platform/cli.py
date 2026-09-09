@@ -47,6 +47,16 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
         "snowflake-sync": "semantic_snowflake_sync",
         "analyst-plan": "cortex_analyst_plan", "analyst-run": "cortex_analyst_run",
     },
+    "cortex-agent": {
+        "create-plan": "cortex_agent_create_plan", "create": "cortex_agent_create",
+        "list": "cortex_agent_list", "show": "cortex_agent_show",
+        "update": "cortex_agent_update", "delete": "cortex_agent_delete",
+        "run-plan": "cortex_agent_run_plan", "run": "cortex_agent_run",
+        "feedback": "cortex_agent_feedback",
+        "thread-create": "cortex_thread_create", "thread-list": "cortex_thread_list",
+        "thread-show": "cortex_thread_show", "thread-update": "cortex_thread_update",
+        "thread-delete": "cortex_thread_delete",
+    },
     "warehouse": {
         "status": "warehouse_status", "add": "connection_add", "remove": "connection_remove",
         "list": "connection_list", "show": "connection_show", "test": "connection_test",
