@@ -6,6 +6,8 @@ on:
       - 'src/agentic_data_platform/snowflake/**'
       - 'src/agentic_data_platform/search/**'
       - 'src/agentic_data_platform/agents/parallel.py'
+      - 'src/agentic_data_platform/agents/teams.py'
+      - 'src/agentic_data_platform/teammates/**'
       - 'src/agentic_data_platform/automations/**'
       - 'src/agentic_data_platform/plugins/**'
       - 'src/agentic_data_platform/semantic/**'
@@ -62,6 +64,8 @@ on:
       - 'tests/test_todo_management.py'
       - 'tests/test_coco_modes.py'
       - 'tests/test_workspace_files.py'
+      - 'tests/test_agent_teams.py'
+      - 'tests/test_hosted_workspace_isolation.py'
       - 'tests/test_snowflake_managed_dbt.py'
       - '.github/workflows/ade-capability-superiority.yml'
       - 'Makefile'
@@ -125,6 +129,8 @@ jobs:
           src/agentic_data_platform/snowflake
           src/agentic_data_platform/search
           src/agentic_data_platform/agents/parallel.py
+          src/agentic_data_platform/agents/teams.py
+          src/agentic_data_platform/teammates/service.py
           src/agentic_data_platform/automations
           src/agentic_data_platform/plugins
           src/agentic_data_platform/semantic
@@ -176,6 +182,8 @@ jobs:
           tests/test_todo_management.py
           tests/test_coco_modes.py
           tests/test_workspace_files.py
+          tests/test_agent_teams.py
+          tests/test_hosted_workspace_isolation.py
           scripts/live_advanced_capabilities.py
           scripts/run_hosted_runner.py
           tests/test_capability_superiority_ledger.py
