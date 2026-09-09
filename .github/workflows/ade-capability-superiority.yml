@@ -4,6 +4,11 @@ on:
   pull_request:
     paths:
       - 'src/agentic_data_platform/snowflake/**'
+      - 'src/agentic_data_platform/search/**'
+      - 'src/agentic_data_platform/agents/parallel.py'
+      - 'src/agentic_data_platform/automations/**'
+      - 'src/agentic_data_platform/plugins/**'
+      - 'src/agentic_data_platform/runtime/agent.py'
       - 'src/agentic_data_platform/connectors/snowflake.py'
       - 'src/agentic_data_platform/tools/**'
       - 'src/agentic_data_platform/cli.py'
@@ -12,6 +17,12 @@ on:
       - 'scripts/check_capability_superiority.py'
       - 'tests/test_capability_superiority_ledger.py'
       - 'tests/test_snowflake_governed_mutation.py'
+      - 'tests/test_unified_semantic_search.py'
+      - 'tests/test_parallel_subagents.py'
+      - 'tests/test_enforceable_plugin_hooks.py'
+      - 'tests/test_automation_scheduler.py'
+      - 'tests/test_plugin_bundles.py'
+      - 'tests/test_snowflake_managed_dbt.py'
       - '.github/workflows/ade-capability-superiority.yml'
       - 'Makefile'
   workflow_dispatch:
@@ -35,6 +46,8 @@ jobs:
         run: make capability-superiority-check
       - name: Governed Snowflake mutation tests
         run: make snowflake-governed-mutation-test
+      - name: P1 capability superiority tests
+        run: make capability-superiority-p1-check
       - name: Offline CREATE plan smoke
         run: |
           ade snowflake-admin plan --environment dev --args '{"sql":"CREATE TABLE HOTEL.RAW.CI_MUTATION_TEST(ID NUMBER)"}'
@@ -67,7 +80,24 @@ jobs:
           print(result["status"])
           PY
       - name: Ruff targeted files
-        run: ruff check src/agentic_data_platform/snowflake src/agentic_data_platform/connectors/snowflake.py tests/test_snowflake_governed_mutation.py tests/test_capability_superiority_ledger.py scripts/check_capability_superiority.py
+        run: >-
+          ruff check
+          src/agentic_data_platform/snowflake
+          src/agentic_data_platform/search
+          src/agentic_data_platform/agents/parallel.py
+          src/agentic_data_platform/automations
+          src/agentic_data_platform/plugins
+          src/agentic_data_platform/runtime/agent.py
+          src/agentic_data_platform/connectors/snowflake.py
+          tests/test_snowflake_governed_mutation.py
+          tests/test_snowflake_managed_dbt.py
+          tests/test_unified_semantic_search.py
+          tests/test_parallel_subagents.py
+          tests/test_enforceable_plugin_hooks.py
+          tests/test_automation_scheduler.py
+          tests/test_plugin_bundles.py
+          tests/test_capability_superiority_ledger.py
+          scripts/check_capability_superiority.py
 
   full-regression:
     needs: targeted-certification
