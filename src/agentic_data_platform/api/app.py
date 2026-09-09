@@ -809,6 +809,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             "web-search": "web_search_audited",
             "retrieval-search": "retrieval_search",
             "context-select": "context_select",
+            "context-compact": "context_compact",
             "agent-validate": "custom_agent_validate",
             "agent-save": "custom_agent_save",
             "agent-list": "custom_agent_list",
