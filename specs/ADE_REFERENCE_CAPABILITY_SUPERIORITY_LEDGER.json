@@ -1123,6 +1123,266 @@
           "Certified implementation head 41471d33cf666dd2e0abb4cfbc90f45c9dd3748d"
         ]
       }
+    },
+    {
+      "id": "tools.python_repl",
+      "reference": "Stateful governed Python REPL for coding and data exploration",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "partial",
+      "target_score": 2,
+      "superiority_advantages": [
+        "container-sandbox execution class with network/resource controls",
+        "persistent JSON-safe namespace with auditable cell history"
+      ],
+      "acceptance": "Python cells execute through an approval-bound REPL, preserve supported state across cells, expose history/state evidence, and never mislabel constrained execution as sandboxed.",
+      "known_limitation": "Implementation is on branch and awaits exact-head deterministic certification."
+    },
+    {
+      "id": "search.code_deterministic",
+      "reference": "Deterministic code/text/symbol search across the governed workspace",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "partial",
+      "target_score": 2,
+      "superiority_advantages": [
+        "line/column/file-hash evidence",
+        "language-aware symbol index with reproducible fingerprint"
+      ],
+      "acceptance": "Exact code search returns bounded path/line/column evidence tied to immutable file hashes and a reproducible index fingerprint.",
+      "known_limitation": "Implementation is on branch and awaits exact-head deterministic certification."
+    },
+    {
+      "id": "sessions.history",
+      "reference": "Durable resumable session history",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "partial",
+      "target_score": 2,
+      "superiority_advantages": [
+        "durable provider-independent history",
+        "stable history fingerprints for review and replay"
+      ],
+      "acceptance": "Sessions persist ordered user/assistant/tool history across process restarts and expose an auditable history fingerprint.",
+      "known_limitation": "Implementation is on branch and awaits exact-head deterministic certification."
+    },
+    {
+      "id": "sessions.checkpoints",
+      "reference": "Durable session checkpoints",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "partial",
+      "target_score": 2,
+      "superiority_advantages": [
+        "messages+todos+reminders+state captured together",
+        "immutable snapshot fingerprints"
+      ],
+      "acceptance": "Users/agents can create, list and inspect durable checkpoints that snapshot session messages, verified todos, reminders and state.",
+      "known_limitation": "Implementation is on branch and awaits exact-head deterministic certification."
+    },
+    {
+      "id": "sessions.diff_review",
+      "reference": "Checkpoint/session change review",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "partial",
+      "target_score": 2,
+      "superiority_advantages": [
+        "message/todo/state/status diff in one review",
+        "fingerprinted review evidence"
+      ],
+      "acceptance": "ADE can compare two checkpoints and review added/removed/changed messages, todos, state and session status with stable evidence.",
+      "known_limitation": "Implementation is on branch and awaits exact-head deterministic certification."
+    },
+    {
+      "id": "agents.background",
+      "reference": "Durable background agent jobs",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "partial",
+      "target_score": 2,
+      "superiority_advantages": [
+        "durable job state independent of interactive session",
+        "cancel/status/result evidence across local and hosted runners"
+      ],
+      "acceptance": "Long-running agent work can run in the background, be inspected/cancelled, and return durable evidence without blocking an interactive session."
+    },
+    {
+      "id": "agents.subagents",
+      "reference": "Scoped specialist subagents",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "partial",
+      "target_score": 2,
+      "superiority_advantages": [
+        "tool/scope/budget contracts inherited by each specialist",
+        "parent-child evidence synthesis"
+      ],
+      "acceptance": "A parent agent can spawn scoped specialist subagents with explicit tools, budgets, context and verification contracts, then synthesize their evidence."
+    },
+    {
+      "id": "agents.teams",
+      "reference": "Persistent multi-agent team orchestration",
+      "phase": "P2",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "partial",
+      "target_score": 2,
+      "superiority_advantages": [
+        "named teammate roles with persistent configuration",
+        "parallel/dependency-aware work with review evidence"
+      ],
+      "acceptance": "ADE supports named agent teams whose members have persistent roles/tool scopes and can coordinate parallel/dependent work under a supervisor."
+    },
+    {
+      "id": "rules.instructions",
+      "reference": "Project/global rules and instruction hierarchy",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "partial",
+      "target_score": 2,
+      "superiority_advantages": [
+        "inspectable project/global precedence",
+        "path-scoped instructions combined with policy-enforced tools"
+      ],
+      "acceptance": "Project/global instructions and rules are discoverable, composable by deterministic precedence/path scope, inspectable, and cannot bypass tool policy."
+    },
+    {
+      "id": "context.pin_exclude",
+      "reference": "Explicit context pin and exclude controls",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "gap",
+      "target_score": 2,
+      "superiority_advantages": [
+        "user-visible pinned/blocked evidence set",
+        "provider-independent context selection constraints"
+      ],
+      "acceptance": "Users/agents can pin required context items and exclude unwanted items, and those constraints are honored by evidence-ranked context selection."
+    },
+    {
+      "id": "context.compaction",
+      "reference": "Context compaction and overflow recovery",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "partial",
+      "target_score": 2,
+      "superiority_advantages": [
+        "deterministic summaries with preserved recent evidence",
+        "model-window-aware overflow detection and retry strategy"
+      ],
+      "acceptance": "ADE detects model context overflow, compacts deterministically while preserving pinned/recent evidence, and records compaction boundaries."
+    },
+    {
+      "id": "hosted.workspace_isolation",
+      "reference": "Isolated hosted/cloud workspaces for ADE jobs and automations",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "partial",
+      "target_score": 2,
+      "superiority_advantages": [
+        "workspace isolation independent of Snowflake runtime",
+        "durable job/automation evidence with explicit resource/network policy"
+      ],
+      "acceptance": "Hosted agent/automation work executes in an isolated workspace with explicit filesystem, network, resource and credential boundaries."
+    },
+    {
+      "id": "surfaces.operator_console",
+      "reference": "Rich governed operator console parity with CLI",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "partial",
+      "target_score": 2,
+      "superiority_advantages": [
+        "same ToolRegistry workflows as CLI/API",
+        "live evidence, approvals, plans, diffs, jobs and certification in one surface"
+      ],
+      "acceptance": "The web operator console can perform and inspect the same governed CoCo workflows as CLI/API, including modes, plans, approvals, files, terminal/jobs, diffs, sessions and evidence."
+    },
+    {
+      "id": "ide.vscode",
+      "reference": "VS Code workspace/extension integration",
+      "phase": "P2",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "partial",
+      "target_score": 2,
+      "superiority_advantages": [
+        "project-scoped generated extension/workspace bundle",
+        "shared ADE session/tool-policy backend rather than IDE-specific execution"
+      ],
+      "acceptance": "A generated VS Code integration exposes ADE sessions, governed edits/tools and evidence while sharing the same backend policies as CLI/web."
+    },
+    {
+      "id": "apps.generic_workflow",
+      "reference": "Generic application scaffold, preview, verification and deployment workflow",
+      "phase": "P2",
+      "classification": "COCO_WORKFLOW",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "partial",
+      "target_score": 2,
+      "superiority_advantages": [
+        "framework/provider-neutral app plan with preview evidence",
+        "deployment plus rollback verification under one approval envelope"
+      ],
+      "acceptance": "ADE can scaffold a runnable app, preview/verify it, deploy through a selected backend and validate rollback without Snowflake-only coupling."
+    },
+    {
+      "id": "governance.permissions_admin",
+      "reference": "Governed permissions and access administration",
+      "phase": "P1",
+      "classification": "COCO_WORKFLOW",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "partial",
+      "target_score": 2,
+      "superiority_advantages": [
+        "least-privilege plan with blast-radius evidence",
+        "provider-neutral permission model plus platform adapters"
+      ],
+      "acceptance": "ADE can inspect, plan and apply supported permission/RBAC changes only after approval, then independently verify resulting access and blast radius."
+    },
+    {
+      "id": "ml.agentic_workflow",
+      "reference": "End-to-end agentic ML workflow",
+      "phase": "P2",
+      "classification": "COCO_WORKFLOW",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "partial",
+      "target_score": 2,
+      "superiority_advantages": [
+        "data-to-evaluation-to-registry workflow with lineage",
+        "portable baseline/model comparison and cost/evidence controls"
+      ],
+      "acceptance": "An ADE agent can prepare data, train/evaluate competing models, select/register an artifact, record lineage/cost/evidence and verify a deployment or inference path."
     }
   ],
   "benchmark_tracks": {
@@ -1139,5 +1399,28 @@
         "ADE_EXTENSION"
       ]
     }
+  },
+  "target_matrix": {
+    "version": "2026-09-coco-parity-expanded",
+    "description": "Expanded first-class CoCo target matrix. Broad legacy entries remain, but each explicitly requested end-user capability is separately release-tracked.",
+    "required_capabilities": [
+      "tools.python_repl",
+      "search.code_deterministic",
+      "sessions.history",
+      "sessions.checkpoints",
+      "sessions.diff_review",
+      "agents.background",
+      "agents.subagents",
+      "agents.teams",
+      "rules.instructions",
+      "context.pin_exclude",
+      "context.compaction",
+      "hosted.workspace_isolation",
+      "surfaces.operator_console",
+      "ide.vscode",
+      "apps.generic_workflow",
+      "governance.permissions_admin",
+      "ml.agentic_workflow"
+    ]
   }
 }
