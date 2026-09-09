@@ -38,6 +38,7 @@ class SnowflakeConnector(DataPlatformConnector):
             ConnectorCapability.DESCRIBE_TABLE,
             ConnectorCapability.QUERY_READ,
             ConnectorCapability.QUERY_DRY_RUN,
+            ConnectorCapability.QUERY_WRITE,
             ConnectorCapability.GET_DDL,
             ConnectorCapability.GET_QUERY_HISTORY,
             ConnectorCapability.GET_COST_METADATA,
@@ -75,6 +76,25 @@ class SnowflakeConnector(DataPlatformConnector):
     def execute_read(self, sql: str) -> QueryResult:
         self.require_read_only(sql)
         return self._read(sql)
+
+    def execute_governed_mutation(self, sql: str) -> QueryResult:
+        """Execute a mutation only when called by the governed mutation layer.
+
+        The base connector's execute()/execute_read() methods remain read-only.
+        Callers must route writes through ToolRegistry and the Snowflake mutation
+        planner so approval, environment policy, fingerprint binding, and
+        post-execution verification are enforced before this method is reached.
+        """
+        raw = execute(self._executor, sql)
+        try:
+            return query_result(raw)
+        except Exception:
+            return QueryResult(
+                (),
+                (),
+                getattr(raw, "sfqid", None),
+                {"statement_executed": True},
+            )
 
     def query_history(self, *, days: int = 7, limit: int = 1000, **_: Any) -> list[dict[str, Any]]:
         days = max(1, min(int(days), 365))
