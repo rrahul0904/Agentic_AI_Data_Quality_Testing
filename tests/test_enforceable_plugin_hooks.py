@@ -33,12 +33,12 @@ def test_runtime_hook_can_block_tool_before_execution(tmp_path):
     calls: list[dict] = []
     registry = ToolRegistry()
     registry.register(ToolDefinition(
-        "read_tool",
-        Capability.DISCOVER,
-        Risk.READ_ONLY,
-        lambda args: calls.append(dict(args)) or {"status": "PASS"},
-        "read tool",
-        frozenset({Platform.LOCAL}),
+        name="read_tool",
+        capability=Capability.DISCOVER,
+        risk=Risk.READ_ONLY,
+        supported_platforms=frozenset({Platform.LOCAL}),
+        handler=lambda args: calls.append(dict(args)) or {"status": "PASS"},
+        description="read tool",
     ))
     plugins = PluginManager()
     plugins.register(
@@ -65,12 +65,12 @@ def test_runtime_hook_can_modify_safe_tool_arguments(tmp_path):
     calls: list[dict] = []
     registry = ToolRegistry()
     registry.register(ToolDefinition(
-        "read_tool",
-        Capability.DISCOVER,
-        Risk.READ_ONLY,
-        lambda args: calls.append(dict(args)) or {"status": "PASS", "args": dict(args)},
-        "read tool",
-        frozenset({Platform.LOCAL}),
+        name="read_tool",
+        capability=Capability.DISCOVER,
+        risk=Risk.READ_ONLY,
+        supported_platforms=frozenset({Platform.LOCAL}),
+        handler=lambda args: calls.append(dict(args)) or {"status": "PASS", "args": dict(args)},
+        description="read tool",
     ))
     plugins = PluginManager()
     plugins.register(
@@ -96,13 +96,13 @@ def test_hook_argument_rewrite_invalidates_existing_mutation_approval(tmp_path):
     calls: list[dict] = []
     registry = ToolRegistry()
     registry.register(ToolDefinition(
-        "write_tool",
-        Capability.EXECUTE,
-        Risk.MUTATING,
-        lambda args: calls.append(dict(args)) or {"status": "PASS"},
-        "approval-gated write",
-        frozenset({Platform.LOCAL}),
+        name="write_tool",
+        capability=Capability.EXECUTE,
+        risk=Risk.MUTATING,
+        supported_platforms=frozenset({Platform.LOCAL}),
+        handler=lambda args: calls.append(dict(args)) or {"status": "PASS"},
         requires_approval=True,
+        description="approval-gated write",
     ))
     plugins = PluginManager()
     plugins.register(
