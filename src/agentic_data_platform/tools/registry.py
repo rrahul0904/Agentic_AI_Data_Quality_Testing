@@ -53,7 +53,7 @@ class ToolRegistry:
         if not definition.enabled:
             raise PermissionError(f"tool {definition.name} is disabled")
         request = invocation.request
-        if invocation.actor_mode in {ActorMode.ANALYST, ActorMode.PLAN} and definition.risk is not Risk.READ_ONLY:
+        if invocation.actor_mode in {ActorMode.ANALYST, ActorMode.ASK, ActorMode.PLAN} and definition.risk is not Risk.READ_ONLY:
             raise PermissionError(f"{invocation.actor_mode.value} mode cannot invoke {definition.risk.value} tools")
         if request.risk is not definition.risk:
             raise PermissionError("request risk does not match registered tool risk")
