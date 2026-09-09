@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import math
@@ -50,50 +51,140 @@ def _path(workspace: str | Path, path: str | Path) -> Path:
 
 def mode_contract(mode: str, *, budget_usd: float | None = None) -> dict[str, Any]:
     key = str(mode).casefold().replace("-", "_")
+    coding_tools = [
+        "files",
+        "shell",
+        "background_shell",
+        "code_search",
+        "semantic_code_search",
+        "web_search",
+        "web_fetch",
+        "subagents",
+        "python_repl",
+        "git",
+        "tests",
+    ]
+    read_only_tools = [
+        "files_read",
+        "code_search",
+        "semantic_code_search",
+        "git_status",
+        "git_log",
+        "sql_metadata",
+        "sql_read",
+        "web_search",
+        "web_fetch",
+        "read_only_subagents",
+        "schema_inspection",
+        "lineage",
+    ]
     contracts: dict[str, dict[str, Any]] = {
         "agent": {
             "actor_mode": "builder",
+            "purpose": "plan_execute_verify_recover",
             "read_tools": True,
             "workspace_mutations": "approval_required",
             "data_mutations": "approval_required",
             "verification_required": True,
             "recovery_required": True,
             "model_policy": "capability_first",
+            "allowed_tool_categories": ["*"],
+            "denied_tool_categories": [],
         },
         "plan": {
             "actor_mode": "plan",
+            "purpose": "implementation_research_and_structured_plan",
             "read_tools": True,
             "workspace_mutations": False,
             "data_mutations": False,
             "verification_required": True,
             "recovery_required": False,
             "model_policy": "reasoning_first",
+            "allowed_tool_categories": read_only_tools,
+            "denied_tool_categories": [
+                "file_mutation",
+                "git_mutation",
+                "shell_mutation",
+                "sql_ddl",
+                "sql_dml",
+                "notebook_mutation",
+                "deployment",
+                "account_mutation",
+            ],
+            "output_contract": [
+                "context",
+                "findings",
+                "ordered_implementation_steps",
+                "critical_files",
+                "verification_plan",
+                "risks",
+                "dependencies",
+                "expected_outputs",
+            ],
+        },
+        "ask": {
+            "actor_mode": "plan",
+            "purpose": "question_answer_exploration",
+            "read_tools": True,
+            "workspace_mutations": False,
+            "data_mutations": False,
+            "verification_required": False,
+            "recovery_required": False,
+            "model_policy": "grounded_answer",
+            "allowed_tool_categories": read_only_tools,
+            "denied_tool_categories": [
+                "file_mutation",
+                "git_mutation",
+                "shell_mutation",
+                "sql_ddl",
+                "sql_dml",
+                "notebook_mutation",
+                "deployment",
+                "account_mutation",
+            ],
+            "output_contract": ["answer", "evidence"],
+            "implementation_plan_required": False,
         },
         "edit": {
             "actor_mode": "builder",
+            "purpose": "selected_region_edit",
             "read_tools": True,
             "workspace_mutations": "hash_bound_approval",
             "data_mutations": False,
             "verification_required": True,
             "recovery_required": True,
             "model_policy": "code_edit",
+            "allowed_tool_categories": ["files_read", "selected_region_edit", "tests"],
+            "denied_tool_categories": ["sql_ddl", "sql_dml", "deployment", "account_mutation"],
         },
         "code": {
             "actor_mode": "builder",
+            "purpose": "cost_optimized_coding",
             "read_tools": True,
             "workspace_mutations": "hash_bound_approval",
             "data_mutations": False,
             "verification_required": True,
             "recovery_required": True,
             "model_policy": "lowest_cost_capable_model",
+            "allowed_tool_categories": coding_tools,
+            "denied_tool_categories": [
+                "snowflake_data_tools",
+                "dbt_data_execution",
+                "notebook_data_tools",
+                "mcp",
+                "skills",
+                "teams",
+                "scheduled_automations",
+                "plan_controls",
+                "snowflake_admin",
+            ],
         },
     }
     if key not in contracts:
-        raise ValueError("mode must be agent, plan, edit, or code")
+        raise ValueError("mode must be agent, plan, ask, edit, or code")
     result = {"status": "PASS", "mode": key, "budget_usd": budget_usd, **contracts[key]}
     result["contract_fingerprint"] = _digest(result)
     return result
-
 
 def immutable_plan(
     steps: list[dict[str, Any]],
@@ -154,6 +245,141 @@ def plan_file_edit(
         "verification_command": verification_command,
         "approval_fingerprint": _digest(payload),
         "rollback_required": True,
+    }
+
+
+def plan_region_edit(
+    workspace: str | Path,
+    path: str,
+    start_line: int,
+    end_line: int,
+    replacement: str,
+    *,
+    expected_source_hash: str | None = None,
+    expected_selected_hash: str | None = None,
+    verification_command: str | list[str] | None = None,
+) -> dict[str, Any]:
+    target = _path(workspace, path)
+    if not target.exists() or not target.is_file():
+        return {"status": "NOT_FOUND", "path": str(target)}
+    source = target.read_text(encoding="utf-8")
+    source_hash = _text_digest(source)
+    if expected_source_hash and expected_source_hash != source_hash:
+        return {"status": "STALE_SOURCE", "path": str(target), "source_hash": source_hash}
+    lines = source.splitlines(keepends=True)
+    start = int(start_line)
+    end = int(end_line)
+    if start < 1 or end < start or end > len(lines):
+        return {
+            "status": "INVALID_REGION",
+            "path": str(target),
+            "start_line": start,
+            "end_line": end,
+            "line_count": len(lines),
+        }
+    selected = "".join(lines[start - 1 : end])
+    selected_hash = _text_digest(selected)
+    if expected_selected_hash and expected_selected_hash != selected_hash:
+        return {
+            "status": "STALE_SELECTION",
+            "path": str(target),
+            "selected_text_hash": selected_hash,
+        }
+    result = "".join(lines[: start - 1]) + replacement + "".join(lines[end:])
+    result_hash = _text_digest(result)
+    replacement_hash = _text_digest(replacement)
+    rel = str(target.relative_to(_root(workspace)))
+    payload = {
+        "path": rel,
+        "start_line": start,
+        "end_line": end,
+        "selected_text_hash": selected_hash,
+        "source_file_hash": source_hash,
+        "replacement_hash": replacement_hash,
+        "result_file_hash": result_hash,
+        "verification_command": verification_command,
+    }
+    diff = "".join(
+        difflib.unified_diff(
+            source.splitlines(keepends=True),
+            result.splitlines(keepends=True),
+            fromfile=f"a/{rel}",
+            tofile=f"b/{rel}",
+        )
+    )
+    return {
+        "status": "PASS",
+        "mode": "PLAN_ONLY",
+        **payload,
+        "changed": source_hash != result_hash,
+        "diff": diff,
+        "approval_fingerprint": _digest(payload),
+        "rollback_required": True,
+    }
+
+
+def apply_region_edit(
+    workspace: str | Path,
+    path: str,
+    start_line: int,
+    end_line: int,
+    replacement: str,
+    *,
+    approval_fingerprint: str,
+    expected_source_hash: str | None = None,
+    expected_selected_hash: str | None = None,
+    verification_command: str | list[str] | None = None,
+) -> dict[str, Any]:
+    plan = plan_region_edit(
+        workspace,
+        path,
+        start_line,
+        end_line,
+        replacement,
+        expected_source_hash=expected_source_hash,
+        expected_selected_hash=expected_selected_hash,
+        verification_command=verification_command,
+    )
+    if plan["status"] != "PASS":
+        return plan
+    if approval_fingerprint != plan["approval_fingerprint"]:
+        return {**plan, "status": "STALE_APPROVAL"}
+    target = _path(workspace, path)
+    root = _root(workspace)
+    source = target.read_text(encoding="utf-8")
+    lines = source.splitlines(keepends=True)
+    result = "".join(lines[: int(start_line) - 1]) + replacement + "".join(lines[int(end_line) :])
+    rollback = root / ".ade" / "rollback" / plan["approval_fingerprint"] / plan["path"]
+    rollback.parent.mkdir(parents=True, exist_ok=True)
+    rollback.write_text(source, encoding="utf-8")
+    target.write_text(result, encoding="utf-8")
+    verification_result = None
+    if verification_command:
+        verification_result = run_command(root, verification_command)
+        if verification_result["status"] != "PASS":
+            target.write_text(source, encoding="utf-8")
+            return {
+                "status": "VERIFICATION_FAILED_ROLLED_BACK",
+                "path": plan["path"],
+                "source_file_hash": plan["source_file_hash"],
+                "selected_text_hash": plan["selected_text_hash"],
+                "verification": verification_result,
+                "rollback_path": str(rollback),
+            }
+    resulting_hash = _text_digest(target.read_text(encoding="utf-8"))
+    return {
+        "status": "PASS" if resulting_hash == plan["result_file_hash"] else "VERIFY_FAILED",
+        "path": plan["path"],
+        "start_line": plan["start_line"],
+        "end_line": plan["end_line"],
+        "source_file_hash": plan["source_file_hash"],
+        "selected_text_hash": plan["selected_text_hash"],
+        "replacement_hash": plan["replacement_hash"],
+        "result_file_hash": resulting_hash,
+        "diff": plan["diff"],
+        "approval_fingerprint": plan["approval_fingerprint"],
+        "rollback_path": str(rollback),
+        "verification": verification_result,
     }
 
 
