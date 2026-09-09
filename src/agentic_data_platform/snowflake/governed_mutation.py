@@ -185,8 +185,11 @@ def _show_command(descriptor: MutationDescriptor) -> str | None:
         return None
     escaped_leaf = leaf.replace("'", "''")
     command = f"SHOW {plural} LIKE '{escaped_leaf}'"
-    if parent and object_type not in {"WAREHOUSE", "DATABASE", "ROLE", "USER", "INTEGRATION"}:
-        command += f" IN {parent}"
+    if parent:
+        if object_type == "SCHEMA":
+            command += f" IN DATABASE {parent}"
+        elif object_type not in {"WAREHOUSE", "DATABASE", "ROLE", "USER", "INTEGRATION"}:
+            command += f" IN SCHEMA {parent}"
     return command
 
 
