@@ -189,12 +189,13 @@ def _invoke(
     args: dict,
     *,
     actor_mode: ActorMode = ActorMode.ANALYST,
+    environment: Environment = Environment.DEV,
     dry_run: bool = False,
     approved: bool = False,
 ) -> dict:
     registry = build_tool_registry()
     definition = registry.describe(name)
-    request = ToolRequest(name, name, Environment.DEV, definition.risk, args=args)
+    request = ToolRequest(name, name, environment, definition.risk, args=args)
     return registry.invoke(
         ToolInvocation(
             request,
@@ -255,6 +256,7 @@ def build_parser() -> argparse.ArgumentParser:
         domain_parser.add_argument("--args", default="{}", help="JSON arguments passed to the deterministic tool")
         domain_parser.add_argument("--builder", action="store_true", help="invoke in Builder mode")
         domain_parser.add_argument("--admin", action="store_true", help="invoke in Admin mode through the same policy engine")
+        domain_parser.add_argument("--environment", choices=[item.value for item in Environment], default=Environment.DEV.value)
         domain_parser.add_argument("--approved", action="store_true", help="explicitly approve tools that require approval")
         domain_parser.add_argument("--dry-run", action="store_true")
 
@@ -350,6 +352,7 @@ def main(argv: list[str] | None = None) -> int:
                 tool_name,
                 json.loads(args.args),
                 actor_mode=ActorMode.ADMIN if getattr(args, "admin", False) else ActorMode.BUILDER if args.builder else ActorMode.ANALYST,
+                environment=Environment(args.environment),
                 approved=bool(args.approved),
                 dry_run=bool(args.dry_run),
             )
