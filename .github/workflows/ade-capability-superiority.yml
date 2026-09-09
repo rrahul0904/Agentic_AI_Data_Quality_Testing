@@ -25,6 +25,10 @@ on:
       - 'src/agentic_data_platform/connectors/snowflake.py'
       - 'src/agentic_data_platform/tools/**'
       - 'src/agentic_data_platform/advanced_capabilities.py'
+      - 'src/agentic_data_platform/coding_workspace.py'
+      - 'src/agentic_data_platform/rules.py'
+      - 'src/agentic_data_platform/session/store.py'
+      - 'src/agentic_data_platform/session/runtime.py'
       - 'src/agentic_data_platform/workspace_files.py'
       - 'src/agentic_data_platform/cli.py'
       - 'src/agentic_data_platform/api/app.py'
@@ -159,6 +163,14 @@ jobs:
           tests/test_ide_bridge.py
           tests/test_advanced_live_capabilities.py
           tests/test_advanced_capability_extensions.py
+          tests/test_rules_instructions.py
+          tests/test_context_controls.py
+          tests/test_session_checkpoints.py
+          tests/test_coding_workspace.py
+          src/agentic_data_platform/session/runtime.py
+          src/agentic_data_platform/session/store.py
+          src/agentic_data_platform/rules.py
+          src/agentic_data_platform/coding_workspace.py
           tests/test_shell_sandbox.py
           tests/test_memory_personalization.py
           tests/test_todo_management.py
