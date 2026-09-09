@@ -230,6 +230,8 @@ def test_semantic_surfaces_are_registered_and_exposed():
     assert domains.status_code == 200
     assert set(domains.json()["semantic"]) == {
         "ingest-yaml",
+        "ingest-dbt",
+        "ingest-lookml",
         "list",
         "show",
         "search",
