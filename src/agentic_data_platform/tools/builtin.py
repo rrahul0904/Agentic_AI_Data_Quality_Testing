@@ -115,6 +115,11 @@ from agentic_data_platform.search import UnifiedSemanticIndex
 from agentic_data_platform.semantic import CortexAnalystAdapter, SemanticRegistry, SnowflakeSemanticAdapter, build_analyst_request, evaluate_batch, evaluate_candidate
 from agentic_data_platform.cortex import CortexAgentClient
 from agentic_data_platform.runners import HostedRunnerStore
+from agentic_data_platform.notebooks import NotebookAgent
+from agentic_data_platform.browser import AgentBrowser, plan_browser_actions
+from agentic_data_platform.apps import SnowflakeAppBuilder
+from agentic_data_platform.ml import SnowflakeModelRegistryAdapter, plan_log_model, plan_model_lifecycle
+from agentic_data_platform.ai import AIWorkflowCompiler, SnowflakeAIWorkflowRunner
 from agentic_data_platform.training import (
     TrainingStore,
     import_markdown as training_import_markdown,
@@ -296,6 +301,39 @@ def _cortex_agent_client(args: dict[str, Any]) -> CortexAgentClient:
 def _hosted_runner_store(args: dict[str, Any]) -> HostedRunnerStore:
     path = args.get("runner_database") or (_target(args) / ".ade" / "hosted-runner.db")
     return HostedRunnerStore(path)
+
+
+def _notebook_agent(_: dict[str, Any]) -> NotebookAgent:
+    return NotebookAgent()
+
+
+def _app_builder(args: dict[str, Any]) -> SnowflakeAppBuilder:
+    return SnowflakeAppBuilder(_target(args))
+
+
+def _snowflake_model_adapter(args: dict[str, Any]) -> SnowflakeModelRegistryAdapter:
+    connector = connector_from_args({**args, "platform": "snowflake"})
+    if not isinstance(connector, SnowflakeConnector):
+        raise TypeError("Snowpark model registry requires SnowflakeConnector")
+    return SnowflakeModelRegistryAdapter(connector)
+
+
+def _ai_workflow_run(args: dict[str, Any]) -> dict[str, Any]:
+    compiled = AIWorkflowCompiler().compile(dict(args["workflow"]))
+    if bool(args.get("plan_only", False)):
+        return compiled.public()
+    try:
+        connector = connector_from_args({**args, "platform": "snowflake"})
+    except ExternalConnectionUnavailable as exc:
+        return {
+            **compiled.public(),
+            "status": "SKIP_EXTERNAL",
+            "platform": "snowflake",
+            "reason": str(exc),
+        }
+    if not isinstance(connector, SnowflakeConnector):
+        raise TypeError("Snowflake AI workflow execution requires SnowflakeConnector")
+    return SnowflakeAIWorkflowRunner(connector).run(dict(args["workflow"]))
 
 
 def _dbt(args: dict[str, Any]) -> DbtManifestGraph:
@@ -1220,6 +1258,286 @@ def build_tool_registry() -> ToolRegistry:
         "Lease and execute one hosted ADE job through the normal ToolRegistry policy boundary.",
         platforms=frozenset({Platform.LOCAL}),
         risk=Risk.MUTATING,
+    )
+
+    add(
+        "notebook_inspect",
+        Capability.DISCOVER,
+        lambda a: _notebook_agent(a).inspect(a["path"]),
+        "Inspect notebook cells, languages, execution state and content fingerprint.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "notebook_patch_plan",
+        Capability.PLAN,
+        lambda a: {
+            key: value for key, value in _notebook_agent(a).plan_patch(a["path"], list(a.get("operations") or [])).items()
+            if key != "notebook"
+        },
+        "Plan deterministic notebook cell edits and bind them to source/result fingerprints.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "notebook_patch_apply",
+        Capability.EXECUTE,
+        lambda a: _notebook_agent(a).apply_patch(
+            a["path"],
+            list(a.get("operations") or []),
+            approval_fingerprint=str(a.get("approval_fingerprint") or ""),
+        ),
+        "Apply an approved hash-bound notebook patch and verify the resulting notebook.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "notebook_snowflake_plan",
+        Capability.PLAN,
+        lambda a: {
+            "status": "PASS",
+            "command": NotebookAgent.snowflake_command(
+                str(a["action"]),
+                identifier=str(a["identifier"]),
+                project_definition=a.get("project_definition"),
+                connection=a.get("connection"),
+            ),
+        },
+        "Build the current Snowflake CLI notebook deploy/execute command without running it.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "notebook_snowflake_run",
+        Capability.EXECUTE,
+        lambda a: NotebookAgent.run_snowflake(
+            str(a["action"]),
+            identifier=str(a["identifier"]),
+            cwd=a.get("cwd") or _target(a),
+            project_definition=a.get("project_definition"),
+            connection=a.get("connection"),
+            timeout_seconds=int(a.get("timeout_seconds", 900)),
+        ),
+        "Run an approved Snowflake notebook deploy or headless execute command.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+
+    add(
+        "browser_plan",
+        Capability.PLAN,
+        lambda a: plan_browser_actions(
+            list(a.get("actions") or []),
+            session=str(a.get("session") or "ade"),
+        ).public(),
+        "Validate and normalize a typed browser action plan without browsing.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "browser_read",
+        Capability.DISCOVER,
+        lambda a: AgentBrowser().execute(
+            list(a.get("actions") or []),
+            session=str(a.get("session") or "ade"),
+            allow_interactive=False,
+        ),
+        "Execute read-only browser navigation, snapshots, waits, extraction and screenshots.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "browser_act",
+        Capability.EXECUTE,
+        lambda a: AgentBrowser().execute(
+            list(a.get("actions") or []),
+            session=str(a.get("session") or "ade"),
+            allow_interactive=True,
+        ),
+        "Execute approved interactive browser actions through the typed agent-browser adapter.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+
+    def app_plan_handler(a: dict[str, Any]) -> dict[str, Any]:
+        return _app_builder(a).plan(
+            kind=str(a["kind"]),
+            app_name=str(a["app_name"]),
+            directory=str(a["directory"]),
+            database=str(a["database"]),
+            schema=str(a["schema"]),
+            query_warehouse=str(a["query_warehouse"]),
+            title=a.get("title"),
+            compute_pool=a.get("compute_pool"),
+            streamlit_runtime=str(a.get("streamlit_runtime") or "container"),
+        )
+
+    add(
+        "app_build_plan",
+        Capability.PLAN,
+        app_plan_handler,
+        "Generate an exact Streamlit or Snowflake App Runtime project plan with content fingerprint.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "app_build_validate",
+        Capability.VERIFY,
+        lambda a: SnowflakeAppBuilder.validate(dict(a["plan"])),
+        "Validate a generated Streamlit/App Runtime project manifest.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "app_build_apply",
+        Capability.EXECUTE,
+        lambda a: _app_builder(a).apply(
+            dict(a["plan"]),
+            approval_fingerprint=str(a.get("approval_fingerprint") or ""),
+            overwrite=bool(a.get("overwrite", False)),
+        ),
+        "Materialize an approved exact app project plan into the ADE project.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "app_deploy",
+        Capability.EXECUTE,
+        lambda a: SnowflakeAppBuilder.deploy(
+            dict(a["plan"]),
+            connection=a.get("connection"),
+            target=a.get("deploy_target"),
+            open_app=bool(a.get("open_app", False)),
+            timeout_seconds=int(a.get("timeout_seconds", 1800)),
+        ),
+        "Deploy an approved Streamlit or Snowflake App Runtime project with Snowflake CLI.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+
+    def model_inventory(a: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return {
+                "status": "PASS",
+                "models": _snowflake_model_adapter(a).models(
+                    database=a.get("database"),
+                    schema=a.get("schema"),
+                ),
+            }
+        except ExternalConnectionUnavailable as exc:
+            return {"status": "SKIP_EXTERNAL", "platform": "snowflake", "reason": str(exc)}
+
+    def model_versions(a: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return {
+                "status": "PASS",
+                "versions": _snowflake_model_adapter(a).versions(str(a["model_name"])),
+            }
+        except ExternalConnectionUnavailable as exc:
+            return {"status": "SKIP_EXTERNAL", "platform": "snowflake", "reason": str(exc)}
+
+    add(
+        "snowpark_model_list",
+        Capability.DISCOVER,
+        model_inventory,
+        "List Snowflake Model Registry models.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "snowpark_model_versions",
+        Capability.DISCOVER,
+        model_versions,
+        "List versions in a Snowflake Model Registry model.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "snowpark_model_log_plan",
+        Capability.PLAN,
+        lambda a: plan_log_model(
+            model_name=str(a["model_name"]),
+            version_name=str(a["version_name"]),
+            comment=a.get("comment"),
+            metrics=dict(a.get("metrics") or {}),
+            conda_dependencies=[str(item) for item in a.get("conda_dependencies") or []],
+            pip_requirements=[str(item) for item in a.get("pip_requirements") or []],
+            python_version=a.get("python_version"),
+        ),
+        "Plan a Snowpark Registry.log_model call with exact parameter fingerprint and executable Python.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "snowpark_model_lifecycle_plan",
+        Capability.PLAN,
+        lambda a: plan_model_lifecycle(
+            action=str(a["action"]),
+            model_name=str(a["model_name"]),
+            version_name=a.get("version_name"),
+            environment=str(a.get("_environment") or a.get("environment") or "dev"),
+        ),
+        "Plan set-default, drop-version or drop-model Model Registry lifecycle SQL.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+
+    def model_lifecycle_execute(a: dict[str, Any]) -> dict[str, Any]:
+        plan = plan_model_lifecycle(
+            action=str(a["action"]),
+            model_name=str(a["model_name"]),
+            version_name=a.get("version_name"),
+            environment=str(a.get("_environment") or a.get("environment") or "dev"),
+        )
+        if plan.get("status") != "PASS":
+            return plan
+        if str(a.get("approval_fingerprint") or "") != plan["approval_fingerprint"]:
+            return {
+                **plan,
+                "status": "BLOCKED_APPROVAL",
+                "code": "APPROVAL_FINGERPRINT_MISMATCH",
+            }
+        if bool(a.get("_dry_run")):
+            if plan["destructive"] and not bool(a.get("confirm_destructive", False)):
+                return {
+                    **plan,
+                    "status": "BLOCKED_APPROVAL",
+                    "code": "DESTRUCTIVE_CONFIRMATION_REQUIRED",
+                }
+            return {**plan, "status": "PASS", "mode": "DRY_RUN", "executed": False}
+        try:
+            connector = connector_from_args({**a, "platform": "snowflake"})
+        except ExternalConnectionUnavailable as exc:
+            return {"status": "SKIP_EXTERNAL", "platform": "snowflake", "reason": str(exc)}
+        if not isinstance(connector, SnowflakeConnector):
+            raise TypeError("model lifecycle execution requires SnowflakeConnector")
+        return GovernedSnowflakeMutationExecutor(connector).execute(
+            plan["statement"],
+            environment=str(a.get("_environment") or "dev"),
+            approval_fingerprint=plan["approval_fingerprint"],
+            approved=bool(a.get("_approved")),
+            confirm_destructive=bool(a.get("confirm_destructive", False)),
+            dry_run=False,
+        )
+
+    add(
+        "snowpark_model_lifecycle_execute",
+        Capability.EXECUTE,
+        model_lifecycle_execute,
+        "Execute an approved Snowflake Model Registry lifecycle operation with post-change verification.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        supports_dry_run=True,
+        requires_approval=True,
+    )
+
+    add(
+        "ai_workflow_plan",
+        Capability.PLAN,
+        lambda a: AIWorkflowCompiler().compile(dict(a["workflow"])).public(),
+        "Compile a declarative read-only Snowflake Cortex AI-function workflow to deterministic SQL.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "ai_workflow_run",
+        Capability.EXECUTE,
+        _ai_workflow_run,
+        "Execute a compiled read-only Snowflake AI-function workflow and return query evidence.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
     )
 
     def training_store(a: dict[str, Any]) -> TrainingStore:
