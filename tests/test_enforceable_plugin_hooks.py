@@ -89,7 +89,16 @@ def test_runtime_hook_can_modify_safe_tool_arguments(tmp_path):
 
     runtime.run(session, "search", provider, "test")
 
-    assert calls == [{"query": "reservation", "limit": 5, "_run_id": session, "_dry_run": False, "_approved": False, "_environment": "dev", "_actor_mode": "analyst"}]
+    assert calls == [{
+        "query": "reservation",
+        "limit": 5,
+        "_run_id": session,
+        "_dry_run": False,
+        "_approved": False,
+        "_environment": "dev",
+        "_actor_mode": "analyst",
+        "_interaction_mode": "agent",
+    }]
 
 
 def test_hook_argument_rewrite_invalidates_existing_mutation_approval(tmp_path):
