@@ -88,17 +88,30 @@ class MemoryStore:
         if _contains_secret(content):
             raise ValueError("secret-like content cannot be persisted in memory")
         row = self._conn.execute(
-            "SELECT memory_id FROM memories WHERE scope=? AND project_id IS ? AND content=?",
+            """
+            SELECT memory_id, tags_json, citations_json, expires_at
+            FROM memories
+            WHERE scope=? AND project_id IS ? AND content=?
+            """,
             (scope, project_id, content),
         ).fetchone()
         now = utc_now()
         if row:
+            existing_tags = list(json.loads(row["tags_json"] or "[]"))
+            existing_citations = list(json.loads(row["citations_json"] or "[]"))
+            merged_tags = list(dict.fromkeys([*existing_tags, *(tags or [])]))
+            merged_citations = list(dict.fromkeys([*existing_citations, *(citations or [])]))
+            next_expires_at = expires_at if expires_at is not None else row["expires_at"]
             self._conn.execute(
-                "UPDATE memories SET tags_json=?, citations_json=?, expires_at=?, kind=?, updated_at=? WHERE memory_id=?",
+                """
+                UPDATE memories
+                SET tags_json=?, citations_json=?, expires_at=?, kind=?, updated_at=?
+                WHERE memory_id=?
+                """,
                 (
-                    json.dumps(tags or []),
-                    json.dumps(citations or []),
-                    expires_at,
+                    json.dumps(merged_tags),
+                    json.dumps(merged_citations),
+                    next_expires_at,
                     kind,
                     now,
                     row["memory_id"],
