@@ -242,6 +242,17 @@ The platform supports upstream/downstream traversal, column lineage, cross-syste
 
 Quality capabilities include persistent evidence, summaries, recent results, asset-health scoring, pipeline-health scoring, dbt test evidence, dirty-data fixtures, anomaly signals, and controlled failure scenarios.
 
+### Snowflake ingestion pipeline testing
+
+Snowflake-specific verification now covers Snowpipe inventory/status, Stream staleness and pending-data checks, static `COPY INTO` analysis, `COPY_HISTORY`, `VALIDATE(...)`, and post-load row-count/null/duplicate/freshness checks. The normal product surface remains read-only; unavailable Snowflake credentials report `SKIP_EXTERNAL`.
+
+```bash
+ade snowflake-test copy-analyze --args '{"sql":"COPY INTO RAW.RESERVATION FROM @LANDING ON_ERROR=ABORT_STATEMENT"}'
+ade snowflake-test health --args '{"pipe_name":"HOTEL.RAW.RES_PIPE","stream_name":"HOTEL.RAW.RES_STREAM","target_table":"HOTEL.RAW.RESERVATION"}'
+```
+
+See `docs/SNOWFLAKE_PIPELINE_TESTING.md`.
+
 ### Reconciliation
 
 Built-in reconciliation includes:
