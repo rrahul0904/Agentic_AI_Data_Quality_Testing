@@ -709,6 +709,10 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             "run": "data_diff", "plan": "data_diff_plan", "profile": "data_diff_profile",
             "join": "data_diff_join", "hash": "data_diff_hash", "cascade": "data_diff_cascade",
         },
+        "snowflake-admin": {
+            "plan": "snowflake_mutation_plan",
+            "execute": "snowflake_mutation_execute",
+        },
         "snowflake-testing": {
             "copy-analyze": "snowflake_copy_analyze",
             "failure-lab": "snowflake_failure_lab",
