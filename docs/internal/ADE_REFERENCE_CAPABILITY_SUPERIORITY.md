@@ -131,3 +131,45 @@ python scripts/check_capability_superiority.py --require-target --json
 
 That command must remain red until every ledger entry has actually reached
 `ade_current: superior`. Do not weaken the gate to manufacture completion.
+
+## Capability expansion closure checkpoint
+
+The branch now implements the previously missing advanced execution surfaces behind the same ADE ToolRegistry / approval boundary.
+
+Locally certified implementation includes:
+
+- provider-neutral semantic registry with Snowflake semantic-view ingestion, dbt Semantic Layer / MetricFlow ingestion, LookML ingestion, semantic search, and verified-query regression evaluation
+- Cortex Analyst multi-semantic-view request planning and live REST adapter
+- Cortex Agent create/list/show/update/delete, thread lifecycle, foreground/background run planning, live run adapter, and feedback
+- durable hosted ADE runner with worker registration, heartbeats, scoped leases, retries, cancellation, persistent SQLite state, and a container deployment artifact
+- notebook create/inspect/edit/local execute/Snowflake deploy/Snowflake execute lifecycle with hash-bound create/edit approvals
+- typed agentic browser plans and approval-gated interactive execution
+- Snowflake Streamlit and App Runtime project generation, validation, materialization, deployment commands, and App Runtime health endpoint fixture
+- Snowpark Model Registry inventory/version/lifecycle operations and train -> evaluate -> register XGBoost workflow with source-table -> model-version lineage evidence
+- declarative Snowflake AI-function workflows using current AI_FILTER / AI_CLASSIFY / AI_COMPLETE / AI_COUNT_TOKENS / AI_AGG / AI_SUMMARIZE_AGG functions
+- project-scoped VS Code / desktop bridge, bounded file context, deep links, hash-bound edits, and dev-server registry
+- operator-console Capability Workbench exposing semantic, Cortex Agent, hosted runner, notebook, browser, app, ML, AI workflow, and IDE domains through the governed API
+
+The dedicated local certification target is:
+
+```bash
+make capability-superiority-p1-check
+```
+
+The protected external certification target is:
+
+```bash
+make advanced-live-e2e
+```
+
+or manually dispatch:
+
+`.github/workflows/ade-advanced-live-certification.yml`
+
+The advanced live workflow is fail-closed. Missing credentials/objects become `BLOCKED_EXTERNAL`. Cortex Agent runs, notebook execution, Streamlit deployment, and App Runtime deployment require explicit manual mutation approval.
+
+### Completion boundary
+
+`implemented_on_branch` means implementation plus deterministic/local CI evidence exists on this branch. It does not mean the reference superiority target has been externally certified.
+
+Do not promote any external Snowflake/Cortex/deployment capability to `superior` until its configured live certification component has passed and the exact evidence has been recorded. The exhaustive `--require-target` command intentionally remains the final superiority gate.
