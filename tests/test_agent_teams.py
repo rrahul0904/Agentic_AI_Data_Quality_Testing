@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from agentic_data_platform.agents.teams import TeamCoordinator, TeamStore
 from agentic_data_platform.api.app import create_app
+from agentic_data_platform.cli import DOMAIN_CLI_TOOLS
 from agentic_data_platform.teammates import TeammateStore
 from agentic_data_platform.tools.builtin import build_tool_registry
 
@@ -312,10 +313,7 @@ def test_team_tools_and_api_domain_are_exposed():
         "team_run_show",
     } <= names
 
-    client = TestClient(create_app())
-    response = client.get("/api/v1/domains")
-    assert response.status_code == 200
-    assert set(response.json()["teams"]) == {
+    expected = {
         "list",
         "show",
         "create",
@@ -326,4 +324,12 @@ def test_team_tools_and_api_domain_are_exposed():
         "run",
         "runs",
         "run-show",
+    }
+    assert set(DOMAIN_CLI_TOOLS["teams"]) == expected
+
+    client = TestClient(create_app())
+    response = client.get("/api/v1/domains")
+    assert response.status_code == 200
+    assert set(response.json()["teams"]) == {
+        *expected,
     }
