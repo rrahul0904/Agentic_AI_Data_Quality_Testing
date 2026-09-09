@@ -123,6 +123,7 @@ from agentic_data_platform.ml import SnowflakeModelRegistryAdapter, plan_log_mod
 from agentic_data_platform.ai import AIWorkflowCompiler, SnowflakeAIWorkflowRunner
 from agentic_data_platform.ide import IDEBridge
 from agentic_data_platform import advanced_capabilities as advanced_caps
+from agentic_data_platform import workspace_files as workspace_files
 from agentic_data_platform.training import (
     TrainingStore,
     import_markdown as training_import_markdown,
@@ -2770,6 +2771,115 @@ def build_tool_registry() -> ToolRegistry:
         risk=Risk.MUTATING,
         requires_approval=True,
     )
+    add(
+        "workspace_file_read",
+        Capability.DISCOVER,
+        lambda a: workspace_files.workspace_file_read(
+            a.get("workspace") or str(_target(a)),
+            str(a["path"]),
+            max_bytes=int(a.get("max_bytes", 1_000_000)),
+        ),
+        "Read one governed workspace file with full-file fingerprint and bounded content.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "workspace_file_glob",
+        Capability.DISCOVER,
+        lambda a: workspace_files.workspace_file_glob(
+            a.get("workspace") or str(_target(a)),
+            str(a.get("pattern") or "**/*"),
+            limit=int(a.get("limit", 1000)),
+            include_internal=bool(a.get("include_internal", False)),
+        ),
+        "Glob workspace files with stable hashes while excluding internal state by default.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "workspace_file_find",
+        Capability.DISCOVER,
+        lambda a: workspace_files.workspace_file_find(
+            a.get("workspace") or str(_target(a)),
+            str(a.get("query") or ""),
+            limit=int(a.get("limit", 200)),
+        ),
+        "Find workspace files by path/name with evidence fingerprints.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "workspace_file_grep",
+        Capability.DISCOVER,
+        lambda a: workspace_files.workspace_file_grep(
+            a.get("workspace") or str(_target(a)),
+            str(a["pattern"]),
+            file_glob=str(a.get("file_glob") or "**/*"),
+            regex=bool(a.get("regex", False)),
+            case_sensitive=bool(a.get("case_sensitive", False)),
+            max_matches=int(a.get("max_matches", 500)),
+        ),
+        "Search workspace file contents and return line/column/file-hash evidence.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "workspace_file_diff",
+        Capability.DISCOVER,
+        lambda a: workspace_files.workspace_file_diff(
+            a.get("workspace") or str(_target(a)),
+            str(a["path"]),
+            proposed_content=str(a.get("proposed_content") or ""),
+        ),
+        "Generate a unified workspace diff bound to source and result hashes.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "workspace_file_plan",
+        Capability.PLAN,
+        lambda a: workspace_files.workspace_file_plan(
+            a.get("workspace") or str(_target(a)),
+            str(a["operation"]),
+            str(a["path"]),
+            content=a.get("content"),
+            destination=a.get("destination"),
+            old_text=a.get("old_text"),
+            new_text=a.get("new_text"),
+            expected_source_hash=a.get("expected_source_hash"),
+            verification_command=a.get("verification_command"),
+        ),
+        "Plan create/write/patch/delete/move/rename as an immutable hash-bound workspace mutation.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "workspace_file_apply",
+        Capability.EXECUTE,
+        lambda a: workspace_files.workspace_file_apply(
+            a.get("workspace") or str(_target(a)),
+            str(a["operation"]),
+            str(a["path"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+            content=a.get("content"),
+            destination=a.get("destination"),
+            old_text=a.get("old_text"),
+            new_text=a.get("new_text"),
+            expected_source_hash=a.get("expected_source_hash"),
+            verification_command=a.get("verification_command"),
+        ),
+        "Apply an approved workspace mutation with verification and automatic rollback.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "workspace_file_undo",
+        Capability.EXECUTE,
+        lambda a: workspace_files.workspace_file_undo(
+            a.get("workspace") or str(_target(a)),
+            str(a["approval_fingerprint"]),
+        ),
+        "Undo one previously applied governed workspace mutation from its rollback snapshot.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+
     add(
         "workspace_region_edit_plan",
         Capability.PLAN,
