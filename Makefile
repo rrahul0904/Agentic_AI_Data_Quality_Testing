@@ -216,7 +216,8 @@ capability-superiority-p1-check:
 		tests/test_snowpark_ml_workflow.py \
 		tests/test_ai_workflows.py \
 		tests/test_ide_bridge.py \
-		tests/test_advanced_live_capabilities.py
+		tests/test_advanced_live_capabilities.py \
+		tests/test_advanced_capability_extensions.py
 
 .PHONY: advanced-live-e2e
 advanced-live-e2e:
