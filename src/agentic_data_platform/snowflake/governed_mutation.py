@@ -211,6 +211,16 @@ def _describe(sql: str) -> MutationDescriptor:
             destructive,
         )
 
+    match = _ALTER_MODEL_DROP_VERSION.match(normalized)
+    if match:
+        return MutationDescriptor(
+            "ALTER_MODEL_DROP_VERSION",
+            "MODEL",
+            _clean_identifier(match.group(1)),
+            "destructive",
+            True,
+        )
+
     match = _ALTER.match(normalized)
     if match:
         return MutationDescriptor(
