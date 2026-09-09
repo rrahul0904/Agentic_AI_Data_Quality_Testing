@@ -42,61 +42,184 @@ class IDEBridge:
         self,
         *,
         console_url: str = "http://localhost:3000",
+        api_url: str = "http://localhost:8000",
         extension_directory: str = ".ade/vscode-extension",
     ) -> dict[str, Any]:
         console = _url(console_url)
+        api = _url(api_url).rstrip("/")
         extension_root = _safe_relative(extension_directory)
+        commands = [
+            {"command": "ade.openConsole", "title": "ADE: Open Operator Console"},
+            {"command": "ade.listSessions", "title": "ADE: Browse Sessions"},
+            {"command": "ade.reviewCheckpoint", "title": "ADE: Review Session Checkpoints"},
+            {"command": "ade.showCurrentContext", "title": "ADE: Show Current File Context"},
+            {"command": "ade.planSelectedEdit", "title": "ADE: Plan Selected Edit"},
+            {"command": "ade.startHostedRunner", "title": "ADE: Start Hosted Runner"},
+            {"command": "ade.startAutomationWorker", "title": "ADE: Start Automation Worker"},
+        ]
         package = {
             "name": "ade-desktop-bridge",
             "displayName": "Agentic Data Engineering OS",
-            "description": "Desktop bridge for ADE sessions, runners, automations, and project navigation.",
-            "version": "0.1.0",
+            "description": (
+                "Governed ADE bridge for sessions, checkpoint evidence, file context, "
+                "edit planning, runners and automations."
+            ),
+            "version": "0.2.0",
             "engines": {"vscode": "^1.90.0"},
             "categories": ["Other"],
-            "activationEvents": [
-                "onCommand:ade.openConsole",
-                "onCommand:ade.startHostedRunner",
-                "onCommand:ade.startAutomationWorker",
-            ],
+            "activationEvents": [f"onCommand:{item['command']}" for item in commands],
             "main": "./extension.js",
-            "contributes": {
-                "commands": [
-                    {"command": "ade.openConsole", "title": "ADE: Open Operator Console"},
-                    {"command": "ade.startHostedRunner", "title": "ADE: Start Hosted Runner"},
-                    {"command": "ade.startAutomationWorker", "title": "ADE: Start Automation Worker"},
-                ]
-            },
+            "contributes": {"commands": commands},
         }
-        extension_js = (
-            "const vscode = require('vscode');\n"
-            "function activate(context) {\n"
-            f"  const consoleUrl = {json.dumps(console)};\n"
-            "  context.subscriptions.push(vscode.commands.registerCommand('ade.openConsole', () => {\n"
-            "    return vscode.env.openExternal(vscode.Uri.parse(consoleUrl));\n"
-            "  }));\n"
-            "  context.subscriptions.push(vscode.commands.registerCommand('ade.startHostedRunner', () => {\n"
-            "    const term = vscode.window.createTerminal({name: 'ADE Hosted Runner'});\n"
-            "    term.sendText('python scripts/run_hosted_runner.py --project . --json');\n"
-            "    term.show();\n"
-            "  }));\n"
-            "  context.subscriptions.push(vscode.commands.registerCommand('ade.startAutomationWorker', () => {\n"
-            "    const term = vscode.window.createTerminal({name: 'ADE Automations'});\n"
-            "    term.sendText('python scripts/run_automation_worker.py --project . --json');\n"
-            "    term.show();\n"
-            "  }));\n"
-            "}\n"
-            "function deactivate() {}\n"
-            "module.exports = { activate, deactivate };\n"
-        )
+        extension_js = f"""const vscode = require('vscode');
+
+function activate(context) {{
+  const consoleUrl = {json.dumps(console)};
+  const apiUrl = {json.dumps(api)};
+  async function request(path, options = {{}}) {{
+    const response = await fetch(apiUrl + path, options);
+    const text = await response.text();
+    let payload = {{}};
+    try {{ payload = text ? JSON.parse(text) : {{}}; }} catch (_) {{ payload = {{raw: text}}; }}
+    if (!response.ok) {{
+      throw new Error(payload.detail || payload.error || ('HTTP ' + response.status));
+    }}
+    return payload;
+  }}
+  async function showJson(title, payload) {{
+    const document = await vscode.workspace.openTextDocument({{
+      content: JSON.stringify(payload, null, 2),
+      language: 'json',
+    }});
+    await vscode.window.showTextDocument(document, {{preview: true}});
+    vscode.window.setStatusBarMessage(title, 3000);
+  }}
+  function activeLocation() {{
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) throw new Error('Open a workspace file first.');
+    const path = vscode.workspace.asRelativePath(editor.document.uri, false);
+    if (!path || path.startsWith('..')) throw new Error('File must be inside the ADE workspace.');
+    return {{editor, path}};
+  }}
+  function readPayload(args, actorMode = 'analyst') {{
+    return JSON.stringify({{
+      args,
+      actor_mode: actorMode,
+      environment: 'dev',
+      approved: false,
+      dry_run: false,
+    }});
+  }}
+
+  context.subscriptions.push(vscode.commands.registerCommand('ade.openConsole', async () => {{
+    await vscode.env.openExternal(vscode.Uri.parse(consoleUrl));
+  }}));
+
+  context.subscriptions.push(vscode.commands.registerCommand('ade.listSessions', async () => {{
+    try {{
+      const payload = await request('/api/v1/sessions');
+      const sessions = Array.isArray(payload) ? payload : (payload.sessions || []);
+      if (!sessions.length) {{
+        vscode.window.showInformationMessage('ADE: no persisted sessions found.');
+        return;
+      }}
+      const picked = await vscode.window.showQuickPick(
+        sessions.map((item) => ({{
+          label: item.title || item.session_id,
+          description: item.status || '',
+          detail: item.session_id,
+          session: item,
+        }})),
+        {{placeHolder: 'Choose an ADE session'}}
+      );
+      if (picked) await showJson('ADE session', picked.session);
+    }} catch (error) {{
+      vscode.window.showErrorMessage('ADE sessions: ' + error.message);
+    }}
+  }}));
+
+  context.subscriptions.push(vscode.commands.registerCommand('ade.reviewCheckpoint', async () => {{
+    try {{
+      const sessionId = await vscode.window.showInputBox({{prompt: 'ADE session ID'}});
+      if (!sessionId) return;
+      const payload = await request('/api/v1/sessions/' + encodeURIComponent(sessionId) + '/checkpoint-review');
+      await showJson('ADE checkpoint review', payload);
+    }} catch (error) {{
+      vscode.window.showErrorMessage('ADE checkpoint review: ' + error.message);
+    }}
+  }}));
+
+  context.subscriptions.push(vscode.commands.registerCommand('ade.showCurrentContext', async () => {{
+    try {{
+      const {{editor, path}} = activeLocation();
+      const line = editor.selection.active.line + 1;
+      const payload = await request('/api/v1/ide/context', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: readPayload({{path, line, radius: 30}}),
+      }});
+      await showJson('ADE file context', payload);
+    }} catch (error) {{
+      vscode.window.showErrorMessage('ADE context: ' + error.message);
+    }}
+  }}));
+
+  context.subscriptions.push(vscode.commands.registerCommand('ade.planSelectedEdit', async () => {{
+    try {{
+      const {{editor, path}} = activeLocation();
+      const replacement = await vscode.window.showInputBox({{
+        prompt: 'Replacement text (planning only; no file mutation is applied)',
+      }});
+      if (replacement === undefined) return;
+      const startLine = editor.selection.start.line + 1;
+      const endLine = Math.max(startLine, editor.selection.end.line + 1);
+      const payload = await request('/api/v1/ide/edit-plan', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: readPayload({{
+          path,
+          replacements: [{{start_line: startLine, end_line: endLine, text: replacement}}],
+        }}, 'builder'),
+      }});
+      await showJson('ADE selected-edit plan', payload);
+      vscode.window.showInformationMessage(
+        'ADE generated a hash-bound edit plan. Apply/approval remains in the governed ADE workflow.'
+      );
+    }} catch (error) {{
+      vscode.window.showErrorMessage('ADE edit plan: ' + error.message);
+    }}
+  }}));
+
+  context.subscriptions.push(vscode.commands.registerCommand('ade.startHostedRunner', () => {{
+    const term = vscode.window.createTerminal({{name: 'ADE Hosted Runner'}});
+    term.sendText('python scripts/run_hosted_runner.py --project . --json');
+    term.show();
+  }}));
+
+  context.subscriptions.push(vscode.commands.registerCommand('ade.startAutomationWorker', () => {{
+    const term = vscode.window.createTerminal({{name: 'ADE Automations'}});
+    term.sendText('python scripts/run_automation_worker.py --project . --json');
+    term.show();
+  }}));
+}}
+function deactivate() {{}}
+module.exports = {{ activate, deactivate }};
+"""
         files = {
             ".ade/ide.json": json.dumps(
                 {
-                    "version": 1,
+                    "version": 2,
                     "console_url": console,
-                    "protocol": "ade-desktop-bridge/1",
+                    "api_url": api,
+                    "protocol": "ade-desktop-bridge/2",
                     "runner_database": ".ade/hosted-runner.db",
                     "automation_database": ".ade/automations.db",
                     "semantic_database": ".ade/semantic.db",
+                    "session_database": ".ade/sessions.db",
+                    "policy": {
+                        "edit_planning": "read_only",
+                        "mutations": "ToolRegistry approval flow only",
+                    },
                 },
                 indent=2,
                 sort_keys=True,
@@ -147,8 +270,10 @@ class IDEBridge:
             (extension_root / "extension.js").as_posix(): extension_js,
             (extension_root / "README.md").as_posix(): (
                 "# Agentic Data Engineering OS VS Code Bridge\n\n"
-                "This project-scoped extension exposes the ADE operator console and worker commands. "
-                "All data/warehouse mutations still execute through ADE ToolRegistry policy.\n"
+                "This project-scoped extension exposes ADE session browsing, checkpoint review, "
+                "current-file context, hash-bound selected-edit planning, the operator console, "
+                "and worker controls. The extension does not apply file/data mutations directly; "
+                "approval and execution remain inside the ADE ToolRegistry policy boundary.\n"
             ),
         }
         fingerprint = _hash(
@@ -159,7 +284,16 @@ class IDEBridge:
             "approval_fingerprint": fingerprint,
             "files": files,
             "console_url": console,
+            "api_url": api,
             "extension_directory": extension_root.as_posix(),
+            "capabilities": [
+                "sessions",
+                "checkpoint_review",
+                "file_context",
+                "selected_edit_plan",
+                "hosted_runner",
+                "automations",
+            ],
         }
 
     def apply_workspace(
