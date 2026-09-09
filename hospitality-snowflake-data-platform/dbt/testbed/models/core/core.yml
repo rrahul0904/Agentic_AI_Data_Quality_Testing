@@ -1,0 +1,50 @@
+version: 2
+models:
+  - name: dim_hotel
+    columns:
+      - name: hotel_id
+        tests: [not_null]
+  - name: dim_room
+    columns:
+      - name: room_id
+        tests: [not_null]
+      - name: hotel_id
+        tests:
+          - relationships:
+              arguments: {to: "ref('dim_hotel')", field: hotel_id}
+  - name: dim_guest
+    columns:
+      - name: guest_id
+        tests: [not_null]
+  - name: fact_reservation
+    columns:
+      - name: reservation_id
+        tests: [not_null]
+      - name: booking_status
+        tests:
+          - accepted_values:
+              arguments: {values: [CONFIRMED, COMPLETED, CANCELLED, NO_SHOW]}
+      - name: hotel_id
+        tests:
+          - relationships:
+              arguments: {to: "ref('dim_hotel')", field: hotel_id}
+      - name: guest_id
+        tests:
+          - relationships:
+              arguments: {to: "ref('dim_guest')", field: guest_id}
+      - name: room_id
+        tests:
+          - relationships:
+              arguments: {to: "ref('dim_room')", field: room_id}
+  - name: fact_payment
+    columns:
+      - name: payment_id
+        tests: [not_null]
+      - name: payment_status
+        tests:
+          - accepted_values:
+              arguments: {values: [CAPTURED, PARTIAL, REFUNDED]}
+  - name: fact_stay
+    columns:
+      - name: stay_id
+        tests: [not_null]

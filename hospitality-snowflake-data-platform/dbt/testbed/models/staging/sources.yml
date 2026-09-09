@@ -1,0 +1,30 @@
+version: 2
+sources:
+  - name: hospitality_raw
+    database: "{{ env_var('ADE_SNOWFLAKE_DATABASE', 'HOSPITALITY_TESTBED') }}"
+    schema: RAW
+    config:
+      freshness: {warn_after: {count: 26, period: hour}, error_after: {count: 50, period: hour}}
+      loaded_at_field: _ingested_at
+    tables:
+      - {name: hotels}
+      - {name: rooms}
+      - {name: room_types}
+      - {name: guests}
+      - name: reservations
+        config: {freshness: {warn_after: {count: 2, period: hour}, error_after: {count: 26, period: hour}}}
+      - {name: reservation_guests}
+      - {name: payments}
+      - {name: folio_charges}
+      - {name: cancellations}
+      - {name: refunds}
+      - {name: loyalty_members}
+      - {name: property_staff}
+      - {name: stays}
+      - {name: room_inventory}
+      - {name: daily_rates}
+      - {name: channel_bookings}
+      - {name: housekeeping_events}
+      - {name: web_booking_events}
+      - {name: guest_preferences}
+      - {name: property_daily_metrics}

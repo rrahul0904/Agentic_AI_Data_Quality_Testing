@@ -1,0 +1,22 @@
+name: hospitality_testbed
+version: 1.0.0
+config-version: 2
+profile: hospitality_testbed
+model-paths: ["models"]
+test-paths: ["tests"]
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  hospitality_testbed:
+    staging:
+      +schema: STAGING
+      +materialized: view
+      +tags: [testbed_staging]
+    core:
+      +schema: CORE
+      +materialized: table
+      +tags: [testbed_core]
+    marts:
+      +schema: MARTS
+      +materialized: table
+      +tags: [testbed_marts]

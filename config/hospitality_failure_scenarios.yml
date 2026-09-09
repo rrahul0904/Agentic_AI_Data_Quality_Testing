@@ -1,0 +1,20 @@
+version: 1
+scenarios:
+  malformed_csv: {expected_divergence: FILE_PARSE, format: csv}
+  invalid_timestamp: {expected_divergence: SNOWPIPE_LOAD, format: csv}
+  bad_number: {expected_divergence: SNOWPIPE_LOAD, format: csv}
+  missing_required_column: {expected_divergence: SCHEMA_DRIFT, format: csv}
+  extra_source_column: {expected_divergence: SCHEMA_DRIFT, format: csv}
+  null_required: {expected_divergence: RAW_DATA_QUALITY, format: csv}
+  duplicate_key: {expected_divergence: RAW_DATA_QUALITY, format: csv}
+  zero_byte_file: {expected_divergence: FILE_QUALITY, format: csv}
+  corrupt_parquet: {expected_divergence: FILE_PARSE, format: parquet}
+  wrong_delimiter: {expected_divergence: FILE_FORMAT, format: csv}
+  wrong_header: {expected_divergence: SCHEMA_DRIFT, format: csv}
+  stale_file: {expected_divergence: INGESTION_LATENCY, format: csv}
+  unexpected_extension: {expected_divergence: STAGE_FILE, format: txt}
+  schema_drift: {expected_divergence: SCHEMA_DRIFT, format: csv}
+  missing_file_batch: {expected_divergence: STAGE_FILE, format: manifest}
+  partial_batch: {expected_divergence: LOAD_RECONCILIATION, format: csv}
+  duplicate_file_delivery: {expected_divergence: LOAD_RECONCILIATION, format: csv}
+  late_arriving_file: {expected_divergence: INGESTION_LATENCY, format: csv}
