@@ -57,10 +57,11 @@ def _named_blocks(text: str, keyword: str) -> list[tuple[str, str]]:
 
 
 def _value(body: str, key: str) -> str | None:
-    sql_pattern = re.compile(r"(?ms)^\s*" + re.escape(key) + r":\s*(.*?)\s*;;")
-    sql_match = sql_pattern.search(body)
-    if sql_match:
-        return sql_match.group(1).strip()
+    if key in {"sql", "sql_on", "sql_table_name", "sql_where", "sql_trigger_value"}:
+        sql_pattern = re.compile(r"(?ms)^\s*" + re.escape(key) + r":\s*(.*?)\s*;;")
+        sql_match = sql_pattern.search(body)
+        if sql_match:
+            return sql_match.group(1).strip()
     plain = re.compile(r"(?m)^\s*" + re.escape(key) + r":\s*(?:\"([^\"]*)\"|([^\s#]+))")
     match = plain.search(body)
     if not match:
