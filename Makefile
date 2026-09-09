@@ -226,7 +226,8 @@ capability-superiority-p1-check:
 		tests/test_ai_workflows.py \
 		tests/test_ide_bridge.py \
 		tests/test_advanced_live_capabilities.py \
-		tests/test_advanced_capability_extensions.py
+		tests/test_advanced_capability_extensions.py \
+		tests/test_shell_sandbox.py
 
 .PHONY: advanced-live-e2e
 advanced-live-e2e:
