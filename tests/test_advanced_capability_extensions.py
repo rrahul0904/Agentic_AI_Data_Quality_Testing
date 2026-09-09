@@ -56,6 +56,7 @@ def test_mode_contracts_enforce_ask_plan_edit_and_code_boundaries() -> None:
     edit = mode_contract("edit")
 
     assert ask["purpose"] == "question_answer_exploration"
+    assert ask["actor_mode"] == "ask"
     assert ask["workspace_mutations"] is False
     assert ask["data_mutations"] is False
     assert ask["implementation_plan_required"] is False
@@ -643,6 +644,27 @@ def test_registered_advanced_tools_inherit_plan_and_approval_boundary(tmp_path) 
                 actor_mode=ActorMode.PLAN,
             )
         )
+
+
+    with pytest.raises(PermissionError, match="ask mode cannot invoke"):
+        registry.invoke(
+            ToolInvocation(
+                request=request,
+                run_id="ask-boundary",
+                approved=True,
+                actor_mode=ActorMode.ASK,
+            )
+        )
+
+    from agentic_data_platform.runtime.agent import AgentRuntime
+
+    runtime = object.__new__(AgentRuntime)
+    runtime.registry = registry
+    ask_specs = runtime._tool_specs(ActorMode.ASK)
+    assert ask_specs
+    assert all(item["risk"] == "read_only" for item in ask_specs)
+    assert "workspace_edit_apply" not in {item["name"] for item in ask_specs}
+    assert "workspace_region_edit_apply" not in {item["name"] for item in ask_specs}
 
 
 
