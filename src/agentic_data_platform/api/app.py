@@ -730,8 +730,15 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             "thread-show": "cortex_thread_show", "thread-update": "cortex_thread_update",
             "thread-delete": "cortex_thread_delete",
         },
+        "teams": {
+            "list": "team_list", "show": "team_show", "create": "team_create",
+            "edit": "team_edit", "members": "team_set_members", "delete": "team_delete",
+            "plan": "team_plan", "run": "team_run", "runs": "team_runs",
+            "run-show": "team_run_show",
+        },
         "runner": {
             "submit": "hosted_runner_submit", "jobs": "hosted_runner_jobs", "job": "hosted_runner_job",
+            "workspace-readiness": "hosted_runner_workspace_readiness",
             "cancel": "hosted_runner_cancel", "register": "hosted_runner_register",
             "runners": "hosted_runner_runners", "heartbeat": "hosted_runner_heartbeat",
             "run-once": "hosted_runner_run_once",
