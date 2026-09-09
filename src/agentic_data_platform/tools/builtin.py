@@ -108,7 +108,7 @@ from agentic_data_platform.sql.parity import (
 )
 from agentic_data_platform.connectors.factory import ExternalConnectionUnavailable, connector_from_args
 from agentic_data_platform.connectors.snowflake import SnowflakeConnector
-from agentic_data_platform.snowflake import GovernedSnowflakeMutationExecutor, SnowflakePipelineTester, analyze_copy_command, failure_lab, plan_snowflake_mutation
+from agentic_data_platform.snowflake import GovernedSnowflakeMutationExecutor, ManagedDbtExecutor, SnowflakePipelineTester, analyze_copy_command, failure_lab, plan_managed_dbt, plan_snowflake_mutation, supported_managed_dbt_commands
 from agentic_data_platform.metadata.index import MetadataIndex
 from agentic_data_platform.metadata.service import MetadataService
 from agentic_data_platform.search import UnifiedSemanticIndex
@@ -355,6 +355,53 @@ def _snowflake_mutation_execute(args: dict[str, Any]) -> dict[str, Any]:
         approved=bool(args.get("_approved")),
         confirm_destructive=bool(args.get("confirm_destructive", False)),
         dry_run=False,
+    )
+
+
+def _managed_dbt_kwargs(args: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "project_name": args.get("project_name"),
+        "workspace_name": args.get("workspace_name"),
+        "command": str(args.get("command", "run")),
+        "flags": tuple(args.get("flags") or ()),
+        "dbt_version": args.get("dbt_version"),
+        "dbt_environment": args.get("dbt_environment"),
+        "env_vars": dict(args.get("env_vars") or {}),
+        "external_access_integrations": tuple(args.get("external_access_integrations") or ()),
+        "project_root": args.get("project_root"),
+        "if_exists": bool(args.get("if_exists", False)),
+    }
+
+
+def _managed_dbt_execute(args: dict[str, Any]) -> dict[str, Any]:
+    environment = str(args.get("_environment") or "dev")
+    kwargs = _managed_dbt_kwargs(args)
+    plan = plan_managed_dbt(ade_environment=environment, **kwargs)
+    if plan.get("status") != "PASS":
+        return plan
+    if not bool(args.get("_approved")):
+        return {**plan, "status": "BLOCKED_APPROVAL", "reason": "explicit ToolRegistry approval is required"}
+    if str(args.get("approval_fingerprint") or "") != plan["approval_fingerprint"]:
+        return {
+            **plan,
+            "status": "BLOCKED_APPROVAL",
+            "code": "APPROVAL_FINGERPRINT_MISMATCH",
+            "reason": "approval does not match the exact managed dbt execution statement",
+        }
+    if bool(args.get("_dry_run")):
+        return {**plan, "status": "PASS", "mode": "DRY_RUN", "executed": False}
+    try:
+        connector = connector_from_args({**args, "platform": "snowflake"})
+    except ExternalConnectionUnavailable as exc:
+        return {"status": "SKIP_EXTERNAL", "platform": "snowflake", "reason": str(exc)}
+    if not isinstance(connector, SnowflakeConnector):
+        raise TypeError("Snowflake-managed dbt execution requires SnowflakeConnector")
+    return ManagedDbtExecutor(connector).execute(
+        approval_fingerprint=str(args["approval_fingerprint"]),
+        approved=True,
+        ade_environment=environment,
+        dry_run=False,
+        **kwargs,
     )
 
 
@@ -1853,6 +1900,34 @@ def build_tool_registry() -> ToolRegistry:
                 "confirm_destructive": {"type": "boolean"},
             },
         },
+    )
+
+    add(
+        "snowflake_managed_dbt_commands",
+        Capability.DISCOVER,
+        lambda a: supported_managed_dbt_commands(),
+        "List Snowflake-managed dbt commands and flags ADE intentionally blocks as unsupported.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "snowflake_managed_dbt_plan",
+        Capability.PLAN,
+        lambda a: plan_managed_dbt(
+            ade_environment=str(a.get("_environment") or "dev"),
+            **_managed_dbt_kwargs(a),
+        ),
+        "Render and govern one Snowflake-managed dbt project/workspace execution without running it.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "snowflake_managed_dbt_execute",
+        Capability.EXECUTE,
+        _managed_dbt_execute,
+        "Execute an approved Snowflake-managed dbt project/workspace command and verify its Snowflake query status.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        supports_dry_run=True,
+        requires_approval=True,
     )
 
     # Snowflake ingestion-pipeline verification. These tools are read-only.
