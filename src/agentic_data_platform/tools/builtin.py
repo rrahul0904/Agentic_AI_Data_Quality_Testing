@@ -107,7 +107,8 @@ from agentic_data_platform.sql.parity import (
     translate_sql as sql_translate_impl,
 )
 from agentic_data_platform.connectors.factory import ExternalConnectionUnavailable, connector_from_args
-from agentic_data_platform.snowflake import SnowflakePipelineTester, analyze_copy_command, failure_lab
+from agentic_data_platform.connectors.snowflake import SnowflakeConnector
+from agentic_data_platform.snowflake import GovernedSnowflakeMutationExecutor, SnowflakePipelineTester, analyze_copy_command, failure_lab, plan_snowflake_mutation
 from agentic_data_platform.metadata.index import MetadataIndex
 from agentic_data_platform.metadata.service import MetadataService
 from agentic_data_platform.training import (
@@ -303,6 +304,23 @@ def _snowflake_pipeline_call(args: dict[str, Any], method: str, **kwargs: Any) -
         return getattr(tester, method)(**kwargs)
     except ExternalConnectionUnavailable as exc:
         return {"status": "SKIP_EXTERNAL", "platform": "snowflake", "reason": str(exc)}
+
+
+def _snowflake_mutation_execute(args: dict[str, Any]) -> dict[str, Any]:
+    try:
+        connector = connector_from_args({**args, "platform": "snowflake"})
+    except ExternalConnectionUnavailable as exc:
+        return {"status": "SKIP_EXTERNAL", "platform": "snowflake", "reason": str(exc)}
+    if not isinstance(connector, SnowflakeConnector):
+        raise TypeError("Snowflake mutation execution requires SnowflakeConnector")
+    return GovernedSnowflakeMutationExecutor(connector).execute(
+        args["sql"],
+        environment=str(args.get("_environment") or args.get("environment") or "dev"),
+        approval_fingerprint=str(args.get("approval_fingerprint") or ""),
+        approved=bool(args.get("_approved")),
+        confirm_destructive=bool(args.get("confirm_destructive", False)),
+        dry_run=bool(args.get("_dry_run")),
+    )
 
 
 def _connection_store(args: dict[str, Any]) -> ConnectionStore:
@@ -1587,6 +1605,45 @@ def build_tool_registry() -> ToolRegistry:
     add("data_diff_cascade", Capability.VERIFY, lambda a: production_diff(a, "CASCADE"), "Run profile then bounded hash/detail cascade diff.", platforms=frozenset({Platform.LOCAL}))
 
     add("data_diff_duckdb_demo", Capability.VERIFY, lambda a: duckdb_demo_diff(), "Run a real in-memory DuckDB source-target data-diff fixture.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
+
+    # Governed Snowflake platform mutation. Plan first; execute only through ToolRegistry.
+    add(
+        "snowflake_mutation_plan",
+        Capability.PLAN,
+        lambda a: plan_snowflake_mutation(
+            a["sql"],
+            environment=str(a.get("environment") or a.get("_environment") or "dev"),
+        ),
+        "Plan one Snowflake DDL/DML statement with deterministic risk, exact-statement approval fingerprint, policy controls and post-change verification.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+        schema={
+            "type": "object",
+            "required": ["sql"],
+            "properties": {
+                "sql": {"type": "string"},
+                "environment": {"type": "string"},
+            },
+        },
+    )
+    add(
+        "snowflake_mutation_execute",
+        Capability.EXECUTE,
+        _snowflake_mutation_execute,
+        "Execute one planned Snowflake mutation after ToolRegistry approval, fingerprint binding, destructive confirmation when required, and post-change verification.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        supports_dry_run=True,
+        requires_approval=True,
+        schema={
+            "type": "object",
+            "required": ["sql", "approval_fingerprint"],
+            "properties": {
+                "sql": {"type": "string"},
+                "approval_fingerprint": {"type": "string"},
+                "confirm_destructive": {"type": "boolean"},
+            },
+        },
+    )
 
     # Snowflake ingestion-pipeline verification. These tools are read-only.
     add("snowflake_copy_analyze", Capability.VERIFY, lambda a: analyze_copy_command(a["sql"]), "Statically analyze a Snowflake COPY INTO command for testability and load-risk options.", platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}))
