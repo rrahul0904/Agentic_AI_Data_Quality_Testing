@@ -1,0 +1,325 @@
+from __future__ import annotations
+
+import pytest
+from fastapi.testclient import TestClient
+
+from agentic_data_platform.api.app import create_app
+from agentic_data_platform.cli import DOMAIN_CLI_TOOLS, build_parser
+from agentic_data_platform.connectors.snowflake import SnowflakeConfig, SnowflakeConnector
+from agentic_data_platform.models import ActorMode, Environment, ToolRequest
+from agentic_data_platform.snowflake import GovernedSnowflakeMutationExecutor, plan_snowflake_mutation
+from agentic_data_platform.tools.builtin import build_tool_registry
+from agentic_data_platform.tools.registry import ToolInvocation
+
+
+class MutationFixture:
+    def __init__(self) -> None:
+        self.created = False
+        self.statements: list[str] = []
+
+    def __call__(self, sql: str):
+        self.statements.append(sql)
+        lowered = sql.casefold().strip()
+
+        if lowered.startswith("show tables like"):
+            rows = ({"name": "RESERVATIONS"},) if self.created else ()
+            return {"columns": ("name",), "rows": rows}
+
+        if lowered.startswith("create table"):
+            self.created = True
+            return {"columns": (), "rows": (), "query_id": "q-create"}
+
+        if lowered.startswith("drop table"):
+            self.created = False
+            return {"columns": (), "rows": (), "query_id": "q-drop"}
+
+        if lowered.startswith("alter table"):
+            return {"columns": (), "rows": (), "query_id": "q-alter"}
+
+        if lowered.startswith("insert into"):
+            return {"columns": (), "rows": (), "query_id": "q-insert"}
+
+        if "query_history_by_session" in lowered:
+            return {
+                "columns": ("QUERY_ID", "EXECUTION_STATUS"),
+                "rows": ({"QUERY_ID": "q-insert", "EXECUTION_STATUS": "SUCCESS"},),
+            }
+
+        raise AssertionError(f"unexpected SQL: {sql}")
+
+
+def _connector(fixture: MutationFixture | None = None) -> tuple[SnowflakeConnector, MutationFixture]:
+    fixture = fixture or MutationFixture()
+    return (
+        SnowflakeConnector(
+            fixture,
+            SnowflakeConfig(database="HOTEL", schema="RAW"),
+        ),
+        fixture,
+    )
+
+
+def test_create_plan_has_exact_fingerprint_and_verification():
+    result = plan_snowflake_mutation(
+        "CREATE TABLE HOTEL.RAW.RESERVATIONS (ID NUMBER)",
+        environment="dev",
+    )
+
+    assert result["status"] == "PASS"
+    assert result["statement_type"] == "CREATE"
+    assert result["object_type"] == "TABLE"
+    assert result["target"] == "HOTEL.RAW.RESERVATIONS"
+    assert result["risk_level"] == "safe_create"
+    assert result["destructive"] is False
+    assert len(result["approval_fingerprint"]) == 64
+    assert result["verification_plan"][0]["sql"] == (
+        "SHOW TABLES LIKE 'RESERVATIONS' IN SCHEMA HOTEL.RAW"
+    )
+
+
+def test_approval_fingerprint_changes_when_statement_changes():
+    first = plan_snowflake_mutation(
+        "ALTER TABLE HOTEL.RAW.RESERVATIONS ADD COLUMN SOURCE_SYSTEM VARCHAR",
+        environment="staging",
+    )
+    second = plan_snowflake_mutation(
+        "ALTER TABLE HOTEL.RAW.RESERVATIONS ADD COLUMN SOURCE_SYSTEM VARCHAR(50)",
+        environment="staging",
+    )
+
+    assert first["approval_fingerprint"] != second["approval_fingerprint"]
+
+
+def test_multi_statement_request_is_blocked():
+    result = plan_snowflake_mutation(
+        "CREATE TABLE A(ID NUMBER); DROP TABLE B",
+        environment="dev",
+    )
+    assert result["status"] == "FAIL"
+    assert result["code"] == "MULTI_STATEMENT_BLOCKED"
+
+
+def test_prod_drop_is_blocked_without_break_glass(monkeypatch):
+    monkeypatch.delenv("ADE_PROD_DESTRUCTIVE_BREAK_GLASS", raising=False)
+    result = plan_snowflake_mutation(
+        "DROP TABLE HOTEL.RAW.RESERVATIONS",
+        environment="prod",
+    )
+
+    assert result["status"] == "BLOCKED_POLICY"
+    assert result["destructive"] is True
+
+
+def test_create_or_replace_and_unbounded_delete_are_destructive():
+    replace = plan_snowflake_mutation(
+        "CREATE OR REPLACE TABLE HOTEL.RAW.RESERVATIONS (ID NUMBER)",
+        environment="dev",
+    )
+    delete = plan_snowflake_mutation(
+        "DELETE FROM HOTEL.RAW.RESERVATIONS",
+        environment="dev",
+    )
+
+    assert replace["destructive"] is True
+    assert replace["statement_type"] == "CREATE_OR_REPLACE"
+    assert delete["destructive"] is True
+
+
+def test_secret_values_are_redacted_from_plan():
+    result = plan_snowflake_mutation(
+        "CREATE STAGE HOTEL.RAW.LANDING CREDENTIALS=(AWS_KEY_ID='abc' AWS_SECRET_KEY='xyz')",
+        environment="dev",
+    )
+
+    assert result["status"] == "PASS"
+    assert "abc" not in result["statement_preview"]
+    assert "xyz" not in result["statement_preview"]
+    assert result["statement_preview"].count("***REDACTED***") == 2
+
+
+def test_create_executes_only_after_matching_approval_and_verifies():
+    connector, fixture = _connector()
+    executor = GovernedSnowflakeMutationExecutor(connector)
+    sql = "CREATE TABLE HOTEL.RAW.RESERVATIONS (ID NUMBER)"
+    plan = executor.plan(sql, environment="dev")
+
+    mismatch = executor.execute(
+        sql,
+        environment="dev",
+        approval_fingerprint="wrong",
+        approved=True,
+    )
+    assert mismatch["status"] == "BLOCKED_APPROVAL"
+    assert fixture.created is False
+
+    result = executor.execute(
+        sql,
+        environment="dev",
+        approval_fingerprint=plan["approval_fingerprint"],
+        approved=True,
+    )
+    assert result["status"] == "PASS"
+    assert result["executed"] is True
+    assert result["verified"] is True
+    assert result["query_id"] == "q-create"
+    assert fixture.created is True
+
+
+def test_destructive_drop_requires_second_confirmation_and_verifies_absence():
+    connector, fixture = _connector()
+    fixture.created = True
+    executor = GovernedSnowflakeMutationExecutor(connector)
+    sql = "DROP TABLE HOTEL.RAW.RESERVATIONS"
+    plan = executor.plan(sql, environment="dev")
+
+    blocked = executor.execute(
+        sql,
+        environment="dev",
+        approval_fingerprint=plan["approval_fingerprint"],
+        approved=True,
+    )
+    assert blocked["status"] == "BLOCKED_APPROVAL"
+    assert blocked["code"] == "DESTRUCTIVE_CONFIRMATION_REQUIRED"
+    assert fixture.created is True
+
+    result = executor.execute(
+        sql,
+        environment="dev",
+        approval_fingerprint=plan["approval_fingerprint"],
+        approved=True,
+        confirm_destructive=True,
+    )
+    assert result["status"] == "PASS"
+    assert result["verified"] is True
+    assert fixture.created is False
+
+
+def test_mutation_dry_run_does_not_execute():
+    connector, fixture = _connector()
+    executor = GovernedSnowflakeMutationExecutor(connector)
+    sql = "ALTER TABLE HOTEL.RAW.RESERVATIONS ADD COLUMN SOURCE_SYSTEM VARCHAR(50)"
+    plan = executor.plan(sql, environment="staging")
+
+    result = executor.execute(
+        sql,
+        environment="staging",
+        approval_fingerprint=plan["approval_fingerprint"],
+        approved=True,
+        dry_run=True,
+    )
+
+    assert result["status"] == "PASS"
+    assert result["mode"] == "DRY_RUN"
+    assert result["executed"] is False
+    assert fixture.statements == []
+
+
+def test_tool_registry_blocks_analyst_and_requires_approval():
+    connector, _ = _connector()
+    registry = build_tool_registry()
+    definition = registry.describe("snowflake_mutation_execute")
+    sql = "CREATE TABLE HOTEL.RAW.RESERVATIONS (ID NUMBER)"
+    plan = plan_snowflake_mutation(sql, environment="dev")
+    request = ToolRequest(
+        tool="snowflake_mutation_execute",
+        operation="snowflake_mutation_execute",
+        environment=Environment.DEV,
+        risk=definition.risk,
+        args={
+            "sql": sql,
+            "approval_fingerprint": plan["approval_fingerprint"],
+            "_connector": connector,
+        },
+    )
+
+    with pytest.raises(PermissionError):
+        registry.invoke(
+            ToolInvocation(
+                request,
+                run_id="analyst-write",
+                actor_mode=ActorMode.ANALYST,
+                approved=True,
+            )
+        )
+
+    with pytest.raises(PermissionError):
+        registry.invoke(
+            ToolInvocation(
+                request,
+                run_id="builder-unapproved",
+                actor_mode=ActorMode.BUILDER,
+                approved=False,
+            )
+        )
+
+    result = registry.invoke(
+        ToolInvocation(
+            request,
+            run_id="builder-approved",
+            actor_mode=ActorMode.BUILDER,
+            approved=True,
+            dry_run=True,
+        )
+    )
+    assert result["status"] == "PASS"
+    assert result["mode"] == "DRY_RUN"
+
+
+def test_cli_and_api_expose_governed_snowflake_admin_surface(monkeypatch):
+    assert DOMAIN_CLI_TOOLS["snowflake-admin"] == {
+        "plan": "snowflake_mutation_plan",
+        "execute": "snowflake_mutation_execute",
+    }
+
+    parsed = build_parser().parse_args(
+        [
+            "snowflake-admin",
+            "execute",
+            "--environment",
+            "prod",
+            "--builder",
+            "--approved",
+            "--dry-run",
+            "--args",
+            '{"sql":"CREATE TABLE HOTEL.RAW.T(ID NUMBER)","approval_fingerprint":"x"}',
+        ]
+    )
+    assert parsed.environment == "prod"
+    assert parsed.builder is True
+    assert parsed.approved is True
+    assert parsed.dry_run is True
+
+    client = TestClient(create_app())
+    domains = client.get("/api/v1/domains")
+    assert domains.status_code == 200
+    assert {
+        item["tool"] for item in domains.json()["snowflake-admin"].values()
+    } == {"snowflake_mutation_plan", "snowflake_mutation_execute"}
+
+    response = client.post(
+        "/api/v1/snowflake-admin/plan",
+        json={
+            "args": {"sql": "CREATE TABLE HOTEL.RAW.T(ID NUMBER)"},
+            "environment": "dev",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "PASS"
+
+    for name in ("ADE_SNOWFLAKE_ACCOUNT", "ADE_SNOWFLAKE_USER", "ADE_SNOWFLAKE_PASSWORD"):
+        monkeypatch.delenv(name, raising=False)
+    execute = client.post(
+        "/api/v1/snowflake-admin/execute",
+        json={
+            "args": {
+                "sql": "CREATE TABLE HOTEL.RAW.T(ID NUMBER)",
+                "approval_fingerprint": response.json()["approval_fingerprint"],
+            },
+            "actor_mode": "builder",
+            "environment": "dev",
+            "approved": True,
+            "dry_run": True,
+        },
+    )
+    assert execute.status_code == 200
+    assert execute.json()["status"] == "SKIP_EXTERNAL"
