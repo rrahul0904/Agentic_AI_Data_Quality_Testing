@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from agentic_data_platform.models import ActorMode, Capability, Platform, Risk, ToolDefinition
+from agentic_data_platform.models import ActorMode, Capability, Platform, Risk
 from agentic_data_platform.plugins.manager import PluginManager
 from agentic_data_platform.providers import ProviderResponse, ScriptedProvider, ToolCall
 from agentic_data_platform.runtime import AgentRuntime, RuntimeStore
-from agentic_data_platform.tools.registry import ToolRegistry
+from agentic_data_platform.tools.registry import ToolDefinition, ToolRegistry
 from agentic_data_platform.tracing import TraceStore
 
 
