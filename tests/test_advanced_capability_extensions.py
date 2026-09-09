@@ -19,6 +19,7 @@ from agentic_data_platform.advanced_capabilities import (
     audited_web_fetch,
     audited_web_search,
     apply_file_edit,
+    apply_region_edit,
     build_chart_spec,
     command_plan,
     compare_document_extractions,
@@ -33,6 +34,7 @@ from agentic_data_platform.advanced_capabilities import (
     list_agent_definitions,
     mode_contract,
     plan_file_edit,
+    plan_region_edit,
     retrieval_search,
     route_model_for_mode,
     run_command,
@@ -47,16 +49,28 @@ from agentic_data_platform.advanced_capabilities import (
 )
 
 
-def test_mode_contracts_enforce_read_only_plan_and_code_data_boundary() -> None:
+def test_mode_contracts_enforce_ask_plan_edit_and_code_boundaries() -> None:
+    ask = mode_contract("ask")
     plan = mode_contract("plan")
     code = mode_contract("code", budget_usd=0.25)
     edit = mode_contract("edit")
 
+    assert ask["purpose"] == "question_answer_exploration"
+    assert ask["workspace_mutations"] is False
+    assert ask["data_mutations"] is False
+    assert ask["implementation_plan_required"] is False
+    assert "file_mutation" in ask["denied_tool_categories"]
+    assert plan["purpose"] == "implementation_research_and_structured_plan"
     assert plan["workspace_mutations"] is False
     assert plan["data_mutations"] is False
+    assert "ordered_implementation_steps" in plan["output_contract"]
     assert code["data_mutations"] is False
     assert code["model_policy"] == "lowest_cost_capable_model"
+    assert "snowflake_data_tools" in code["denied_tool_categories"]
+    assert "mcp" in code["denied_tool_categories"]
+    assert "git" in code["allowed_tool_categories"]
     assert edit["workspace_mutations"] == "hash_bound_approval"
+    assert edit["purpose"] == "selected_region_edit"
     assert plan["contract_fingerprint"]
 
 
@@ -124,6 +138,108 @@ def test_file_edit_stale_approval_is_never_overwritten_by_plan_status(tmp_path) 
 def test_file_edit_rejects_workspace_escape(tmp_path) -> None:
     with pytest.raises(ValueError):
         plan_file_edit(tmp_path, "../escape.txt", "nope")
+
+
+def test_selected_region_edit_changes_only_requested_lines(tmp_path) -> None:
+    target = tmp_path / "retry.py"
+    original = "before\none\ntwo\nafter\n"
+    target.write_text(original, encoding="utf-8")
+    plan = plan_region_edit(tmp_path, "retry.py", 2, 3, "ONE\nTWO\n")
+
+    assert plan["status"] == "PASS"
+    assert plan["selected_text_hash"]
+    assert "@@" in plan["diff"]
+
+    result = apply_region_edit(
+        tmp_path,
+        "retry.py",
+        2,
+        3,
+        "ONE\nTWO\n",
+        approval_fingerprint=plan["approval_fingerprint"],
+        expected_source_hash=plan["source_file_hash"],
+        expected_selected_hash=plan["selected_text_hash"],
+    )
+
+    assert result["status"] == "PASS"
+    assert target.read_text(encoding="utf-8") == "before\nONE\nTWO\nafter\n"
+    assert target.read_text(encoding="utf-8").startswith("before\n")
+    assert target.read_text(encoding="utf-8").endswith("after\n")
+    assert result["result_file_hash"] == plan["result_file_hash"]
+
+
+def test_selected_region_edit_rejects_stale_source_selection_and_approval(tmp_path) -> None:
+    target = tmp_path / "selection.txt"
+    target.write_text("alpha\nbeta\ngamma\n", encoding="utf-8")
+    plan = plan_region_edit(tmp_path, "selection.txt", 2, 2, "BETA\n")
+    assert plan["status"] == "PASS"
+
+    stale_approval = apply_region_edit(
+        tmp_path,
+        "selection.txt",
+        2,
+        2,
+        "BETA\n",
+        approval_fingerprint="tampered",
+    )
+    assert stale_approval["status"] == "STALE_APPROVAL"
+    assert target.read_text(encoding="utf-8") == "alpha\nbeta\ngamma\n"
+
+    target.write_text("alpha\nchanged\ngamma\n", encoding="utf-8")
+    stale_source = apply_region_edit(
+        tmp_path,
+        "selection.txt",
+        2,
+        2,
+        "BETA\n",
+        approval_fingerprint=plan["approval_fingerprint"],
+        expected_source_hash=plan["source_file_hash"],
+    )
+    assert stale_source["status"] == "STALE_SOURCE"
+
+    current = plan_region_edit(tmp_path, "selection.txt", 2, 2, "BETA\n")
+    stale_selection = plan_region_edit(
+        tmp_path,
+        "selection.txt",
+        2,
+        2,
+        "BETA\n",
+        expected_selected_hash=plan["selected_text_hash"],
+    )
+    assert current["status"] == "PASS"
+    assert stale_selection["status"] == "STALE_SELECTION"
+
+
+def test_selected_region_edit_rolls_back_when_verification_fails(tmp_path) -> None:
+    target = tmp_path / "rollback.txt"
+    target.write_text("keep\nold\nkeep2\n", encoding="utf-8")
+    verification = [sys.executable, "-c", "raise SystemExit(9)"]
+    plan = plan_region_edit(
+        tmp_path,
+        "rollback.txt",
+        2,
+        2,
+        "new\n",
+        verification_command=verification,
+    )
+    result = apply_region_edit(
+        tmp_path,
+        "rollback.txt",
+        2,
+        2,
+        "new\n",
+        approval_fingerprint=plan["approval_fingerprint"],
+        verification_command=verification,
+    )
+    assert result["status"] == "VERIFICATION_FAILED_ROLLED_BACK"
+    assert target.read_text(encoding="utf-8") == "keep\nold\nkeep2\n"
+
+
+def test_selected_region_edit_rejects_invalid_region(tmp_path) -> None:
+    target = tmp_path / "bounds.txt"
+    target.write_text("one\ntwo\n", encoding="utf-8")
+    result = plan_region_edit(tmp_path, "bounds.txt", 2, 99, "x\n")
+    assert result["status"] == "INVALID_REGION"
 
 
 def test_shell_is_argv_only_bounded_and_approval_fingerprinted(tmp_path) -> None:
@@ -479,6 +595,8 @@ def test_registered_advanced_tools_inherit_plan_and_approval_boundary(tmp_path) 
         "immutable_plan",
         "workspace_edit_plan",
         "workspace_edit_apply",
+        "workspace_region_edit_plan",
+        "workspace_region_edit_apply",
         "shell_plan",
         "shell_run",
         "git_change_plan",
