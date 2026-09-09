@@ -3162,7 +3162,46 @@ def build_tool_registry() -> ToolRegistry:
         "git_status",
         Capability.DISCOVER,
         lambda a: advanced_caps.git_status(a.get("workspace") or str(_target(a))),
-        "Inspect project Git branch and working-tree state without mutation.",
+        "Inspect project Git branch, HEAD and working-tree state without mutation.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "git_diff",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.git_diff(
+            a.get("workspace") or str(_target(a)),
+            staged=bool(a.get("staged", False)),
+            ref=a.get("ref"),
+            paths=list(a.get("paths") or []),
+        ),
+        "Inspect fingerprinted working-tree or staged Git diffs.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "git_log",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.git_log(
+            a.get("workspace") or str(_target(a)),
+            limit=int(a.get("limit", 20)),
+        ),
+        "Read bounded structured Git history.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "git_remotes",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.git_remotes(a.get("workspace") or str(_target(a))),
+        "Inspect configured Git remotes without mutation.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "git_review_evidence",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.git_review_evidence(
+            a.get("workspace") or str(_target(a)),
+            commit=str(a.get("commit") or "HEAD"),
+        ),
+        "Produce commit/change/test-ready review evidence with stable fingerprint.",
         platforms=frozenset({Platform.LOCAL}),
     )
     add(
@@ -3174,9 +3213,11 @@ def build_tool_registry() -> ToolRegistry:
             branch=a.get("branch"),
             message=a.get("message"),
             paths=list(a.get("paths") or []),
+            commit=a.get("commit"),
+            remote=a.get("remote"),
             verification_command=a.get("verification_command"),
         ),
-        "Plan a branch or explicit-path commit with verification evidence and force-push disabled.",
+        "Plan branch/switch/commit/restore/revert/fetch/pull/push with exact HEAD binding; history rewriting stays blocked.",
         platforms=frozenset({Platform.LOCAL}),
     )
     add(
@@ -3189,9 +3230,11 @@ def build_tool_registry() -> ToolRegistry:
             branch=a.get("branch"),
             message=a.get("message"),
             paths=list(a.get("paths") or []),
+            commit=a.get("commit"),
+            remote=a.get("remote"),
             verification_command=a.get("verification_command"),
         ),
-        "Apply an approved local Git branch/commit operation after optional test verification; remote push and force-push are excluded.",
+        "Apply an approved Git change/sync operation and return review evidence; force-push and history rewriting remain blocked.",
         platforms=frozenset({Platform.LOCAL}),
         risk=Risk.MUTATING,
         requires_approval=True,
