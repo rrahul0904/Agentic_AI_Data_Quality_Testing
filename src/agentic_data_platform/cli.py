@@ -50,6 +50,10 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
         "reconciliation-history": "reconciliation_history",
         "asset-health": "asset_health_score", "pipeline-health": "pipeline_health_score",
     },
+    "snowflake-admin": {
+        "plan": "snowflake_mutation_plan",
+        "execute": "snowflake_mutation_execute",
+    },
     "snowflake-test": {
         "copy-analyze": "snowflake_copy_analyze",
         "failure-lab": "snowflake_failure_lab",
