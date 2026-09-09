@@ -9,10 +9,10 @@ from agentic_data_platform.agents.parallel import (
     SubagentRegistry,
     SubagentTask,
 )
-from agentic_data_platform.models import Capability, Platform, Risk, ToolDefinition
+from agentic_data_platform.models import Capability, Platform, Risk
 from agentic_data_platform.providers import ScriptedProvider
 from agentic_data_platform.runtime import AgentRuntime, RuntimeStore
-from agentic_data_platform.tools.registry import ToolRegistry
+from agentic_data_platform.tools.registry import ToolDefinition, ToolRegistry
 from agentic_data_platform.tracing import TraceStore
 
 
