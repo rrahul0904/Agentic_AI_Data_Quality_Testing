@@ -107,6 +107,7 @@ from agentic_data_platform.sql.parity import (
     translate_sql as sql_translate_impl,
 )
 from agentic_data_platform.connectors.factory import ExternalConnectionUnavailable, connector_from_args
+from agentic_data_platform.snowflake import SnowflakePipelineTester, analyze_copy_command, failure_lab
 from agentic_data_platform.metadata.index import MetadataIndex
 from agentic_data_platform.metadata.service import MetadataService
 from agentic_data_platform.training import (
@@ -289,6 +290,19 @@ def _quality(args: dict[str, Any]) -> SQLiteQualityStore:
     store = SQLiteQualityStore(args.get("database", ":memory:"))
     store.initialize()
     return store
+
+
+def _snowflake_pipeline_tester(args: dict[str, Any]) -> SnowflakePipelineTester:
+    connector = connector_from_args({**args, "platform": "snowflake"})
+    return SnowflakePipelineTester(connector)
+
+
+def _snowflake_pipeline_call(args: dict[str, Any], method: str, **kwargs: Any) -> dict[str, Any]:
+    try:
+        tester = _snowflake_pipeline_tester(args)
+        return getattr(tester, method)(**kwargs)
+    except ExternalConnectionUnavailable as exc:
+        return {"status": "SKIP_EXTERNAL", "platform": "snowflake", "reason": str(exc)}
 
 
 def _connection_store(args: dict[str, Any]) -> ConnectionStore:
@@ -1573,6 +1587,28 @@ def build_tool_registry() -> ToolRegistry:
     add("data_diff_cascade", Capability.VERIFY, lambda a: production_diff(a, "CASCADE"), "Run profile then bounded hash/detail cascade diff.", platforms=frozenset({Platform.LOCAL}))
 
     add("data_diff_duckdb_demo", Capability.VERIFY, lambda a: duckdb_demo_diff(), "Run a real in-memory DuckDB source-target data-diff fixture.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
+
+    # Snowflake ingestion-pipeline verification. These tools are read-only.
+    add("snowflake_copy_analyze", Capability.VERIFY, lambda a: analyze_copy_command(a["sql"]), "Statically analyze a Snowflake COPY INTO command for testability and load-risk options.", platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}))
+    add("snowflake_failure_lab", Capability.VERIFY, lambda a: failure_lab(scenario=a.get("scenario"), prefix=str(a.get("prefix", "ade_failure"))), "Generate deterministic negative-test fixtures and expected first-divergence evidence without mutating Snowflake.", platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}))
+    add("snowflake_stage_inventory", Capability.DISCOVER, lambda a: _snowflake_pipeline_call(a, "stage_inventory", schema=a.get("schema")), "Inventory Snowflake stages in the selected scope.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_stage_files", Capability.VERIFY, lambda a: _snowflake_pipeline_call(a, "stage_files", stage_name=a["stage_name"], pattern=a.get("pattern"), expected_extensions=a.get("expected_extensions", ()), max_age_minutes=a.get("max_age_minutes"), min_files=int(a.get("min_files", 1)), limit=int(a.get("limit", 1000))), "Inspect staged files for volume, age, extension and zero-byte failures.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_file_format", Capability.VERIFY, lambda a: _snowflake_pipeline_call(a, "file_format_status", file_format_name=a["file_format_name"], expected=a.get("expected")), "Inspect a Snowflake file format and compare it with an expected producer contract.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_pipe_inventory", Capability.DISCOVER, lambda a: _snowflake_pipeline_call(a, "pipe_inventory", schema=a.get("schema")), "Inventory Snowpipe definitions in the selected Snowflake scope.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_pipe_status", Capability.VERIFY, lambda a: _snowflake_pipeline_call(a, "pipe_status", pipe_name=a["pipe_name"]), "Verify Snowpipe runtime status with SYSTEM$PIPE_STATUS.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_pipe_validate", Capability.VERIFY, lambda a: _snowflake_pipeline_call(a, "validate_pipe_load", pipe_name=a["pipe_name"], hours=int(a.get("hours", 24)), limit=int(a.get("limit", 100))), "Inspect VALIDATE_PIPE_LOAD errors for Snowpipe within the bounded history window.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_stream_inventory", Capability.DISCOVER, lambda a: _snowflake_pipeline_call(a, "stream_inventory", schema=a.get("schema")), "Inventory Snowflake Streams and flag stale streams.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_stream_status", Capability.VERIFY, lambda a: _snowflake_pipeline_call(a, "stream_status", stream_name=a["stream_name"]), "Verify stream staleness and pending-data state.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_stream_backlog", Capability.VERIFY, lambda a: _snowflake_pipeline_call(a, "stream_backlog", stream_name=a["stream_name"], max_pending_rows=a.get("max_pending_rows")), "Measure pending insert/delete/update markers in a Snowflake Stream without consuming it.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_copy_history", Capability.VERIFY, lambda a: _snowflake_pipeline_call(a, "copy_history", table_name=a["table_name"], pipe_name=a.get("pipe_name"), hours=int(a.get("hours", 24)), limit=int(a.get("limit", 100))), "Inspect INFORMATION_SCHEMA.COPY_HISTORY for failed files, errors and loaded row counts.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_copy_validate", Capability.VERIFY, lambda a: _snowflake_pipeline_call(a, "validate_copy", table_name=a["table_name"], job_id=str(a.get("job_id", "_last")), limit=int(a.get("limit", 100))), "Read Snowflake VALIDATE results for a COPY job without executing a new load.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_schema_drift", Capability.VERIFY, lambda a: _snowflake_pipeline_call(a, "schema_drift", stage_name=a["stage_name"], target_table=a["target_table"], file_format_name=a["file_format_name"], pattern=a.get("pattern"), ignore_target_columns=a.get("ignore_target_columns", ())), "Compare INFER_SCHEMA output from staged files with the target table and flag drift.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_ingestion_latency", Capability.VERIFY, lambda a: _snowflake_pipeline_call(a, "ingestion_latency", stage_name=a["stage_name"], table_name=a["table_name"], pipe_name=a.get("pipe_name"), hours=int(a.get("hours", 24)), max_latency_minutes=float(a.get("max_latency_minutes", 15)), pattern=a.get("pattern"), limit=int(a.get("limit", 1000))), "Measure stage-to-load latency and detect stuck files against an SLA.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_table_quality", Capability.VERIFY, lambda a: _snowflake_pipeline_call(a, "table_quality", table_name=a["table_name"], key_columns=a.get("key_columns", ()), not_null_columns=a.get("not_null_columns", ()), freshness_column=a.get("freshness_column"), max_age_minutes=a.get("max_age_minutes"), min_rows=int(a.get("min_rows", 1))), "Run post-load row-count, null, duplicate-key and freshness checks on a Snowflake target table.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_reconcile_load", Capability.VERIFY, lambda a: _snowflake_pipeline_call(a, "reconcile_load", table_name=a["table_name"], pipe_name=a.get("pipe_name"), hours=int(a.get("hours", 24)), expected_loaded_rows=a.get("expected_loaded_rows"), max_rejected_rows=int(a.get("max_rejected_rows", 0)), limit=int(a.get("limit", 1000))), "Reconcile parsed, loaded, rejected and target row evidence for a bounded ingestion window.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_pipeline_health", Capability.VERIFY, lambda a: _snowflake_pipeline_call(a, "pipeline_health", stage_name=a.get("stage_name"), stage_pattern=a.get("stage_pattern"), expected_extensions=a.get("expected_extensions", ()), max_stage_file_age_minutes=a.get("max_stage_file_age_minutes"), file_format_name=a.get("file_format_name"), file_format_expected=a.get("file_format_expected"), pipe_name=a.get("pipe_name"), stream_name=a.get("stream_name"), max_stream_backlog_rows=a.get("max_stream_backlog_rows"), target_table=a.get("target_table"), schema_ignore_target_columns=a.get("schema_ignore_target_columns", ()), key_columns=a.get("key_columns", ()), not_null_columns=a.get("not_null_columns", ()), freshness_column=a.get("freshness_column"), max_age_minutes=a.get("max_age_minutes"), max_latency_minutes=float(a.get("max_latency_minutes", 15)), expected_loaded_rows=a.get("expected_loaded_rows"), max_rejected_rows=int(a.get("max_rejected_rows", 0)), history_hours=int(a.get("history_hours", 24))), "Roll up stage, file format, Snowpipe, Stream, COPY, schema, latency, reconciliation and target DQ evidence.", platforms=frozenset({Platform.SNOWFLAKE}))
+    add("snowflake_pipeline_rca", Capability.VERIFY, lambda a: _snowflake_pipeline_call(a, "pipeline_rca", stage_name=a.get("stage_name"), stage_pattern=a.get("stage_pattern"), expected_extensions=a.get("expected_extensions", ()), max_stage_file_age_minutes=a.get("max_stage_file_age_minutes"), file_format_name=a.get("file_format_name"), file_format_expected=a.get("file_format_expected"), pipe_name=a.get("pipe_name"), stream_name=a.get("stream_name"), max_stream_backlog_rows=a.get("max_stream_backlog_rows"), target_table=a.get("target_table"), schema_ignore_target_columns=a.get("schema_ignore_target_columns", ()), key_columns=a.get("key_columns", ()), not_null_columns=a.get("not_null_columns", ()), freshness_column=a.get("freshness_column"), max_age_minutes=a.get("max_age_minutes"), max_latency_minutes=float(a.get("max_latency_minutes", 15)), expected_loaded_rows=a.get("expected_loaded_rows"), max_rejected_rows=int(a.get("max_rejected_rows", 0)), history_hours=int(a.get("history_hours", 24))), "Produce deterministic first-divergence Snowflake ingestion RCA with evidence and remediation guidance.", platforms=frozenset({Platform.SNOWFLAKE}))
+
 
     # Advanced dbt artifact intelligence.
     add("dbt_incremental_analysis", Capability.DBT, lambda a: dbt_incremental_analysis_impl(_dbt(a)), "Analyze incremental model keys, strategies and schema-change risk.")

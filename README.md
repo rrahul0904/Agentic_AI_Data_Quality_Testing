@@ -242,6 +242,18 @@ The platform supports upstream/downstream traversal, column lineage, cross-syste
 
 Quality capabilities include persistent evidence, summaries, recent results, asset-health scoring, pipeline-health scoring, dbt test evidence, dirty-data fixtures, anomaly signals, and controlled failure scenarios.
 
+### Snowflake ingestion pipeline testing
+
+Snowflake-specific verification now covers staged-file health, file-format contracts, Snowpipe inventory/status and `VALIDATE_PIPE_LOAD`, Stream staleness/backlog, static `COPY INTO` analysis, `COPY_HISTORY`, `VALIDATE(...)`, schema drift through `INFER_SCHEMA`, stage-to-load latency, row reconciliation, post-load DQ, and deterministic first-divergence RCA. A local failure lab supplies repeatable malformed-file, conversion, schema-drift, duplicate-key, required-NULL, and zero-byte test fixtures. The normal product surface remains read-only; unavailable Snowflake credentials report `SKIP_EXTERNAL`.
+
+```bash
+ade snowflake-test copy-analyze --args '{"sql":"COPY INTO RAW.RESERVATION FROM @LANDING ON_ERROR=ABORT_STATEMENT"}'
+ade snowflake-test failure-lab --args '{"scenario":"invalid_timestamp"}'
+ade snowflake-test rca --args '{"stage_name":"HOTEL.RAW.LANDING","file_format_name":"HOTEL.RAW.RES_CSV","pipe_name":"HOTEL.RAW.RES_PIPE","stream_name":"HOTEL.RAW.RES_STREAM","target_table":"HOTEL.RAW.RESERVATION"}'
+```
+
+See `docs/SNOWFLAKE_PIPELINE_TESTING.md`.
+
 ### Reconciliation
 
 Built-in reconciliation includes:
