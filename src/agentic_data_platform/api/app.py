@@ -782,6 +782,8 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             "agent-validate": "custom_agent_validate",
             "agent-save": "custom_agent_save",
             "agent-list": "custom_agent_list",
+            "agent-recovery-plan": "agent_recovery_plan",
+            "agent-recovery-execute": "agent_recovery_execute",
             "object-search": "warehouse_object_search",
             "sql-playground": "sql_playground",
             "chart-build": "chart_build",
