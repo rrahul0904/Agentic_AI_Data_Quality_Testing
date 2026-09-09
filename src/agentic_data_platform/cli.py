@@ -57,6 +57,12 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
         "thread-show": "cortex_thread_show", "thread-update": "cortex_thread_update",
         "thread-delete": "cortex_thread_delete",
     },
+    "runner": {
+        "submit": "hosted_runner_submit", "jobs": "hosted_runner_jobs", "job": "hosted_runner_job",
+        "cancel": "hosted_runner_cancel", "register": "hosted_runner_register",
+        "runners": "hosted_runner_runners", "heartbeat": "hosted_runner_heartbeat",
+        "run-once": "hosted_runner_run_once",
+    },
     "warehouse": {
         "status": "warehouse_status", "add": "connection_add", "remove": "connection_remove",
         "list": "connection_list", "show": "connection_show", "test": "connection_test",
