@@ -14,21 +14,21 @@ UTC = timezone.utc
 def _registry(calls: list[dict]) -> ToolRegistry:
     registry = ToolRegistry()
     registry.register(ToolDefinition(
-        "read_probe",
-        Capability.DISCOVER,
-        Risk.READ_ONLY,
-        lambda args: calls.append(dict(args)) or {"status": "PASS", "value": 42},
-        "read probe",
-        frozenset({Platform.LOCAL}),
+        name="read_probe",
+        capability=Capability.DISCOVER,
+        risk=Risk.READ_ONLY,
+        supported_platforms=frozenset({Platform.LOCAL}),
+        handler=lambda args: calls.append(dict(args)) or {"status": "PASS", "value": 42},
+        description="read probe",
     ))
     registry.register(ToolDefinition(
-        "write_probe",
-        Capability.EXECUTE,
-        Risk.MUTATING,
-        lambda args: calls.append(dict(args)) or {"status": "PASS", "changed": True},
-        "write probe",
-        frozenset({Platform.LOCAL}),
+        name="write_probe",
+        capability=Capability.EXECUTE,
+        risk=Risk.MUTATING,
+        supported_platforms=frozenset({Platform.LOCAL}),
+        handler=lambda args: calls.append(dict(args)) or {"status": "PASS", "changed": True},
         requires_approval=True,
+        description="write probe",
     ))
     return registry
 
