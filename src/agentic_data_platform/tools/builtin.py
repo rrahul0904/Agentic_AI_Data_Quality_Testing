@@ -112,7 +112,7 @@ from agentic_data_platform.snowflake import GovernedSnowflakeMutationExecutor, M
 from agentic_data_platform.metadata.index import MetadataIndex
 from agentic_data_platform.metadata.service import MetadataService
 from agentic_data_platform.search import UnifiedSemanticIndex
-from agentic_data_platform.semantic import CortexAnalystAdapter, SemanticRegistry, SnowflakeSemanticAdapter, build_analyst_request, evaluate_batch, evaluate_candidate
+from agentic_data_platform.semantic import CortexAnalystAdapter, SemanticRegistry, SnowflakeSemanticAdapter, build_analyst_request, evaluate_batch, evaluate_candidate, ingest_dbt_semantic_project, ingest_lookml_project
 from agentic_data_platform.cortex import CortexAgentClient
 from agentic_data_platform.runners import HostedRunnerStore
 from agentic_data_platform.notebooks import NotebookAgent
@@ -926,6 +926,30 @@ def build_tool_registry() -> ToolRegistry:
         Capability.GENERATE,
         lambda a: _semantic_registry(a).ingest_yaml(a["source"], provider=str(a.get("provider") or "snowflake-semantic-yaml")),
         "Ingest a semantic-model/view YAML specification into the provider-neutral ADE semantic registry.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "semantic_ingest_dbt",
+        Capability.GENERATE,
+        lambda a: ingest_dbt_semantic_project(
+            _semantic_registry(a),
+            a.get("project_root") or _target(a),
+            resource_name=a.get("resource_name"),
+        ),
+        "Ingest dbt Semantic Layer / MetricFlow semantic models, metrics and saved queries into ADE.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "semantic_ingest_lookml",
+        Capability.GENERATE,
+        lambda a: ingest_lookml_project(
+            _semantic_registry(a),
+            a.get("project_root") or _target(a),
+            resource_name=a.get("resource_name"),
+        ),
+        "Ingest LookML views, fields, explores and joins into the provider-neutral ADE semantic registry.",
         platforms=frozenset({Platform.LOCAL}),
         risk=Risk.MUTATING,
     )
