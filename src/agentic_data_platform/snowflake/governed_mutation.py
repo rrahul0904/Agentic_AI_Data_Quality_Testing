@@ -24,17 +24,18 @@ _COMMENT = re.compile(r"--[^\n]*|/\*.*?\*/", re.S)
 _SPACE = re.compile(r"\s+")
 _CREATE = re.compile(
     r"(?is)^\s*CREATE\s+(?:OR\s+REPLACE\s+)?(?:TRANSIENT\s+|TEMP(?:ORARY)?\s+)?"
-    r"(MATERIALIZED\s+VIEW|FILE\s+FORMAT|DBT\s+PROJECT|TABLE|VIEW|STREAM|STAGE|PIPE|TASK|WAREHOUSE|DATABASE|SCHEMA|ROLE|USER|INTEGRATION)\s+"
+    r"(MATERIALIZED\s+VIEW|FILE\s+FORMAT|DBT\s+PROJECT|MODEL|TABLE|VIEW|STREAM|STAGE|PIPE|TASK|WAREHOUSE|DATABASE|SCHEMA|ROLE|USER|INTEGRATION)\s+"
     r"(?:IF\s+NOT\s+EXISTS\s+)?([^\s(;]+)"
 )
 _ALTER = re.compile(
-    r"(?is)^\s*ALTER\s+(TABLE|VIEW|STREAM|STAGE|PIPE|TASK|WAREHOUSE|DATABASE|SCHEMA|ROLE|USER|INTEGRATION|DBT\s+PROJECT)\s+"
+    r"(?is)^\s*ALTER\s+(TABLE|VIEW|STREAM|STAGE|PIPE|TASK|WAREHOUSE|DATABASE|SCHEMA|ROLE|USER|INTEGRATION|DBT\s+PROJECT|MODEL)\s+"
     r"(?:IF\s+EXISTS\s+)?([^\s(;]+)"
 )
 _DROP = re.compile(
-    r"(?is)^\s*DROP\s+(TABLE|VIEW|MATERIALIZED\s+VIEW|STREAM|STAGE|PIPE|TASK|WAREHOUSE|DATABASE|SCHEMA|ROLE|USER|INTEGRATION|DBT\s+PROJECT)\s+"
+    r"(?is)^\s*DROP\s+(TABLE|VIEW|MATERIALIZED\s+VIEW|STREAM|STAGE|PIPE|TASK|WAREHOUSE|DATABASE|SCHEMA|ROLE|USER|INTEGRATION|DBT\s+PROJECT|MODEL)\s+"
     r"(?:IF\s+EXISTS\s+)?([^\s(;]+)"
 )
+_ALTER_MODEL_DROP_VERSION = re.compile(r"(?is)^\s*ALTER\s+MODEL\s+(?:IF\s+EXISTS\s+)?([^\s(;]+)\s+DROP\s+VERSION\s+([^\s;]+)")
 _TRUNCATE = re.compile(r"(?is)^\s*TRUNCATE\s+(?:TABLE\s+)?([^\s(;]+)")
 _INSERT = re.compile(r"(?is)^\s*INSERT\s+INTO\s+([^\s(;]+)")
 _UPDATE = re.compile(r"(?is)^\s*UPDATE\s+([^\s(;]+)")
@@ -323,6 +324,7 @@ def _show_command(descriptor: MutationDescriptor) -> str | None:
         "STAGE": "STAGES",
         "PIPE": "PIPES",
         "TASK": "TASKS",
+        "MODEL": "MODELS",
         "WAREHOUSE": "WAREHOUSES",
         "DATABASE": "DATABASES",
         "SCHEMA": "SCHEMAS",
