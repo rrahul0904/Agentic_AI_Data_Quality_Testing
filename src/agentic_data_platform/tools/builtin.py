@@ -885,7 +885,7 @@ def build_tool_registry() -> ToolRegistry:
         platforms=frozenset({Platform.LOCAL}),
     )
     add(
-        "semantic_search",
+        "semantic_registry_search",
         Capability.DISCOVER,
         lambda a: {"results": _semantic_registry(a).search(str(a["query"]), limit=int(a.get("limit", 25)))},
         "Search business semantic concepts across providers.",
