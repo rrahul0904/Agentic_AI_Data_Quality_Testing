@@ -42,7 +42,7 @@ class SnowflakePipelineFixture:
         raise AssertionError(f"unexpected SQL: {sql}")
 
 
-def tester() -> SnowflakePipelineTester:
+def _tester() -> SnowflakePipelineTester:
     connector = SnowflakeConnector(
         SnowflakePipelineFixture(),
         SnowflakeConfig(database="HOTEL", schema="RAW"),
@@ -66,7 +66,7 @@ def test_copy_command_analysis_rejects_non_copy_sql():
 
 
 def test_pipe_and_stream_health_are_read_only_and_structured():
-    sf = tester()
+    sf = _tester()
     assert sf.pipe_inventory()["pipe_count"] == 1
     assert sf.pipe_status("HOTEL.RAW.RES_PIPE")["status"] == "PASS"
     streams = sf.stream_inventory()
@@ -77,7 +77,7 @@ def test_pipe_and_stream_health_are_read_only_and_structured():
 
 
 def test_copy_history_and_validate_contract():
-    sf = tester()
+    sf = _tester()
     history = sf.copy_history("HOTEL.RAW.RESERVATION")
     assert history["status"] == "PASS"
     assert history["loaded_row_count"] == 100
@@ -90,7 +90,7 @@ def test_copy_history_and_validate_contract():
 
 
 def test_pipeline_quality_combines_volume_null_unique_and_freshness():
-    sf = tester()
+    sf = _tester()
     quality = sf.table_quality(
         "HOTEL.RAW.RESERVATION",
         key_columns=["RESERVATION_ID"],
@@ -104,7 +104,7 @@ def test_pipeline_quality_combines_volume_null_unique_and_freshness():
 
 
 def test_end_to_end_pipeline_health_rolls_up_components():
-    sf = tester()
+    sf = _tester()
     health = sf.pipeline_health(
         pipe_name="HOTEL.RAW.RES_PIPE",
         stream_name="HOTEL.RAW.RES_STREAM",
