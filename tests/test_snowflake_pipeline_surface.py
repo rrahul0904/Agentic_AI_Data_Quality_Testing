@@ -60,7 +60,7 @@ def test_live_snowflake_tools_skip_external_without_credentials(monkeypatch):
     registry = build_tool_registry()
     definition = registry.describe("snowflake_pipe_inventory")
     request = ToolRequest(
-        "snowflake pipe inventory",
+        "snowflake_pipe_inventory",
         "snowflake_pipe_inventory",
         Environment.DEV,
         definition.risk,
