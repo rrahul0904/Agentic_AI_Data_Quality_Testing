@@ -6,6 +6,7 @@ import { API, getJson, postJson } from "../lib/api";
 import InvestigationConsole from "./InvestigationConsole";
 import SessionConsole from "./SessionConsole";
 import TraceConsole from "./TraceConsole";
+import CapabilityWorkbench from "./CapabilityWorkbench";
 
 type Status = "PASS" | "FAIL" | "WARN" | "SKIP" | "PARTIAL" | string;
 type RecordValue = Record<string, unknown>;
@@ -212,6 +213,8 @@ type SqlProposal = {
 const NAV = [
   "Overview", "Investigations", "Agent", "Assets", "Lineage", "SQL Intelligence", "dbt", "Airflow",
   "Data Quality", "Reconciliation", "Warehouses", "Connections", "Metadata", "Data Diff",
+  "Semantic Layer", "Cortex Agents", "Hosted Runner", "Notebooks", "Browser", "Apps",
+  "ML Registry", "AI Workflows", "Desktop / IDE",
   "Migration", "Cost / FinOps", "Governance / PII", "PR Reviews", "Skills", "Training",
   "Providers", "MCP", "Jobs", "Traces", "Sessions", "Runs / Evidence", "Settings / Doctor",
 ];
@@ -443,6 +446,15 @@ export default function OperatorConsole() {
             {active === "Connections" && <DomainView title="Connections" eyebrow="CONFIGURED CONNECTION REGISTRY" endpoint="/api/v1/connections" />}
             {active === "Metadata" && <DomainView title="Metadata" eyebrow="INDEXED PLATFORM METADATA" endpoint="/api/v1/metadata/status" />}
             {active === "Data Diff" && <DomainView title="Data Diff" eyebrow="CROSS-SYSTEM PARITY" endpoint="/api/v1/data-diff/demo" />}
+            {active === "Semantic Layer" && <CapabilityWorkbench domain="semantic" title="Semantic Layer" eyebrow="BUSINESS SEMANTICS · VERIFIED QUERIES" description="Ingest and search semantic definitions, synchronize Snowflake semantic views, evaluate verified queries, and plan/run Cortex Analyst through the same governed control plane." defaultArgs={{ semantic_database: ".ade/semantic.db" }} />}
+            {active === "Cortex Agents" && <CapabilityWorkbench domain="cortex-agent" title="Cortex Agents" eyebrow="ADMINISTRATION · THREADS · RUNS" description="Plan and administer Snowflake Cortex Agents, manage threads, execute approved foreground/background runs, and submit feedback. Mutations remain approval-gated." />}
+            {active === "Hosted Runner" && <CapabilityWorkbench domain="runner" title="Hosted ADE Runner" eyebrow="DURABLE JOBS · LEASES · POLICY" description="Submit, inspect, cancel, register, heartbeat, and execute durable ADE jobs. Actor mode, environment, and approval state are preserved and rechecked when a worker leases the job." defaultArgs={{ runner_database: ".ade/hosted-runner.db" }} />}
+            {active === "Notebooks" && <CapabilityWorkbench domain="notebook" title="Notebook Agent" eyebrow="IPYNB · HASH-BOUND EDITS · SNOWFLAKE" description="Inspect notebooks, plan/apply cell edits with source/result fingerprints, and plan or execute Snowflake notebook deploy/headless-run operations." />}
+            {active === "Browser" && <CapabilityWorkbench domain="browser" title="Agentic Browser" eyebrow="NAVIGATE · VERIFY · INTERACT" description="Use typed browser actions for navigation, snapshots, extraction, screenshots, and explicitly approved interactions without exposing an arbitrary shell escape." />}
+            {active === "Apps" && <CapabilityWorkbench domain="app" title="Streamlit / App Runtime" eyebrow="SCAFFOLD · VALIDATE · DEPLOY" description="Generate exact app project plans, validate manifests, materialize approved projects, and deploy Streamlit or Snowflake App Runtime applications." />}
+            {active === "ML Registry" && <CapabilityWorkbench domain="ml" title="Snowpark ML / Model Registry" eyebrow="MODELS · VERSIONS · LIFECYCLE" description="Inventory Snowflake models and versions, plan Registry.log_model calls, and govern default-version/drop-version/drop-model lifecycle operations with verification." />}
+            {active === "AI Workflows" && <CapabilityWorkbench domain="ai-workflow" title="Snowflake AI Workflows" eyebrow="AI_FILTER · AI_AGG · AI_COMPLETE" description="Compile declarative read-only AI-function pipelines to Snowflake SQL and execute them with query evidence when a live Snowflake connection is configured." />}
+            {active === "Desktop / IDE" && <CapabilityWorkbench domain="ide" title="Desktop / IDE Bridge" eyebrow="VSCODE · CONTEXT · EDITS · SERVERS" description="Generate a project-scoped VS Code bridge, open exact file locations, read bounded context, apply hash-bound edits, and track development servers." />}
             {active === "Cost / FinOps" && <DomainView title="Cost / FinOps" eyebrow="EVIDENCE-BACKED COST INTELLIGENCE" endpoint="/api/v1/finops/report" />}
             {active === "Governance / PII" && <DomainView title="Governance / PII" eyebrow="RBAC & SENSITIVE DATA" endpoint="/api/v1/rbac/audit" />}
             {active === "PR Reviews" && <DomainView title="PR Reviews" eyebrow="DETERMINISTIC REVIEW SURFACE" endpoint="/api/v1/domains" selectKey="review" />}
