@@ -107,7 +107,7 @@ from agentic_data_platform.sql.parity import (
     translate_sql as sql_translate_impl,
 )
 from agentic_data_platform.connectors.factory import ExternalConnectionUnavailable, connector_from_args
-from agentic_data_platform.snowflake import SnowflakePipelineTester, analyze_copy_command
+from agentic_data_platform.snowflake import SnowflakePipelineTester, analyze_copy_command, failure_lab
 from agentic_data_platform.metadata.index import MetadataIndex
 from agentic_data_platform.metadata.service import MetadataService
 from agentic_data_platform.training import (
@@ -1590,6 +1590,7 @@ def build_tool_registry() -> ToolRegistry:
 
     # Snowflake ingestion-pipeline verification. These tools are read-only.
     add("snowflake_copy_analyze", Capability.VERIFY, lambda a: analyze_copy_command(a["sql"]), "Statically analyze a Snowflake COPY INTO command for testability and load-risk options.", platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}))
+    add("snowflake_failure_lab", Capability.VERIFY, lambda a: failure_lab(scenario=a.get("scenario"), prefix=str(a.get("prefix", "ade_failure"))), "Generate deterministic negative-test fixtures and expected first-divergence evidence without mutating Snowflake.", platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}))
     add("snowflake_stage_inventory", Capability.DISCOVER, lambda a: _snowflake_pipeline_call(a, "stage_inventory", schema=a.get("schema")), "Inventory Snowflake stages in the selected scope.", platforms=frozenset({Platform.SNOWFLAKE}))
     add("snowflake_stage_files", Capability.VERIFY, lambda a: _snowflake_pipeline_call(a, "stage_files", stage_name=a["stage_name"], pattern=a.get("pattern"), expected_extensions=a.get("expected_extensions", ()), max_age_minutes=a.get("max_age_minutes"), min_files=int(a.get("min_files", 1)), limit=int(a.get("limit", 1000))), "Inspect staged files for volume, age, extension and zero-byte failures.", platforms=frozenset({Platform.SNOWFLAKE}))
     add("snowflake_file_format", Capability.VERIFY, lambda a: _snowflake_pipeline_call(a, "file_format_status", file_format_name=a["file_format_name"], expected=a.get("expected")), "Inspect a Snowflake file format and compare it with an expected producer contract.", platforms=frozenset({Platform.SNOWFLAKE}))
