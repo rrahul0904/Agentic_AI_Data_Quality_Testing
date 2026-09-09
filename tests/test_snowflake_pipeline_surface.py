@@ -13,6 +13,7 @@ EXPECTED_TOOLS = {
     "snowflake_copy_analyze",
     "snowflake_pipe_inventory",
     "snowflake_pipe_status",
+    "snowflake_pipe_validate",
     "snowflake_stream_inventory",
     "snowflake_stream_status",
     "snowflake_copy_history",
