@@ -86,6 +86,11 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
         "seed": "dbt_seed", "snapshot": "dbt_snapshot", "validate": "dbt_validate",
         "test-generate": "dbt_test_generate", "unit-test-generate": "dbt_unit_test_gen",
     },
+    "dbt-managed": {
+        "commands": "snowflake_managed_dbt_commands",
+        "plan": "snowflake_managed_dbt_plan",
+        "execute": "snowflake_managed_dbt_execute",
+    },
     "review": {
         "dbt": "dbt_pr_review", "impact": "change_impact",
         "tests": "recommended_tests", "risk": "deployment_risk",
