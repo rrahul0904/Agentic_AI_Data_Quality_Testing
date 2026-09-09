@@ -4,7 +4,6 @@ import json
 import shutil
 import subprocess
 
-import pytest
 import yaml
 from fastapi.testclient import TestClient
 
