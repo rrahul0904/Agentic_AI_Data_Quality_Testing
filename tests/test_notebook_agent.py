@@ -37,6 +37,56 @@ def _notebook(tmp_path):
     return path
 
 
+def test_notebook_create_plan_apply_and_local_execution_skip(tmp_path, monkeypatch):
+    path = tmp_path / "generated" / "analysis.ipynb"
+    cells = [
+        {"cell_type": "markdown", "source": "# Generated analysis\n"},
+        {"cell_type": "code", "source": "value = 40 + 2\nprint(value)\n"},
+    ]
+    agent = NotebookAgent()
+
+    plan = agent.plan_create(path, cells)
+    assert plan["status"] == "PASS"
+    assert plan["cell_count"] == 2
+    assert plan["kernel"]["name"] == "python3"
+
+    blocked = agent.apply_create(path, cells, approval_fingerprint="wrong")
+    assert blocked["status"] == "BLOCKED_APPROVAL"
+    assert not path.exists()
+
+    applied = agent.apply_create(
+        path,
+        cells,
+        approval_fingerprint=plan["approval_fingerprint"],
+    )
+    assert applied["status"] == "PASS"
+    assert applied["verified"] is True
+    created = json.loads(path.read_text())
+    assert created["nbformat"] == 4
+    assert created["cells"][1]["outputs"] == []
+    assert created["cells"][1]["execution_count"] is None
+
+    monkeypatch.setattr("agentic_data_platform.notebooks.agent.shutil.which", lambda _: None)
+    local = agent.run_local(path)
+    assert local["status"] == "SKIP_EXTERNAL"
+    assert local["command"][:4] == ["jupyter", "nbconvert", "--to", "notebook"]
+
+
+def test_notebook_create_refuses_unapproved_overwrite(tmp_path):
+    path = tmp_path / "existing.ipynb"
+    path.write_text("{}")
+    cells = [{"cell_type": "code", "source": "print('new')\n"}]
+    agent = NotebookAgent()
+    plan = agent.plan_create(path, cells)
+
+    with pytest.raises(FileExistsError):
+        agent.apply_create(
+            path,
+            cells,
+            approval_fingerprint=plan["approval_fingerprint"],
+        )
+
+
 def test_notebook_agent_inspect_plan_apply_and_stale_approval(tmp_path):
     path = _notebook(tmp_path)
     agent = NotebookAgent()
@@ -148,7 +198,8 @@ def test_notebook_mutation_surface_requires_approval(tmp_path):
 
 def test_notebook_surfaces_exposed():
     assert set(DOMAIN_CLI_TOOLS["notebook"]) == {
-        "inspect", "patch-plan", "patch-apply", "snowflake-plan", "snowflake-run"
+        "inspect", "create-plan", "create-apply", "local-run",
+        "patch-plan", "patch-apply", "snowflake-plan", "snowflake-run"
     }
     client = TestClient(create_app())
     domains = client.get("/api/v1/domains").json()
