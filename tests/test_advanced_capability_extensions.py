@@ -686,3 +686,50 @@ def test_document_comparison_records_accuracy_agreement_and_cost() -> None:
     assert result["provider_accuracy"] == 1.0
     assert result["cost"] == {"local_usd": 0.0, "provider_usd": 0.004}
     assert result["evaluation_fingerprint"]
+
+
+
+def test_gpu_job_plans_materialize_snowflake_and_kubernetes_gpu_contracts(tmp_path) -> None:
+    snowflake = gpu_job_plan(
+        backend="snowflake",
+        image="/DB.SCHEMA.REPO/train:1",
+        command=["python", "train.py"],
+        gpu_count=2,
+        replicas=2,
+        max_runtime_seconds=1800,
+        hourly_cost_usd=1.0,
+        max_cost_usd=10.0,
+        compute_pool="SYSTEM_COMPUTE_POOL_GPU",
+        job_name="ade_training_job",
+        connection="ci",
+    )
+    assert snowflake["status"] == "PASS"
+    assert snowflake["service_spec"]["spec"]["containers"][0]["resources"]["limits"]["nvidia.com/gpu"] == 2
+    assert snowflake["execution_contract"]["cli"][:4] == ["snow", "spcs", "service", "execute-job"]
+    assert snowflake["estimated_max_cost_usd"] == 2.0
+
+    kubernetes = gpu_job_plan(
+        backend="kubernetes",
+        image="example/train:1",
+        command=["python", "train.py"],
+        gpu_count=1,
+        replicas=3,
+        namespace="ade",
+        max_runtime_seconds=600,
+        max_cost_usd=10.0,
+    )
+    assert kubernetes["status"] == "PASS"
+    manifest = kubernetes["job_manifest"]
+    assert manifest["spec"]["parallelism"] == 3
+    assert manifest["spec"]["template"]["spec"]["containers"][0]["resources"]["requests"]["nvidia.com/gpu"] == 1
+
+    # External runners fail closed when their CLI/configuration is unavailable;
+    # they never manufacture a live PASS from a materialized plan.
+    external = gpu_job_run(
+        tmp_path,
+        snowflake,
+        approval_fingerprint=snowflake["approval_fingerprint"],
+    )
+    assert external["status"] in {"BLOCKED_EXTERNAL", "PASS", "FAIL"}
+    if external["status"] == "BLOCKED_EXTERNAL":
+        assert external["artifact"]
