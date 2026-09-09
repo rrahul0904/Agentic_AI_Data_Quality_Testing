@@ -108,6 +108,19 @@ def test_hash_bound_file_edit_passes_and_verifies_exact_hash(tmp_path) -> None:
     assert result["result_hash"] == plan["result_hash"]
 
 
+def test_file_edit_stale_approval_is_never_overwritten_by_plan_status(tmp_path) -> None:
+    target = tmp_path / "approval.txt"
+    target.write_text("before", encoding="utf-8")
+    result = apply_file_edit(
+        tmp_path,
+        "approval.txt",
+        "after",
+        approval_fingerprint="definitely-not-the-plan-fingerprint",
+    )
+    assert result["status"] == "STALE_APPROVAL"
+    assert target.read_text(encoding="utf-8") == "before"
+
+
 def test_file_edit_rejects_workspace_escape(tmp_path) -> None:
     with pytest.raises(ValueError):
         plan_file_edit(tmp_path, "../escape.txt", "nope")
