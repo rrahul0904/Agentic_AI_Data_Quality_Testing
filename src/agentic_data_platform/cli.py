@@ -64,8 +64,9 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
         "run-once": "hosted_runner_run_once",
     },
     "notebook": {
-        "inspect": "notebook_inspect", "patch-plan": "notebook_patch_plan",
-        "patch-apply": "notebook_patch_apply", "snowflake-plan": "notebook_snowflake_plan",
+        "inspect": "notebook_inspect", "create-plan": "notebook_create_plan",
+        "create-apply": "notebook_create_apply", "local-run": "notebook_local_run",
+        "patch-plan": "notebook_patch_plan", "patch-apply": "notebook_patch_apply", "snowflake-plan": "notebook_snowflake_plan",
         "snowflake-run": "notebook_snowflake_run",
     },
     "browser": {
