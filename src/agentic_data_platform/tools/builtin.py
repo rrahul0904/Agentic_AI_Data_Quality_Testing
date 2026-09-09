@@ -2707,7 +2707,7 @@ def build_tool_registry() -> ToolRegistry:
         "mode_contract",
         Capability.DISCOVER,
         lambda a: advanced_caps.mode_contract(str(a["mode"]), budget_usd=a.get("budget_usd")),
-        "Return the enforceable ADE actor/tool/model contract for agent, plan, edit or code mode.",
+        "Return the enforceable ADE actor/tool/model contract for agent, plan, ask, edit or code mode.",
         platforms=frozenset({Platform.LOCAL}),
     )
     add(
@@ -2754,6 +2754,41 @@ def build_tool_registry() -> ToolRegistry:
             verification_command=a.get("verification_command"),
         ),
         "Apply an approved hash-bound workspace edit, verify it and roll back automatically on verification failure.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "workspace_region_edit_plan",
+        Capability.PLAN,
+        lambda a: advanced_caps.plan_region_edit(
+            a.get("workspace") or str(_target(a)),
+            str(a["path"]),
+            int(a["start_line"]),
+            int(a["end_line"]),
+            str(a["replacement"]),
+            expected_source_hash=a.get("expected_source_hash"),
+            expected_selected_hash=a.get("expected_selected_hash"),
+            verification_command=a.get("verification_command"),
+        ),
+        "Plan a selected-region edit bound to file, selection, replacement and verification hashes.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "workspace_region_edit_apply",
+        Capability.EXECUTE,
+        lambda a: advanced_caps.apply_region_edit(
+            a.get("workspace") or str(_target(a)),
+            str(a["path"]),
+            int(a["start_line"]),
+            int(a["end_line"]),
+            str(a["replacement"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+            expected_source_hash=a.get("expected_source_hash"),
+            expected_selected_hash=a.get("expected_selected_hash"),
+            verification_command=a.get("verification_command"),
+        ),
+        "Apply an approved selected-region edit and roll back automatically when verification fails.",
         platforms=frozenset({Platform.LOCAL}),
         risk=Risk.MUTATING,
         requires_approval=True,
