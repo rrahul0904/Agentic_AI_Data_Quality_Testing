@@ -1017,3 +1017,72 @@ def gpu_job_run(workspace: str | Path, plan: dict[str, Any], *, approval_fingerp
         list(plan["command"]),
         timeout_seconds=int(plan["max_runtime_seconds"]),
     )
+
+
+
+def _supervisor(workspace: str | Path):
+    from agentic_data_platform.agents import InvestigationStore, SupervisorAgent
+    from agentic_data_platform.tools.builtin import build_tool_registry
+
+    root = _root(workspace)
+    state = root / ".ade" / "agent-recovery.db"
+    state.parent.mkdir(parents=True, exist_ok=True)
+    return SupervisorAgent(build_tool_registry(), InvestigationStore(state), root)
+
+
+def agent_recovery_plan(workspace: str | Path, *, scenario_id: str = "watermark_defect") -> dict[str, Any]:
+    supervisor = _supervisor(workspace)
+    report = supervisor.investigate(scenario_id)
+    public = supervisor.public_report(report.incident_id)
+    return {
+        "status": "PASS",
+        "mode": "LOCAL_PROVING_GROUND",
+        "phase": public["state"],
+        "incident_id": report.incident_id,
+        "external_mutation": False,
+        "approval_required": True,
+        "first_divergence": public.get("first_divergence"),
+        "root_cause": public.get("root_cause"),
+        "blast_radius": public.get("blast_radius"),
+        "remediation": public.get("remediation"),
+        "evidence_count": len(public.get("evidence") or []),
+        "agent_result_count": len(public.get("agent_results") or []),
+        "execution_boundary": "explicit ToolRegistry approval required before recovery execution",
+    }
+
+
+def agent_recovery_execute(
+    workspace: str | Path,
+    incident_id: str,
+    *,
+    approved: bool = False,
+    approved_by: str = "ade-toolregistry",
+) -> dict[str, Any]:
+    if not approved:
+        return {
+            "status": "AWAITING_APPROVAL",
+            "incident_id": incident_id,
+            "external_mutation": False,
+        }
+    supervisor = _supervisor(workspace)
+    current = supervisor.get_report(incident_id)
+    if not current.approved:
+        supervisor.approve(incident_id, approved_by=approved_by)
+    resolved = supervisor.execute_approved(incident_id)
+    public = supervisor.public_report(resolved.incident_id)
+    execution = public.get("execution_result") or {}
+    verification = public.get("verification_result") or {}
+    return {
+        "status": "PASS" if public.get("certification") == "CERTIFIED" else "FAIL",
+        "mode": "LOCAL_PROVING_GROUND",
+        "incident_id": incident_id,
+        "state": public.get("state"),
+        "external_mutation": bool(execution.get("external_mutation", False)),
+        "airflow_actions": execution.get("airflow_actions") or [],
+        "dbt_selector": execution.get("dbt_selector"),
+        "dbt_command": execution.get("dbt_command"),
+        "verification": verification,
+        "certification": public.get("certification"),
+        "certifications": public.get("certifications") or [],
+        "transitions": public.get("transitions") or [],
+    }
