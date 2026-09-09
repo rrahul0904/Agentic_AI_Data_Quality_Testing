@@ -1,22 +1,38 @@
 from __future__ import annotations
 
+import json
+import shutil
 import sqlite3
+import subprocess
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
 from agentic_data_platform.advanced_capabilities import (
+    EmbeddedAgentSession,
+    account_admin_plan,
     anomaly_compare,
+    audited_web_fetch,
+    audited_web_search,
     apply_file_edit,
     build_chart_spec,
     command_plan,
     document_extract,
     forecast_series,
+    git_change_apply,
+    git_change_plan,
+    git_status,
+    gpu_job_plan,
+    gpu_job_run,
     immutable_plan,
     list_agent_definitions,
     mode_contract,
     plan_file_edit,
+    retrieval_search,
     run_command,
+    sdk_contract,
     save_agent_definition,
     search_warehouse_objects,
     select_context,
@@ -247,3 +263,182 @@ def test_document_intelligence_extracts_fields_chunks_and_cost_evidence(tmp_path
     assert result["text_sha256"]
     assert result["chunks"][0]["sha256"]
     assert result["estimated_cost_usd"] == 0.0
+
+
+
+def _git_init(path) -> None:
+    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.email", "ade@example.test"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.name", "ADE Tests"], cwd=path, check=True)
+    (path / "README.md").write_text("seed\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=path, check=True)
+    subprocess.run(["git", "commit", "-m", "seed"], cwd=path, check=True, capture_output=True, text=True)
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is required")
+def test_git_branch_and_commit_are_approval_bound_and_never_force_push(tmp_path) -> None:
+    _git_init(tmp_path)
+    branch_plan = git_change_plan(tmp_path, "branch", branch="feature/verified-edit")
+    assert branch_plan["force_push"] is False
+    assert branch_plan["push"] == "not_supported_by_design"
+    branch_result = git_change_apply(
+        tmp_path,
+        "branch",
+        branch="feature/verified-edit",
+        approval_fingerprint=branch_plan["approval_fingerprint"],
+    )
+    assert branch_result["status"] == "PASS"
+
+    (tmp_path / "README.md").write_text("changed\n", encoding="utf-8")
+    commit_plan = git_change_plan(
+        tmp_path,
+        "commit",
+        message="test: verified change",
+        paths=["README.md"],
+        verification_command=[sys.executable, "-c", "print('verified')"],
+    )
+    stale = git_change_apply(
+        tmp_path,
+        "commit",
+        message="test: verified change",
+        paths=["README.md"],
+        verification_command=[sys.executable, "-c", "print('verified')"],
+        approval_fingerprint="wrong",
+    )
+    assert stale["status"] == "STALE_APPROVAL"
+    committed = git_change_apply(
+        tmp_path,
+        "commit",
+        message="test: verified change",
+        paths=["README.md"],
+        verification_command=[sys.executable, "-c", "print('verified')"],
+        approval_fingerprint=commit_plan["approval_fingerprint"],
+    )
+    assert committed["status"] == "PASS"
+    assert git_status(tmp_path)["status"] == "PASS"
+
+
+class _EvidenceHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:  # noqa: N802
+        payload = json.dumps({"path": self.path, "result": "reservation revenue"}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, format: str, *args) -> None:
+        return
+
+
+def test_web_research_records_source_url_and_content_fingerprint() -> None:
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _EvidenceHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        root = f"http://127.0.0.1:{server.server_port}"
+        fetched = audited_web_fetch(f"{root}/evidence")
+        assert fetched["status"] == "PASS"
+        assert fetched["source"]["final_url"].startswith(root)
+        assert fetched["content_sha256"]
+        assert fetched["citation"]["content_sha256"] == fetched["content_sha256"]
+
+        searched = audited_web_search("revpar decline", endpoint_template=f"{root}/search?q={{query}}")
+        assert searched["status"] == "PASS"
+        assert "revpar+decline" in searched["search_endpoint"]
+        assert searched["evidence"]["citation"]["url"]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_provider_neutral_retrieval_has_local_backend_and_honest_cortex_boundary() -> None:
+    local = retrieval_search(
+        "reservation revenue",
+        documents=[
+            {"id": "a", "text": "reservation revenue by property"},
+            {"id": "b", "text": "customer phone numbers"},
+        ],
+        backend="local",
+    )
+    assert local["status"] == "PASS"
+    assert local["results"][0]["id"] == "a"
+
+    cortex = retrieval_search("reservation revenue", backend="cortex_search")
+    assert cortex["status"] == "SKIP_EXTERNAL"
+    assert cortex["backend"] == "cortex_search"
+
+
+def test_embedded_agent_sdk_preserves_toolregistry_and_per_tool_approval() -> None:
+    from agentic_data_platform.models import Capability, Platform, Risk
+    from agentic_data_platform.tools.registry import ToolDefinition, ToolRegistry
+
+    registry = ToolRegistry()
+    registry.register(
+        ToolDefinition(
+            name="echo_read",
+            capability=Capability.DISCOVER,
+            risk=Risk.READ_ONLY,
+            supported_platforms=frozenset({Platform.LOCAL}),
+            handler=lambda args: {"status": "PASS", "value": args["value"]},
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name="mutate_demo",
+            capability=Capability.EXECUTE,
+            risk=Risk.MUTATING,
+            supported_platforms=frozenset({Platform.LOCAL}),
+            handler=lambda args: {"status": "PASS"},
+            requires_approval=True,
+        )
+    )
+
+    session = EmbeddedAgentSession(registry)
+    assert session.invoke("echo_read", {"value": 7})["value"] == 7
+    waiting = session.invoke("mutate_demo", {})
+    assert waiting["status"] == "AWAITING_APPROVAL"
+
+    approved = EmbeddedAgentSession(registry, approval_callback=lambda envelope: envelope["tool"] == "mutate_demo")
+    assert approved.invoke("mutate_demo", {})["status"] == "PASS"
+    contract = sdk_contract()
+    assert contract["approval_callbacks"] == "per-tool"
+    assert contract["policy"] == "ToolRegistry inherited"
+
+
+def test_account_admin_plan_inherits_exact_snowflake_governance() -> None:
+    result = account_admin_plan(
+        "ALTER WAREHOUSE ANALYTICS_WH SET WAREHOUSE_SIZE = 'LARGE'",
+        environment="dev",
+    )
+    assert result["status"] == "PASS"
+    assert result["administration"] is True
+    assert result["independent_verification_required"] is True
+    assert result["approval_fingerprint"]
+    assert result["verification_plan"]
+
+
+def test_gpu_job_planning_has_cost_guardrail_and_portable_local_execution(tmp_path) -> None:
+    blocked = gpu_job_plan(
+        backend="snowflake",
+        image="example/model:1",
+        command=["python", "train.py"],
+        gpu_count=4,
+        max_runtime_seconds=7200,
+        hourly_cost_usd=10,
+        max_cost_usd=5,
+    )
+    assert blocked["status"] == "BLOCKED_COST"
+
+    plan = gpu_job_plan(
+        backend="local_cuda",
+        image="local/test",
+        command=[sys.executable, "-c", "print('gpu-plan-ok')"],
+        max_runtime_seconds=10,
+        hourly_cost_usd=0,
+        max_cost_usd=1,
+    )
+    assert plan["status"] == "PASS"
+    run = gpu_job_run(tmp_path, plan, approval_fingerprint=plan["approval_fingerprint"])
+    assert run["status"] == "PASS"
+    assert "gpu-plan-ok" in run["stdout"]
