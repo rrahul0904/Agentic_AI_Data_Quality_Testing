@@ -733,6 +733,27 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             "runners": "hosted_runner_runners", "heartbeat": "hosted_runner_heartbeat",
             "run-once": "hosted_runner_run_once",
         },
+        "notebook": {
+            "inspect": "notebook_inspect", "patch-plan": "notebook_patch_plan",
+            "patch-apply": "notebook_patch_apply", "snowflake-plan": "notebook_snowflake_plan",
+            "snowflake-run": "notebook_snowflake_run",
+        },
+        "browser": {
+            "plan": "browser_plan", "read": "browser_read", "act": "browser_act",
+        },
+        "app": {
+            "plan": "app_build_plan", "validate": "app_build_validate",
+            "apply": "app_build_apply", "deploy": "app_deploy",
+        },
+        "ml": {
+            "models": "snowpark_model_list", "versions": "snowpark_model_versions",
+            "log-plan": "snowpark_model_log_plan",
+            "lifecycle-plan": "snowpark_model_lifecycle_plan",
+            "lifecycle-execute": "snowpark_model_lifecycle_execute",
+        },
+        "ai-workflow": {
+            "plan": "ai_workflow_plan", "run": "ai_workflow_run",
+        },
         "data-diff": {
             "run": "data_diff", "plan": "data_diff_plan", "profile": "data_diff_profile",
             "join": "data_diff_join", "hash": "data_diff_hash", "cascade": "data_diff_cascade",
