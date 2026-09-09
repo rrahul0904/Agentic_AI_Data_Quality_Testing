@@ -712,7 +712,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
         },
         "semantic": {
             "ingest-yaml": "semantic_ingest_yaml", "list": "semantic_list", "show": "semantic_show",
-            "search": "semantic_search", "verified-search": "semantic_verified_search",
+            "search": "semantic_registry_search", "verified-search": "semantic_verified_search",
             "evaluate": "semantic_evaluate", "evaluate-batch": "semantic_evaluate_batch",
             "snowflake-sync": "semantic_snowflake_sync",
             "analyst-plan": "cortex_analyst_plan", "analyst-run": "cortex_analyst_run",
