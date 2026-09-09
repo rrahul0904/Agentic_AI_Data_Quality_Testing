@@ -50,6 +50,17 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
         "reconciliation-history": "reconciliation_history",
         "asset-health": "asset_health_score", "pipeline-health": "pipeline_health_score",
     },
+    "snowflake-test": {
+        "copy-analyze": "snowflake_copy_analyze",
+        "pipes": "snowflake_pipe_inventory",
+        "pipe-status": "snowflake_pipe_status",
+        "streams": "snowflake_stream_inventory",
+        "stream-status": "snowflake_stream_status",
+        "copy-history": "snowflake_copy_history",
+        "copy-validate": "snowflake_copy_validate",
+        "quality": "snowflake_table_quality",
+        "health": "snowflake_pipeline_health",
+    },
     "dbt-run": {
         "parse": "dbt_parse", "ls": "dbt_ls", "compile": "dbt_compile",
         "run": "dbt_run", "test": "dbt_test", "build": "dbt_build",
