@@ -193,3 +193,8 @@ capability-superiority-check:
 
 snowflake-governed-mutation-test:
 	PYTHONPATH=src $(PYTHON) -m pytest -q tests/test_snowflake_governed_mutation.py
+
+
+.PHONY: capability-superiority-p1-check
+capability-superiority-p1-check:
+	PYTHONPATH=src $(PYTHON) -m pytest -q 		tests/test_unified_semantic_search.py 		tests/test_parallel_subagents.py 		tests/test_enforceable_plugin_hooks.py 		tests/test_automation_scheduler.py 		tests/test_plugin_bundles.py 		tests/test_snowflake_managed_dbt.py
