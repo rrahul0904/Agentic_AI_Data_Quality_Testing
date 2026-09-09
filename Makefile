@@ -229,7 +229,8 @@ capability-superiority-p1-check:
 		tests/test_advanced_capability_extensions.py \
 		tests/test_shell_sandbox.py \
 		tests/test_memory_personalization.py \
-		tests/test_todo_management.py
+		tests/test_todo_management.py \
+		tests/test_coco_modes.py
 
 .PHONY: advanced-live-e2e
 advanced-live-e2e:
