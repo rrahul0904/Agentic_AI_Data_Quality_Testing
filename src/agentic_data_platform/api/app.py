@@ -114,6 +114,9 @@ class SessionTodoInput(BaseModel):
 
 class SessionTodoUpdateInput(BaseModel):
     status: str
+    progress: float | None = None
+    evidence: list[Any] = Field(default_factory=list)
+    verified: bool | None = None
 
 
 class MemorySaveInput(BaseModel):
@@ -1018,7 +1021,13 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     def session_todo_update(todo_id: str, payload: SessionTodoUpdateInput) -> dict[str, Any]:
         return invoke_governed(
             "session_todo_update",
-            runtime_args(todo_id=todo_id, status=payload.status),
+            runtime_args(
+                todo_id=todo_id,
+                status=payload.status,
+                progress=payload.progress,
+                evidence=payload.evidence,
+                verified=payload.verified,
+            ),
             actor_mode=ActorMode.BUILDER,
         )
 
