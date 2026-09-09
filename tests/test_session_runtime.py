@@ -158,7 +158,7 @@ def test_starvation_nudge_and_termination_validator_gate(tmp_path):
     assert blocked["can_terminate"] is False
     assert blocked["validation"]["blocking"] == ["evidence"]
 
-    store.update_todo(todo["todo_id"], "DONE")
+    store.complete_todo(todo["todo_id"], evidence=["validator:evidence"], verification={"status": "PASS"})
     allowed = runtime.termination(
         session_id,
         validator_context={"verified": True},
