@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PYTHON_BIN="${PYTHON_BIN:-$ROOT/.venv/bin/python}"
+if [[ ! -x "$PYTHON_BIN" ]]; then
+  PYTHON_BIN="$(command -v python3)"
+fi
 cd "$ROOT"
 export PYTHONPATH="$ROOT/src"
 export ADE_DEMO_MODE=true
@@ -8,11 +12,11 @@ export ADE_DEMO_PROJECT="$ROOT/hospitality-snowflake-data-platform"
 export ADE_QUALITY_DATABASE="$ROOT/.ade/demo-quality.db"
 export ADE_DATABASE_PATH="$ROOT/.ade/demo-control.db"
 mkdir -p "$ROOT/.ade"
-python scripts/parse_dbt.py >/dev/null
-python scripts/init_demo_evidence.py >/dev/null
+"$PYTHON_BIN" scripts/parse_dbt.py >/dev/null
+"$PYTHON_BIN" scripts/init_demo_evidence.py >/dev/null
 
 echo "=== AGENTIC DATA ENGINEERING OS · MASTER DEMO · LOCAL_SIMULATION ==="
-python - <<'PY'
+"$PYTHON_BIN" - <<'PY'
 from fastapi.testclient import TestClient
 from agentic_data_platform.api.app import create_app
 
@@ -57,6 +61,6 @@ for label, method, path, body in checks:
 print("MASTER DEMO: PASS")
 PY
 
-PYTHONPATH="$ROOT/src" python scripts/demo-agentic-investigation.py
+PYTHONPATH="$ROOT/src" "$PYTHON_BIN" scripts/demo-agentic-investigation.py
 
 bash scripts/demo-airflow.sh

@@ -1,0 +1,5 @@
+-- Internal stage for LOCAL/MANUAL SNOWFLAKE mode.
+CREATE STAGE IF NOT EXISTS {{DATABASE}}.RAW.STAGE_HOSPITALITY_INTERNAL
+  DIRECTORY = (ENABLE = TRUE)
+  ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE')
+  COMMENT = 'Testbed-only internal stage for controlled PUT and COPY';

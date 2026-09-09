@@ -181,6 +181,64 @@ parity-v2: conformance
 	PYTHONPATH=src $(PYTHON) scripts/generate_parity_ledger_v2.py
 
 
-.PHONY: snowflake-pipeline-test
+.PHONY: snowflake-pipeline-test hospitality-generate hospitality-validate-files hospitality-bootstrap-snowflake hospitality-stage-internal hospitality-copy-load hospitality-upload-s3 hospitality-snowpipe-monitor hospitality-stream-check hospitality-dbt hospitality-reconcile hospitality-dq hospitality-certify hospitality-failure-fixtures hospitality-failure-certify hospitality-e2e-local hospitality-e2e-live hospitality-reset hospitality-teardown hospitality-test
 snowflake-pipeline-test:
 	PYTHONPATH=src $(PYTHON) -m pytest -q tests/test_snowflake_pipeline_testing.py tests/test_snowflake_pipeline_surface.py tests/test_snowflake_failure_lab.py
+
+hospitality-generate:
+	$(PYTHON) scripts/hospitality_testbed/generate_data.py --preset $${ADE_TESTBED_SCALE:-tiny} --seed $${ADE_TESTBED_SEED:-42}
+
+hospitality-validate-files:
+	$(PYTHON) scripts/hospitality_testbed/validate_files.py
+
+hospitality-bootstrap-snowflake:
+	$(PYTHON) scripts/hospitality_testbed/bootstrap_snowflake.py --mode $${ADE_TESTBED_MODE:-local}
+
+hospitality-stage-internal:
+	$(PYTHON) scripts/hospitality_testbed/stage_internal_files.py
+
+hospitality-copy-load:
+	$(PYTHON) scripts/hospitality_testbed/run_copy_loads.py --mode local
+
+hospitality-upload-s3:
+	$(PYTHON) scripts/hospitality_testbed/upload_to_s3.py
+
+hospitality-snowpipe-monitor:
+	$(PYTHON) scripts/hospitality_testbed/monitor_snowpipe.py
+
+hospitality-stream-check:
+	$(PYTHON) scripts/hospitality_testbed/monitor_streams.py
+
+hospitality-dbt:
+	$(PYTHON) scripts/hospitality_testbed/run_dbt.py
+
+hospitality-reconcile:
+	$(PYTHON) scripts/hospitality_testbed/reconcile_pipeline.py
+
+hospitality-dq:
+	$(PYTHON) scripts/hospitality_testbed/validate_pipeline.py
+	$(PYTHON) scripts/hospitality_testbed/run_snowflake_dq.py
+
+hospitality-certify:
+	PYTHONPATH=src $(PYTHON) scripts/hospitality_testbed/certify_with_ade.py --mode $${ADE_TESTBED_MODE:-live}
+
+hospitality-failure-fixtures:
+	$(PYTHON) scripts/hospitality_testbed/stage_failure_fixture.py --all
+
+hospitality-failure-certify:
+	$(PYTHON) scripts/hospitality_testbed/run_failure_certification.py --scenario $${ADE_TESTBED_FAILURE_SCENARIO:-invalid_timestamp} --mode $${ADE_TESTBED_MODE:-live}
+
+hospitality-e2e-local:
+	$(PYTHON) scripts/hospitality_testbed/run_e2e.py --mode local --preset $${ADE_TESTBED_SCALE:-tiny} --seed $${ADE_TESTBED_SEED:-42}
+
+hospitality-e2e-live:
+	$(PYTHON) scripts/hospitality_testbed/run_e2e.py --mode live --preset $${ADE_TESTBED_SCALE:-tiny} --seed $${ADE_TESTBED_SEED:-42}
+
+hospitality-reset:
+	$(PYTHON) scripts/hospitality_testbed/reset_testbed.py --confirm-database $${ADE_SNOWFLAKE_DATABASE:-HOSPITALITY_TESTBED}
+
+hospitality-teardown:
+	$(PYTHON) scripts/hospitality_testbed/teardown_snowflake.py --confirm-database $${ADE_SNOWFLAKE_DATABASE:-HOSPITALITY_TESTBED}
+
+hospitality-test:
+	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src $(PYTHON) -m pytest -q -p no:cacheprovider tests/hospitality_testbed

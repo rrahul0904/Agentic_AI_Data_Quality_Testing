@@ -1,0 +1,8 @@
+"""Reproducible hospitality Snowflake testbed tooling."""
+
+PASS = "PASS"
+FAIL = "FAIL"
+SKIP_EXTERNAL = "SKIP_EXTERNAL"
+BLOCKED_EXTERNAL = "BLOCKED_EXTERNAL"
+BLOCKED_APPROVAL = "BLOCKED_APPROVAL"
+NOT_RUN = "NOT_RUN"

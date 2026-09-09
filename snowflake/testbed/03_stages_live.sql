@@ -1,0 +1,14 @@
+-- LIVE-ONLY TESTBED MUTATION. Requires a private S3 bucket and IAM role.
+CREATE STORAGE INTEGRATION IF NOT EXISTS {{STORAGE_INTEGRATION}}
+  TYPE = EXTERNAL_STAGE
+  STORAGE_PROVIDER = 'S3'
+  STORAGE_AWS_ROLE_ARN = '{{AWS_ROLE_ARN}}'
+  ENABLED = TRUE
+  STORAGE_ALLOWED_LOCATIONS = ('s3://{{S3_BUCKET}}/{{S3_PREFIX}}/')
+  COMMENT = 'Testbed-only S3 access for the ADE hospitality pipeline';
+
+CREATE STAGE IF NOT EXISTS {{DATABASE}}.RAW.STAGE_HOSPITALITY_S3
+  URL = 's3://{{S3_BUCKET}}/{{S3_PREFIX}}/'
+  STORAGE_INTEGRATION = {{STORAGE_INTEGRATION}}
+  DIRECTORY = (ENABLE = TRUE)
+  COMMENT = 'External testbed stage; credentials remain in the Snowflake integration';
