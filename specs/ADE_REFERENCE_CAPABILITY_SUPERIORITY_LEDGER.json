@@ -229,7 +229,7 @@
     {
       "id": "tools.shell",
       "reference": "Run foreground/background shell commands",
-      "ade_current": "gap",
+      "ade_current": "implemented_on_branch",
       "phase": "P1",
       "target_score": 2,
       "superiority_advantages": [
@@ -239,7 +239,27 @@
       "acceptance": "Shell runs are sandboxed, killable, logged, and approval-gated by risk.",
       "classification": "COCO_CORE",
       "release_blocking": true,
-      "certification_track": "COCO_PARITY_CERTIFICATION"
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_RUN_EXTERNAL",
+        "tests": [
+          "tests/test_shell_sandbox.py",
+          "tests/test_advanced_capability_extensions.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/runners/sandbox.py",
+          "src/agentic_data_platform/advanced_capabilities.py",
+          "src/agentic_data_platform/tools/builtin.py",
+          "src/agentic_data_platform/tools/registry.py",
+          "src/agentic_data_platform/api/app.py"
+        ],
+        "evidence": [
+          "GitHub Actions ade-capability-superiority run 34412635650 targeted-certification PASS",
+          "Certified implementation head a8e9bcd2f59bd099be801b5944902765cafdf0e3"
+        ],
+        "known_limitation": "The CONTAINER_SANDBOX implementation is deterministic-certified; a real Docker daemon execution is intentionally not claimed by credential/runtime-free CI."
+      }
     },
     {
       "id": "tools.sql_read",
