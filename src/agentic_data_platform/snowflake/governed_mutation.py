@@ -394,6 +394,18 @@ def _verification_plan(descriptor: MutationDescriptor, sql: str) -> list[dict[st
     if descriptor.statement_type == "ALTER" and descriptor.object_type == "TABLE":
         checks.extend(_alter_table_expectation(sql))
 
+    if descriptor.statement_type == "ALTER_MODEL_DROP_VERSION" and descriptor.target:
+        match = _ALTER_MODEL_DROP_VERSION.match(_normalize(sql))
+        if match:
+            checks.append(
+                {
+                    "kind": "model_version_absence",
+                    "sql": f"SHOW VERSIONS IN MODEL {descriptor.target}",
+                    "version": _clean_identifier(match.group(2)),
+                    "expect_present": False,
+                }
+            )
+
     if descriptor.statement_type == "TRUNCATE" and descriptor.target:
         checks.append(
             {
@@ -576,6 +588,19 @@ class GovernedSnowflakeMutationExecutor:
                 elif item["kind"] == "row_count":
                     row_count = int((rows[0].get("ROW_COUNT") or rows[0].get("row_count") or 0)) if rows else -1
                     passed = row_count == int(item["expected"])
+                elif item["kind"] == "model_version_absence":
+                    expected = str(item.get("version") or "").casefold()
+                    present = any(
+                        str(
+                            row.get("name")
+                            or row.get("NAME")
+                            or row.get("version_name")
+                            or row.get("VERSION_NAME")
+                            or ""
+                        ).casefold() == expected
+                        for row in rows
+                    )
+                    passed = present is bool(item["expect_present"])
                 elif item["kind"] == "query_status":
                     mutation_query_id = result.query_id
                     if mutation_query_id:
