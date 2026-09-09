@@ -8,7 +8,7 @@ from pathlib import Path
 import sqlite3
 from typing import Any
 
-from agentic_data_platform.models import ActorMode, Environment, ToolRequest, new_id
+from agentic_data_platform.models import ActorMode, Environment, InteractionMode, ToolRequest, new_id
 from agentic_data_platform.tools.registry import ToolInvocation, ToolRegistry
 
 
@@ -53,6 +53,64 @@ def _iso(value: datetime | None = None) -> str:
     return (value or _now()).astimezone(timezone.utc).isoformat()
 
 
+def _fingerprint(value: Any) -> str:
+    import hashlib
+
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
+
+
+def normalize_workspace_policy(policy: dict[str, Any] | None = None) -> dict[str, Any]:
+    raw = dict(policy or {})
+    forbidden_keys = {"credentials", "secrets", "tokens", "api_keys", "passwords"}
+    forbidden = sorted(forbidden_keys & set(raw))
+    if forbidden:
+        raise ValueError(
+            "hosted workspace policy accepts credential references only; forbidden keys: "
+            + ", ".join(forbidden)
+        )
+    filesystem_scope = str(raw.get("filesystem_scope") or "workspace").casefold()
+    if filesystem_scope not in {"workspace", "read_only_workspace"}:
+        raise ValueError("filesystem_scope must be workspace or read_only_workspace")
+    result = {
+        "execution_class": "HOSTED_ISOLATED_WORKSPACE",
+        "sandbox_required": bool(raw.get("sandbox_required", False)),
+        "workspace_id": str(raw.get("workspace_id") or "default"),
+        "filesystem_scope": filesystem_scope,
+        "network_enabled": bool(raw.get("network_enabled", False)),
+        "memory_mb": max(64, min(int(raw.get("memory_mb", 512)), 32768)),
+        "cpus": max(0.1, min(float(raw.get("cpus", 1.0)), 64.0)),
+        "pids_limit": max(16, min(int(raw.get("pids_limit", 256)), 4096)),
+        "credential_refs": sorted(set(str(item) for item in raw.get("credential_refs") or [])),
+    }
+    result["policy_fingerprint"] = _fingerprint(result)
+    return result
+
+
+def runner_satisfies_workspace_policy(
+    runner: dict[str, Any],
+    policy: dict[str, Any],
+) -> bool:
+    if not policy.get("sandbox_required"):
+        return True
+    isolation = dict(runner.get("metadata", {}).get("workspace_isolation") or {})
+    if not bool(isolation.get("enforced", False)):
+        return False
+    if str(isolation.get("execution_class") or "") != "HOSTED_ISOLATED_WORKSPACE":
+        return False
+    if not policy.get("network_enabled", False) and bool(isolation.get("network_enabled", True)):
+        return False
+    if float(isolation.get("memory_mb", 0) or 0) < float(policy.get("memory_mb", 0) or 0):
+        return False
+    if float(isolation.get("cpus", 0) or 0) < float(policy.get("cpus", 0) or 0):
+        return False
+    if int(isolation.get("pids_limit", 0) or 0) < int(policy.get("pids_limit", 0) or 0):
+        return False
+    supported_scopes = set(isolation.get("filesystem_scopes") or [])
+    return policy.get("filesystem_scope") in supported_scopes
+
+
 class HostedRunnerStore:
     def __init__(self, path: str | Path) -> None:
         self.path = str(path)
@@ -60,6 +118,17 @@ class HostedRunnerStore:
         self.connection = sqlite3.connect(self.path)
         self.connection.row_factory = sqlite3.Row
         self.connection.executescript(_SCHEMA)
+        job_columns = {
+            str(row["name"])
+            for row in self.connection.execute("PRAGMA table_info(hosted_jobs)").fetchall()
+        }
+        migrations = {
+            "interaction_mode": "TEXT NOT NULL DEFAULT 'agent'",
+            "workspace_policy_json": "TEXT NOT NULL DEFAULT '{}'",
+        }
+        for column, ddl in migrations.items():
+            if column not in job_columns:
+                self.connection.execute(f"ALTER TABLE hosted_jobs ADD COLUMN {column} {ddl}")
         self.connection.commit()
 
     def register_runner(
@@ -125,19 +194,23 @@ class HostedRunnerStore:
         tool_name: str,
         args: dict[str, Any],
         actor_mode: ActorMode = ActorMode.ANALYST,
+        interaction_mode: InteractionMode = InteractionMode.AGENT,
         environment: Environment = Environment.DEV,
         approved: bool = False,
         delay_seconds: int = 0,
         max_attempts: int = 3,
+        workspace_policy: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         job_id = new_id("hosted_job")
         current = _now()
+        policy = normalize_workspace_policy(workspace_policy)
         self.connection.execute(
             """
             INSERT INTO hosted_jobs(
               job_id,tool_name,args_json,actor_mode,environment,approved,status,
-              created_at,updated_at,available_at,max_attempts
-            ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+              created_at,updated_at,available_at,max_attempts,
+              interaction_mode,workspace_policy_json
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 job_id,
@@ -151,6 +224,8 @@ class HostedRunnerStore:
                 _iso(current),
                 _iso(current + timedelta(seconds=max(0, int(delay_seconds)))),
                 max(1, int(max_attempts)),
+                interaction_mode.value,
+                json.dumps(policy, sort_keys=True, default=str),
             ),
         )
         self.connection.commit()
@@ -223,9 +298,16 @@ class HostedRunnerStore:
         ).fetchall()
         selected = None
         for row in rows:
-            if "*" in capabilities or row["tool_name"] in capabilities:
-                selected = row
-                break
+            if "*" not in capabilities and row["tool_name"] not in capabilities:
+                continue
+            candidate = self._job(row)
+            if not runner_satisfies_workspace_policy(
+                runner,
+                candidate["workspace_policy"],
+            ):
+                continue
+            selected = row
+            break
         if selected is None:
             return None
         until = current + timedelta(seconds=max(5, int(lease_seconds)))
@@ -292,6 +374,7 @@ class HostedRunnerStore:
                     run_id=job["job_id"],
                     approved=bool(job["approved"]),
                     actor_mode=ActorMode(job["actor_mode"]),
+                    interaction_mode=InteractionMode(job["interaction_mode"]),
                 )
             )
             status = "SUCCESS" if str(result.get("status") or "PASS") not in {"FAIL", "ERROR"} else "FAIL"
@@ -333,8 +416,18 @@ class HostedRunnerStore:
             "tool_name": row["tool_name"],
             "args": json.loads(row["args_json"]),
             "actor_mode": row["actor_mode"],
+            "interaction_mode": (
+                row["interaction_mode"]
+                if "interaction_mode" in row.keys()
+                else "agent"
+            ),
             "environment": row["environment"],
             "approved": bool(row["approved"]),
+            "workspace_policy": normalize_workspace_policy(
+                json.loads(row["workspace_policy_json"])
+                if "workspace_policy_json" in row.keys() and row["workspace_policy_json"]
+                else {}
+            ),
             "status": row["status"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
