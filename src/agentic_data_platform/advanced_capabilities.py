@@ -804,7 +804,7 @@ def git_change_apply(
         verification_command=verification_command,
     )
     if approval_fingerprint != plan["approval_fingerprint"]:
-        return {"status": "STALE_APPROVAL", **plan}
+        return {**plan, "status": "STALE_APPROVAL"}
     if verification_command:
         verification = run_command(workspace, verification_command)
         if verification["status"] != "PASS":
