@@ -227,7 +227,8 @@ capability-superiority-p1-check:
 		tests/test_ide_bridge.py \
 		tests/test_advanced_live_capabilities.py \
 		tests/test_advanced_capability_extensions.py \
-		tests/test_shell_sandbox.py
+		tests/test_shell_sandbox.py \
+		tests/test_memory_personalization.py
 
 .PHONY: advanced-live-e2e
 advanced-live-e2e:
