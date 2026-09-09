@@ -1289,6 +1289,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             actor_mode=payload.actor_mode,
             environment=payload.environment,
             dry_run=payload.dry_run,
+            approved=payload.approved,
         )
 
     @app.post("/projects")
@@ -1362,6 +1363,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             actor_mode=payload.actor_mode,
             environment=payload.environment,
             dry_run=payload.dry_run,
+            approved=payload.approved,
         )
 
     @app.post("/approvals")
