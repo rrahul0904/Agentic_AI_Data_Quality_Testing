@@ -1,0 +1,114 @@
+name: Hospitality Snowflake Testbed
+
+on:
+  pull_request:
+    paths:
+      - "config/hospitality_*.yml"
+      - "scripts/hospitality_testbed/**"
+      - "snowflake/testbed/**"
+      - "hospitality-snowflake-data-platform/dbt/testbed/**"
+      - "hospitality-snowflake-data-platform/airflow/dags/hospitality_testbed_dags.py"
+      - "tests/hospitality_testbed/**"
+      - ".github/workflows/hospitality-testbed.yml"
+  push:
+    branches: [main, feature/hospitality-snowflake-live-testbed]
+  workflow_dispatch:
+    inputs:
+      run_live:
+        description: "Run against the protected Snowflake/AWS testbed environment"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e '.[dev,testbed]'
+      - run: python scripts/hospitality_testbed/generate_data.py --preset tiny --seed 42
+      - run: python scripts/hospitality_testbed/validate_files.py
+      - run: python scripts/hospitality_testbed/render_copy_commands.py --mode local
+      - run: python scripts/hospitality_testbed/validate_pipeline.py
+      - run: python scripts/hospitality_testbed/reconcile_pipeline.py --offline
+      - run: python scripts/hospitality_testbed/bootstrap_snowflake.py --mode live --dry-run
+      - run: python scripts/hospitality_testbed/stage_failure_fixture.py --all
+      - run: pytest -q tests/hospitality_testbed
+      - run: ruff check scripts/hospitality_testbed tests/hospitality_testbed
+      - name: dbt parse
+        run: dbt parse --project-dir hospitality-snowflake-data-platform/dbt/testbed --profiles-dir hospitality-snowflake-data-platform/dbt/testbed/ci_profiles
+      - name: Airflow DAG static import contract
+        run: pytest -q tests/hospitality_testbed/test_contracts.py -k airflow
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hospitality-local-evidence
+          path: artifacts/hospitality/
+          if-no-files-found: warn
+
+  live:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_live
+    environment: snowflake-hospitality-testbed
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev,testbed]'
+      - name: Acquire short-lived AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.ADE_TESTBED_UPLOAD_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Live Snowpipe end-to-end certification
+        env:
+          ADE_TESTBED_MODE: live
+          ADE_TESTBED_SCALE: tiny
+          ADE_TESTBED_SEED: 42
+          ADE_SNOWFLAKE_ACCOUNT: ${{ secrets.ADE_SNOWFLAKE_ACCOUNT }}
+          ADE_SNOWFLAKE_USER: ${{ secrets.ADE_SNOWFLAKE_USER }}
+          ADE_SNOWFLAKE_PASSWORD: ${{ secrets.ADE_SNOWFLAKE_PASSWORD }}
+          ADE_SNOWFLAKE_DATABASE: HOSPITALITY_TESTBED
+          ADE_SNOWFLAKE_SCHEMA: RAW
+          ADE_SNOWFLAKE_WAREHOUSE: ADE_HOSPITALITY_TESTBED_WH
+          ADE_SNOWFLAKE_ROLE: ADE_HOSPITALITY_TESTBED_ROLE
+          ADE_TESTBED_S3_BUCKET: ${{ secrets.ADE_TESTBED_S3_BUCKET }}
+          ADE_TESTBED_S3_PREFIX: hospitality
+          ADE_TESTBED_AWS_ROLE_ARN: ${{ secrets.ADE_TESTBED_AWS_ROLE_ARN }}
+          ADE_TESTBED_SNS_TOPIC_ARN: ${{ secrets.ADE_TESTBED_SNS_TOPIC_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: make hospitality-e2e-live hospitality-certify
+      - name: Approved invalid-timestamp certification
+        if: vars.ADE_TESTBED_MUTATION_APPROVED == 'true'
+        env:
+          ADE_TESTBED_MUTATION_APPROVED: "true"
+          ADE_TESTBED_MODE: live
+          ADE_SNOWFLAKE_ACCOUNT: ${{ secrets.ADE_SNOWFLAKE_ACCOUNT }}
+          ADE_SNOWFLAKE_USER: ${{ secrets.ADE_SNOWFLAKE_USER }}
+          ADE_SNOWFLAKE_PASSWORD: ${{ secrets.ADE_SNOWFLAKE_PASSWORD }}
+          ADE_SNOWFLAKE_DATABASE: HOSPITALITY_TESTBED
+          ADE_SNOWFLAKE_SCHEMA: RAW
+          ADE_SNOWFLAKE_WAREHOUSE: ADE_HOSPITALITY_TESTBED_WH
+          ADE_SNOWFLAKE_ROLE: ADE_HOSPITALITY_TESTBED_ROLE
+          ADE_TESTBED_S3_BUCKET: ${{ secrets.ADE_TESTBED_S3_BUCKET }}
+          ADE_TESTBED_S3_PREFIX: hospitality
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: make hospitality-failure-fixtures hospitality-failure-certify ADE_TESTBED_FAILURE_SCENARIO=invalid_timestamp
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hospitality-live-evidence
+          path: artifacts/hospitality/

@@ -88,6 +88,8 @@ Agentic Data Engineering OS creates a single engineering layer across those syst
 
 The repository contains a realistic hospitality reservation data platform used as an end-to-end proving ground.
 
+For real Snowflake ingestion testing, the repository also includes a deterministic 20-entity hospitality testbed with CSV/Parquet generation, internal-stage `COPY INTO`, S3 Snowpipe, Streams/CDC, a 40-model dbt graph, Airflow orchestration, bounded reconciliation, DQ, controlled failure fixtures, and ADE RCA certification. See [Hospitality Snowflake live testbed](docs/HOSPITALITY_SNOWFLAKE_TESTBED.md).
+
 ```text
 Oracle + PostgreSQL + Files
              │
@@ -115,7 +117,7 @@ Current repository-derived reference workload counts include:
 | PostgreSQL logical tables | 157 |
 | File feeds | 18 |
 | Metadata-driven ingestion jobs | 40 |
-| Airflow DAGs | 57 |
+| Airflow DAGs | 58 statically inventoried (plus dynamically generated testbed entry points at runtime) |
 | dbt models | 70 |
 | dbt snapshots | 4 |
 

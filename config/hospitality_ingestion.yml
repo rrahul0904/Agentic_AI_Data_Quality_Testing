@@ -1,0 +1,174 @@
+version: 1
+entities:
+  hotels:
+    format: csv
+    stage_path: csv/hotels/
+    target: RAW.HOTELS
+    file_format: FF_HOSPITALITY_CSV_HEADER
+    pattern: ".*[.]csv([.]gz)?$"
+    business_key: hotel_id
+    columns: {hotel_id: VARCHAR, hotel_name: VARCHAR, brand: VARCHAR, city: VARCHAR, state: VARCHAR, country: VARCHAR, timezone: VARCHAR, opened_date: DATE, room_count: NUMBER, active: BOOLEAN}
+  rooms:
+    format: csv
+    stage_path: csv/rooms/
+    target: RAW.ROOMS
+    file_format: FF_HOSPITALITY_CSV_HEADER
+    pattern: ".*[.]csv([.]gz)?$"
+    business_key: room_id
+    columns: {room_id: VARCHAR, hotel_id: VARCHAR, room_type_id: VARCHAR, room_number: VARCHAR, floor_number: NUMBER, status: VARCHAR}
+  room_types:
+    format: csv
+    stage_path: csv/room_types/
+    target: RAW.ROOM_TYPES
+    file_format: FF_HOSPITALITY_CSV_HEADER
+    pattern: ".*[.]csv([.]gz)?$"
+    business_key: room_type_id
+    columns: {room_type_id: VARCHAR, hotel_id: VARCHAR, type_name: VARCHAR, max_occupancy: NUMBER, base_rate: "NUMBER(12,2)", bed_type: VARCHAR}
+  guests:
+    format: csv
+    stage_path: csv/guests/
+    target: RAW.GUESTS
+    file_format: FF_HOSPITALITY_CSV_HEADER
+    pattern: ".*[.]csv([.]gz)?$"
+    business_key: guest_id
+    columns: {guest_id: VARCHAR, first_name: VARCHAR, last_name: VARCHAR, email: VARCHAR, country: VARCHAR, created_at: TIMESTAMP_TZ, marketing_opt_in: BOOLEAN}
+  reservations:
+    format: csv
+    stage_path: csv/reservations/
+    target: RAW.RESERVATIONS
+    file_format: FF_HOSPITALITY_CSV_HEADER
+    pattern: ".*[.]csv([.]gz)?$"
+    business_key: reservation_id
+    snowpipe: PIPE_RESERVATIONS
+    on_error: ABORT_STATEMENT
+    columns: {reservation_id: VARCHAR, hotel_id: VARCHAR, guest_id: VARCHAR, room_id: VARCHAR, channel_id: VARCHAR, booking_status: VARCHAR, booked_at: TIMESTAMP_TZ, checkin_date: DATE, checkout_date: DATE, adults: NUMBER, children: NUMBER, currency: VARCHAR, total_amount: "NUMBER(12,2)", updated_at: TIMESTAMP_TZ}
+  reservation_guests:
+    format: csv
+    stage_path: csv/reservation_guests/
+    target: RAW.RESERVATION_GUESTS
+    file_format: FF_HOSPITALITY_CSV_HEADER
+    pattern: ".*[.]csv([.]gz)?$"
+    business_key: reservation_guest_id
+    columns: {reservation_guest_id: VARCHAR, reservation_id: VARCHAR, guest_id: VARCHAR, is_primary: BOOLEAN}
+  payments:
+    format: csv
+    stage_path: csv/payments/
+    target: RAW.PAYMENTS
+    file_format: FF_HOSPITALITY_CSV_HEADER
+    pattern: ".*[.]csv([.]gz)?$"
+    business_key: payment_id
+    snowpipe: PIPE_PAYMENTS
+    on_error: ABORT_STATEMENT
+    columns: {payment_id: VARCHAR, reservation_id: VARCHAR, payment_ts: TIMESTAMP_TZ, payment_method: VARCHAR, payment_status: VARCHAR, amount: "NUMBER(12,2)", currency: VARCHAR}
+  folio_charges:
+    format: csv
+    stage_path: csv/folio_charges/
+    target: RAW.FOLIO_CHARGES
+    file_format: FF_HOSPITALITY_CSV_HEADER
+    pattern: ".*[.]csv([.]gz)?$"
+    business_key: folio_id
+    snowpipe: PIPE_FOLIO_CHARGES
+    on_error: ABORT_STATEMENT
+    columns: {folio_id: VARCHAR, reservation_id: VARCHAR, charge_ts: TIMESTAMP_TZ, charge_type: VARCHAR, description: VARCHAR, amount: "NUMBER(12,2)", currency: VARCHAR}
+  cancellations:
+    format: csv
+    stage_path: csv/cancellations/
+    target: RAW.CANCELLATIONS
+    file_format: FF_HOSPITALITY_CSV_HEADER
+    pattern: ".*[.]csv([.]gz)?$"
+    business_key: cancellation_id
+    snowpipe: PIPE_CANCELLATIONS
+    on_error: ABORT_STATEMENT
+    columns: {cancellation_id: VARCHAR, reservation_id: VARCHAR, cancelled_at: TIMESTAMP_TZ, reason: VARCHAR, fee_amount: "NUMBER(12,2)"}
+  refunds:
+    format: csv
+    stage_path: csv/refunds/
+    target: RAW.REFUNDS
+    file_format: FF_HOSPITALITY_CSV_HEADER
+    pattern: ".*[.]csv([.]gz)?$"
+    business_key: refund_id
+    columns: {refund_id: VARCHAR, payment_id: VARCHAR, reservation_id: VARCHAR, refund_ts: TIMESTAMP_TZ, amount: "NUMBER(12,2)", reason: VARCHAR}
+  loyalty_members:
+    format: csv
+    stage_path: csv/loyalty_members/
+    target: RAW.LOYALTY_MEMBERS
+    file_format: FF_HOSPITALITY_CSV_HEADER
+    pattern: ".*[.]csv([.]gz)?$"
+    business_key: loyalty_id
+    columns: {loyalty_id: VARCHAR, guest_id: VARCHAR, tier: VARCHAR, points_balance: NUMBER, joined_date: DATE}
+  property_staff:
+    format: csv
+    stage_path: csv/property_staff/
+    target: RAW.PROPERTY_STAFF
+    file_format: FF_HOSPITALITY_CSV_HEADER
+    pattern: ".*[.]csv([.]gz)?$"
+    business_key: staff_id
+    columns: {staff_id: VARCHAR, hotel_id: VARCHAR, department: VARCHAR, job_title: VARCHAR, hired_date: DATE, active: BOOLEAN}
+  stays:
+    format: parquet
+    stage_path: parquet/stays/
+    target: RAW.STAYS
+    file_format: FF_HOSPITALITY_PARQUET
+    pattern: ".*[.]parquet$"
+    business_key: stay_id
+    snowpipe: PIPE_STAYS
+    on_error: ABORT_STATEMENT
+    columns: {stay_id: VARCHAR, reservation_id: VARCHAR, hotel_id: VARCHAR, room_id: VARCHAR, actual_checkin_at: TIMESTAMP_TZ, actual_checkout_at: TIMESTAMP_TZ, stay_status: VARCHAR}
+  room_inventory:
+    format: parquet
+    stage_path: parquet/room_inventory/
+    target: RAW.ROOM_INVENTORY
+    file_format: FF_HOSPITALITY_PARQUET
+    pattern: ".*[.]parquet$"
+    business_key: inventory_id
+    columns: {inventory_id: VARCHAR, hotel_id: VARCHAR, room_type_id: VARCHAR, inventory_date: DATE, available_rooms: NUMBER, occupied_rooms: NUMBER, out_of_service_rooms: NUMBER}
+  daily_rates:
+    format: parquet
+    stage_path: parquet/daily_rates/
+    target: RAW.DAILY_RATES
+    file_format: FF_HOSPITALITY_PARQUET
+    pattern: ".*[.]parquet$"
+    business_key: rate_id
+    columns: {rate_id: VARCHAR, hotel_id: VARCHAR, room_type_id: VARCHAR, rate_date: DATE, rate_plan: VARCHAR, nightly_rate: "NUMBER(12,2)", currency: VARCHAR}
+  channel_bookings:
+    format: parquet
+    stage_path: parquet/channel_bookings/
+    target: RAW.CHANNEL_BOOKINGS
+    file_format: FF_HOSPITALITY_PARQUET
+    pattern: ".*[.]parquet$"
+    business_key: channel_booking_id
+    snowpipe: PIPE_CHANNEL_BOOKINGS
+    on_error: ABORT_STATEMENT
+    columns: {channel_booking_id: VARCHAR, reservation_id: VARCHAR, channel_id: VARCHAR, channel_reference: VARCHAR, commission_amount: "NUMBER(12,2)", booked_at: TIMESTAMP_TZ}
+  housekeeping_events:
+    format: parquet
+    stage_path: parquet/housekeeping_events/
+    target: RAW.HOUSEKEEPING_EVENTS
+    file_format: FF_HOSPITALITY_PARQUET
+    pattern: ".*[.]parquet$"
+    business_key: event_id
+    columns: {event_id: VARCHAR, hotel_id: VARCHAR, room_id: VARCHAR, event_type: VARCHAR, event_ts: TIMESTAMP_TZ, staff_id: VARCHAR, duration_minutes: NUMBER}
+  web_booking_events:
+    format: parquet
+    stage_path: parquet/web_booking_events/
+    target: RAW.WEB_BOOKING_EVENTS
+    file_format: FF_HOSPITALITY_PARQUET
+    pattern: ".*[.]parquet$"
+    business_key: event_id
+    columns: {event_id: VARCHAR, session_id: VARCHAR, guest_id: VARCHAR, reservation_id: VARCHAR, event_type: VARCHAR, event_ts: TIMESTAMP_TZ, channel_id: VARCHAR}
+  guest_preferences:
+    format: parquet
+    stage_path: parquet/guest_preferences/
+    target: RAW.GUEST_PREFERENCES
+    file_format: FF_HOSPITALITY_PARQUET
+    pattern: ".*[.]parquet$"
+    business_key: preference_id
+    columns: {preference_id: VARCHAR, guest_id: VARCHAR, preference_type: VARCHAR, preference_value: VARCHAR, updated_at: TIMESTAMP_TZ}
+  property_daily_metrics:
+    format: parquet
+    stage_path: parquet/property_daily_metrics/
+    target: RAW.PROPERTY_DAILY_METRICS
+    file_format: FF_HOSPITALITY_PARQUET
+    pattern: ".*[.]parquet$"
+    business_key: metric_id
+    columns: {metric_id: VARCHAR, hotel_id: VARCHAR, metric_date: DATE, available_rooms: NUMBER, occupied_rooms: NUMBER, gross_revenue: "NUMBER(14,2)", cancellations: NUMBER}

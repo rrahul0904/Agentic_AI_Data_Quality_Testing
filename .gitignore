@@ -10,6 +10,8 @@ venv/
 
 # Agentic Data Engineering OS local runtime
 .ade/
+data/hospitality/
+artifacts/hospitality/
 
 # Node / LDH runtime
 node_modules/
@@ -23,6 +25,7 @@ dbt_packages/
 logs/
 airflow_home/
 hospitality-snowflake-data-platform/dbt/target/
+hospitality-snowflake-data-platform/dbt/testbed/ci_profiles/.user.yml
 hospitality-snowflake-data-platform/airflow/data/landing/
 hospitality-snowflake-data-platform/airflow/data/source_exports/
 hospitality-snowflake-data-platform/sources/files/generated/

@@ -1,0 +1,14 @@
+version: 2
+models:
+  - name: mart_daily_occupancy
+    columns:
+      - name: occupancy_pct
+        tests: [not_null]
+  - name: mart_daily_revenue
+    columns:
+      - name: gross_revenue
+        tests: [not_null]
+  - name: mart_payment_reconciliation
+    columns:
+      - name: reservation_id
+        tests: [not_null]

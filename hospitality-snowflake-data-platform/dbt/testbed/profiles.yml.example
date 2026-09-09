@@ -1,0 +1,14 @@
+hospitality_testbed:
+  target: testbed
+  outputs:
+    testbed:
+      type: snowflake
+      account: "{{ env_var('ADE_SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('ADE_SNOWFLAKE_USER') }}"
+      password: "{{ env_var('ADE_SNOWFLAKE_PASSWORD') }}"
+      role: "{{ env_var('ADE_SNOWFLAKE_ROLE', 'ADE_HOSPITALITY_TESTBED_ROLE') }}"
+      database: "{{ env_var('ADE_SNOWFLAKE_DATABASE', 'HOSPITALITY_TESTBED') }}"
+      warehouse: "{{ env_var('ADE_SNOWFLAKE_WAREHOUSE', 'ADE_HOSPITALITY_TESTBED_WH') }}"
+      schema: STAGING
+      threads: 4
+      client_session_keep_alive: false
