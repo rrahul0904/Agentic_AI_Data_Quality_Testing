@@ -122,6 +122,59 @@ def test_approval_fingerprint_changes_when_statement_changes():
     assert first["approval_fingerprint"] != second["approval_fingerprint"]
 
 
+def test_approval_fingerprint_preserves_string_literal_content():
+    double_space = plan_snowflake_mutation(
+        "INSERT INTO HOTEL.RAW.NOTES VALUES ('a  b')",
+        environment="dev",
+    )
+    single_space = plan_snowflake_mutation(
+        "INSERT INTO HOTEL.RAW.NOTES VALUES ('a b')",
+        environment="dev",
+    )
+    comment_like_literal = plan_snowflake_mutation(
+        "INSERT INTO HOTEL.RAW.NOTES VALUES ('--not-a-comment')",
+        environment="dev",
+    )
+    ordinary_literal = plan_snowflake_mutation(
+        "INSERT INTO HOTEL.RAW.NOTES VALUES ('not-a-comment')",
+        environment="dev",
+    )
+
+    assert double_space["approval_fingerprint"] != single_space["approval_fingerprint"]
+    assert comment_like_literal["approval_fingerprint"] != ordinary_literal["approval_fingerprint"]
+
+
+def test_approval_fingerprint_ignores_comments_only_outside_literals():
+    plain = plan_snowflake_mutation(
+        "INSERT INTO HOTEL.RAW.NOTES VALUES ('payload')",
+        environment="dev",
+    )
+    commented = plan_snowflake_mutation(
+        "INSERT INTO HOTEL.RAW.NOTES VALUES ('payload') -- deployment note",
+        environment="dev",
+    )
+    block_commented = plan_snowflake_mutation(
+        "INSERT /* deployment note */ INTO HOTEL.RAW.NOTES VALUES ('payload')",
+        environment="dev",
+    )
+
+    assert plain["approval_fingerprint"] == commented["approval_fingerprint"]
+    assert plain["approval_fingerprint"] == block_commented["approval_fingerprint"]
+
+
+def test_approval_fingerprint_preserves_dollar_quoted_content():
+    first = plan_snowflake_mutation(
+        "CALL HOTEL.RAW.PROC($--literal one$)",
+        environment="dev",
+    )
+    second = plan_snowflake_mutation(
+        "CALL HOTEL.RAW.PROC($--literal two$)",
+        environment="dev",
+    )
+
+    assert first["approval_fingerprint"] != second["approval_fingerprint"]
+
+
 def test_multi_statement_request_is_blocked():
     result = plan_snowflake_mutation(
         "CREATE TABLE A(ID NUMBER); DROP TABLE B",
