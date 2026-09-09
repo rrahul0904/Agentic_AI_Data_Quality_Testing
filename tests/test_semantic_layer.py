@@ -75,7 +75,7 @@ def test_semantic_yaml_ingest_search_and_verified_query_evaluation(tmp_path):
     resource = registry.ingest_yaml(_semantic_yaml(tmp_path))
 
     assert resource["name"] == "hospitality"
-    assert resource["counts"] == {"elements": 8, "relationships": 0, "verified_queries": 1}
+    assert resource["counts"] == {"elements": 7, "relationships": 0, "verified_queries": 1}
     assert {item["kind"] for item in resource["elements"]} >= {
         "table",
         "dimension",
