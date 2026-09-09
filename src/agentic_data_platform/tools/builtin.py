@@ -120,6 +120,7 @@ from agentic_data_platform.browser import AgentBrowser, plan_browser_actions
 from agentic_data_platform.apps import SnowflakeAppBuilder
 from agentic_data_platform.ml import SnowflakeModelRegistryAdapter, plan_log_model, plan_model_lifecycle
 from agentic_data_platform.ai import AIWorkflowCompiler, SnowflakeAIWorkflowRunner
+from agentic_data_platform.ide import IDEBridge
 from agentic_data_platform.training import (
     TrainingStore,
     import_markdown as training_import_markdown,
@@ -309,6 +310,10 @@ def _notebook_agent(_: dict[str, Any]) -> NotebookAgent:
 
 def _app_builder(args: dict[str, Any]) -> SnowflakeAppBuilder:
     return SnowflakeAppBuilder(_target(args))
+
+
+def _ide_bridge(args: dict[str, Any]) -> IDEBridge:
+    return IDEBridge(_target(args))
 
 
 def _snowflake_model_adapter(args: dict[str, Any]) -> SnowflakeModelRegistryAdapter:
@@ -1538,6 +1543,107 @@ def build_tool_registry() -> ToolRegistry:
         _ai_workflow_run,
         "Execute a compiled read-only Snowflake AI-function workflow and return query evidence.",
         platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+
+    add(
+        "ide_workspace_plan",
+        Capability.PLAN,
+        lambda a: _ide_bridge(a).plan_workspace(
+            console_url=str(a.get("console_url") or "http://localhost:3000"),
+            extension_directory=str(a.get("extension_directory") or ".ade/vscode-extension"),
+        ),
+        "Generate a project-scoped ADE VS Code workspace/extension bundle with exact content fingerprint.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "ide_workspace_apply",
+        Capability.EXECUTE,
+        lambda a: _ide_bridge(a).apply_workspace(
+            dict(a["plan"]),
+            approval_fingerprint=str(a.get("approval_fingerprint") or ""),
+            overwrite=bool(a.get("overwrite", False)),
+        ),
+        "Apply an approved ADE IDE workspace bundle.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "ide_context",
+        Capability.DISCOVER,
+        lambda a: _ide_bridge(a).context(
+            str(a["path"]),
+            line=int(a.get("line", 1)),
+            radius=int(a.get("radius", 30)),
+            max_bytes=int(a.get("max_bytes", 100000)),
+        ),
+        "Read bounded project file context with source fingerprint for IDE/desktop agents.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "ide_open",
+        Capability.DISCOVER,
+        lambda a: _ide_bridge(a).open_target(
+            str(a["path"]),
+            line=int(a.get("line", 1)),
+            column=int(a.get("column", 1)),
+        ),
+        "Generate VS Code and file deep links to an exact project location.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "ide_edit_plan",
+        Capability.PLAN,
+        lambda a: {
+            key: value
+            for key, value in _ide_bridge(a).plan_edit(
+                str(a["path"]), list(a.get("replacements") or [])
+            ).items()
+            if key != "result"
+        },
+        "Plan line-range file edits bound to source/result fingerprints.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "ide_edit_apply",
+        Capability.EXECUTE,
+        lambda a: _ide_bridge(a).apply_edit(
+            str(a["path"]),
+            list(a.get("replacements") or []),
+            approval_fingerprint=str(a.get("approval_fingerprint") or ""),
+        ),
+        "Apply approved hash-bound IDE file edits and verify the result.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "ide_server_register",
+        Capability.GENERATE,
+        lambda a: _ide_bridge(a).register_server(
+            name=str(a["name"]),
+            url=str(a["url"]),
+            pid=int(a["pid"]) if a.get("pid") is not None else None,
+            metadata=dict(a.get("metadata") or {}),
+        ),
+        "Register a local/web development server for desktop preview and browser verification.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "ide_server_list",
+        Capability.DISCOVER,
+        lambda a: _ide_bridge(a).list_servers(),
+        "List registered IDE development servers.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "ide_server_remove",
+        Capability.GENERATE,
+        lambda a: _ide_bridge(a).remove_server(str(a["name"])),
+        "Remove a registered IDE development server.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
     )
 
     def training_store(a: dict[str, Any]) -> TrainingStore:
