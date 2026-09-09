@@ -29,6 +29,8 @@ class SnowflakePipelineFixture:
             return {"columns": ("FILE_NAME", "STATUS", "ROW_COUNT", "ERROR_COUNT"), "rows": (
                 {"FILE_NAME": "reservation_001.csv", "STATUS": "LOADED", "ROW_COUNT": 100, "ERROR_COUNT": 0},
             )}
+        if "validate_pipe_load" in lowered:
+            return {"columns": ("ERROR",), "rows": ()}
         if "table(validate" in lowered:
             return {"columns": ("ERROR",), "rows": ()}
         if "duplicate_rows" in lowered:
@@ -79,6 +81,9 @@ def test_copy_history_and_validate_contract():
     history = sf.copy_history("HOTEL.RAW.RESERVATION")
     assert history["status"] == "PASS"
     assert history["loaded_row_count"] == 100
+    pipe_validation = sf.validate_pipe_load("HOTEL.RAW.RES_PIPE")
+    assert pipe_validation["status"] == "PASS"
+    assert pipe_validation["error_count"] == 0
     validation = sf.validate_copy("HOTEL.RAW.RESERVATION")
     assert validation["status"] == "PASS"
     assert validation["error_count"] == 0
@@ -110,4 +115,4 @@ def test_end_to_end_pipeline_health_rolls_up_components():
         max_age_minutes=15,
     )
     assert health["status"] == "PASS"
-    assert set(health["components"]) == {"pipe", "stream", "copy_history", "quality"}
+    assert set(health["components"]) == {"pipe", "pipe_validation", "stream", "copy_history", "quality"}
