@@ -5,7 +5,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable
 
-from agentic_data_platform.models import ActorMode, Environment, Risk, ToolRequest, new_id
+from agentic_data_platform.models import ActorMode, Environment, InteractionMode, Risk, ToolRequest, new_id
 from agentic_data_platform.plugins import PluginBundleService, PluginManager
 from agentic_data_platform.providers.base import Provider, ProviderRequest, ProviderResponse
 from agentic_data_platform.runtime.context import ContextManager
@@ -41,7 +41,11 @@ class AgentRuntime:
         self.max_steps = max_steps
         self.repeated_tool_limit = repeated_tool_limit
 
-    def _tool_specs(self, actor_mode: ActorMode) -> list[dict[str, Any]]:
+    def _tool_specs(
+        self,
+        actor_mode: ActorMode,
+        interaction_mode: InteractionMode = InteractionMode.AGENT,
+    ) -> list[dict[str, Any]]:
         read_only_actor = actor_mode in {ActorMode.ANALYST, ActorMode.ASK, ActorMode.PLAN}
         return [
             {
@@ -50,8 +54,8 @@ class AgentRuntime:
                 "input_schema": item.input_schema or {"type": "object"},
                 "risk": item.risk.value,
             }
-            for item in self.registry.definitions()
-            if item.enabled and (not read_only_actor or item.risk is Risk.READ_ONLY)
+            for item in self.registry.definitions_for_mode(interaction_mode)
+            if not read_only_actor or item.risk is Risk.READ_ONLY
         ]
 
     def _emit(self, hook: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -65,6 +69,7 @@ class AgentRuntime:
         model: str,
         *,
         actor_mode: ActorMode = ActorMode.ANALYST,
+        interaction_mode: InteractionMode = InteractionMode.AGENT,
         environment: Environment = Environment.DEV,
         approved_tools: set[str] | None = None,
         project_root: str | Path | None = None,
@@ -81,7 +86,7 @@ class AgentRuntime:
                 event_handler({"event": event, "session_id": session_id, **payload})
 
         self.store.add_message(session_id, "user", user_message)
-        notify("session.started", provider=provider.name, model=model, actor_mode=actor_mode.value)
+        notify("session.started", provider=provider.name, model=model, actor_mode=actor_mode.value, interaction_mode=interaction_mode.value)
 
         bundle_hook_state = (
             PluginBundleService(project_root).load_active_hooks(self.plugins)
@@ -178,7 +183,7 @@ class AgentRuntime:
                     ProviderRequest(
                         model=model,
                         messages=compacted,
-                        tools=self._tool_specs(actor_mode),
+                        tools=self._tool_specs(actor_mode, interaction_mode),
                         metadata={
                             "session_id": session_id,
                             "step": step,
@@ -360,6 +365,7 @@ class AgentRuntime:
                                 run_id=session_id,
                                 approved=effective_approved,
                                 actor_mode=actor_mode,
+                                interaction_mode=interaction_mode,
                             )
                         )
                         status = "SUCCESS"
