@@ -375,7 +375,7 @@
     {
       "id": "tools.todos",
       "reference": "Task/todo tracking",
-      "ade_current": "implemented",
+      "ade_current": "implemented_on_branch",
       "phase": "P1",
       "target_score": 2,
       "superiority_advantages": [
@@ -385,12 +385,29 @@
       "acceptance": "Todos link directly to runs, evidence and approvals.",
       "classification": "COCO_CORE",
       "release_blocking": true,
-      "certification_track": "COCO_PARITY_CERTIFICATION"
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_REQUIRED",
+        "tests": [
+          "tests/test_todo_management.py",
+          "tests/test_session_runtime.py"
+        ],
+        "evidence": [
+          "GitHub Actions ade-capability-superiority run 34413136293 targeted-certification PASS",
+          "Certified implementation head 41471d33cf666dd2e0abb4cfbc90f45c9dd3748d"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/session/store.py",
+          "src/agentic_data_platform/tools/builtin.py",
+          "src/agentic_data_platform/api/app.py"
+        ]
+      }
     },
     {
       "id": "memory.persistent",
       "reference": "Persistent agent memory",
-      "ade_current": "implemented",
+      "ade_current": "implemented_on_branch",
       "phase": "P1",
       "target_score": 2,
       "superiority_advantages": [
@@ -400,7 +417,23 @@
       "acceptance": "Memory is governed by project scope, expiry and provenance.",
       "classification": "COCO_CORE",
       "release_blocking": true,
-      "certification_track": "COCO_PARITY_CERTIFICATION"
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_REQUIRED",
+        "tests": [
+          "tests/test_memory_personalization.py"
+        ],
+        "evidence": [
+          "GitHub Actions ade-capability-superiority run 34413136293 targeted-certification PASS",
+          "Certified implementation head 41471d33cf666dd2e0abb4cfbc90f45c9dd3748d"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/memory/store.py",
+          "src/agentic_data_platform/tools/builtin.py",
+          "src/agentic_data_platform/api/app.py"
+        ]
+      }
     },
     {
       "id": "context.management",
@@ -1059,6 +1092,37 @@
       "classification": "COCO_CORE",
       "release_blocking": true,
       "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "personalization.settings",
+      "reference": "Global/project instructions, tool preferences, runtime preferences and memory enablement",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "implemented_on_branch",
+      "target_score": 2,
+      "superiority_advantages": [
+        "Project settings overlay global settings deterministically while remaining inspectable.",
+        "Secret-like content is rejected and disabled memory refuses persistence."
+      ],
+      "acceptance": "Global and project instructions/preferences compose predictably, memory can be disabled, and secrets are not persisted.",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_REQUIRED",
+        "tests": [
+          "tests/test_memory_personalization.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/memory/store.py",
+          "src/agentic_data_platform/tools/builtin.py",
+          "src/agentic_data_platform/api/app.py"
+        ],
+        "evidence": [
+          "GitHub Actions ade-capability-superiority run 34413136293 targeted-certification PASS",
+          "Certified implementation head 41471d33cf666dd2e0abb4cfbc90f45c9dd3748d"
+        ]
+      }
     }
   ],
   "benchmark_tracks": {
