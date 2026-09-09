@@ -307,6 +307,29 @@ def _snowflake_pipeline_call(args: dict[str, Any], method: str, **kwargs: Any) -
 
 
 def _snowflake_mutation_execute(args: dict[str, Any]) -> dict[str, Any]:
+    environment = str(args.get("_environment") or args.get("environment") or "dev")
+    if bool(args.get("_dry_run")):
+        plan = plan_snowflake_mutation(args["sql"], environment=environment)
+        if plan.get("status") != "PASS":
+            return plan
+        if not bool(args.get("_approved")):
+            return {**plan, "status": "BLOCKED_APPROVAL", "reason": "explicit ToolRegistry approval is required"}
+        if str(args.get("approval_fingerprint") or "") != plan["approval_fingerprint"]:
+            return {
+                **plan,
+                "status": "BLOCKED_APPROVAL",
+                "code": "APPROVAL_FINGERPRINT_MISMATCH",
+                "reason": "approval does not match the exact SQL/environment/target being executed",
+            }
+        if plan["destructive"] and not bool(args.get("confirm_destructive", False)):
+            return {
+                **plan,
+                "status": "BLOCKED_APPROVAL",
+                "code": "DESTRUCTIVE_CONFIRMATION_REQUIRED",
+                "reason": "destructive execution requires an additional explicit confirmation",
+            }
+        return {**plan, "status": "PASS", "mode": "DRY_RUN", "executed": False}
+
     try:
         connector = connector_from_args({**args, "platform": "snowflake"})
     except ExternalConnectionUnavailable as exc:
@@ -315,11 +338,11 @@ def _snowflake_mutation_execute(args: dict[str, Any]) -> dict[str, Any]:
         raise TypeError("Snowflake mutation execution requires SnowflakeConnector")
     return GovernedSnowflakeMutationExecutor(connector).execute(
         args["sql"],
-        environment=str(args.get("_environment") or args.get("environment") or "dev"),
+        environment=environment,
         approval_fingerprint=str(args.get("approval_fingerprint") or ""),
         approved=bool(args.get("_approved")),
         confirm_destructive=bool(args.get("confirm_destructive", False)),
-        dry_run=bool(args.get("_dry_run")),
+        dry_run=False,
     )
 
 
