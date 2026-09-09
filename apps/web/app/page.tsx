@@ -214,7 +214,7 @@ const NAV = [
   "Overview", "Investigations", "Agent", "Assets", "Lineage", "SQL Intelligence", "dbt", "Airflow",
   "Data Quality", "Reconciliation", "Warehouses", "Connections", "Metadata", "Data Diff",
   "Semantic Layer", "Cortex Agents", "Hosted Runner", "Notebooks", "Browser", "Apps",
-  "ML Registry", "AI Workflows", "Desktop / IDE",
+  "ML Registry", "AI Workflows", "Desktop / IDE", "Advanced Workbench",
   "Migration", "Cost / FinOps", "Governance / PII", "PR Reviews", "Skills", "Training",
   "Providers", "MCP", "Jobs", "Traces", "Sessions", "Runs / Evidence", "Settings / Doctor",
 ];
@@ -455,6 +455,7 @@ export default function OperatorConsole() {
             {active === "ML Registry" && <CapabilityWorkbench domain="ml" title="Snowpark ML / Model Registry" eyebrow="MODELS · VERSIONS · LIFECYCLE" description="Inventory Snowflake models and versions, plan Registry.log_model calls, and govern default-version/drop-version/drop-model lifecycle operations with verification." />}
             {active === "AI Workflows" && <CapabilityWorkbench domain="ai-workflow" title="Snowflake AI Workflows" eyebrow="AI_FILTER · AI_AGG · AI_COMPLETE" description="Compile declarative read-only AI-function pipelines to Snowflake SQL and execute them with query evidence when a live Snowflake connection is configured." />}
             {active === "Desktop / IDE" && <CapabilityWorkbench domain="ide" title="Desktop / IDE Bridge" eyebrow="VSCODE · CONTEXT · EDITS · SERVERS" description="Generate a project-scoped VS Code bridge, open exact file locations, read bounded context, apply hash-bound edits, and track development servers." />}
+            {active === "Advanced Workbench" && <CapabilityWorkbench domain="advanced" title="Governed Advanced Workbench" eyebrow="PLAN · EDIT · SHELL · GIT · RETRIEVAL · SDK" description="Use the same governed ToolRegistry from the web console for mode contracts, immutable plans, hash-bound file edits, bounded shell jobs, Git changes, audited research, provider-neutral retrieval, custom agents, SQL playground, provenance charts, forecasting/anomaly workflows, document extraction, embedded SDK contracts, account administration plans, and GPU job controls." defaultArgs={{ workspace: ".", environment: "dev" }} />}
             {active === "Cost / FinOps" && <DomainView title="Cost / FinOps" eyebrow="EVIDENCE-BACKED COST INTELLIGENCE" endpoint="/api/v1/finops/report" />}
             {active === "Governance / PII" && <DomainView title="Governance / PII" eyebrow="RBAC & SENSITIVE DATA" endpoint="/api/v1/rbac/audit" />}
             {active === "PR Reviews" && <DomainView title="PR Reviews" eyebrow="DETERMINISTIC REVIEW SURFACE" endpoint="/api/v1/domains" selectKey="review" />}
