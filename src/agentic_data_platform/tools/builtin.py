@@ -2920,6 +2920,127 @@ def build_tool_registry() -> ToolRegistry:
         platforms=frozenset({Platform.LOCAL}),
     )
 
+    add(
+        "git_status",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.git_status(a.get("workspace") or str(_target(a))),
+        "Inspect project Git branch and working-tree state without mutation.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "git_change_plan",
+        Capability.PLAN,
+        lambda a: advanced_caps.git_change_plan(
+            a.get("workspace") or str(_target(a)),
+            str(a["operation"]),
+            branch=a.get("branch"),
+            message=a.get("message"),
+            paths=list(a.get("paths") or []),
+            verification_command=a.get("verification_command"),
+        ),
+        "Plan a branch or explicit-path commit with verification evidence and force-push disabled.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "git_change_apply",
+        Capability.EXECUTE,
+        lambda a: advanced_caps.git_change_apply(
+            a.get("workspace") or str(_target(a)),
+            str(a["operation"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+            branch=a.get("branch"),
+            message=a.get("message"),
+            paths=list(a.get("paths") or []),
+            verification_command=a.get("verification_command"),
+        ),
+        "Apply an approved local Git branch/commit operation after optional test verification; remote push and force-push are excluded.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "web_fetch_audited",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.audited_web_fetch(
+            str(a["url"]),
+            max_bytes=int(a.get("max_bytes", 262144)),
+            timeout_seconds=int(a.get("timeout_seconds", 15)),
+        ),
+        "Fetch a public HTTP(S) source while recording final URL, retrieval time, content type and content fingerprint.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "web_search_audited",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.audited_web_search(
+            str(a["query"]),
+            endpoint_template=a.get("endpoint_template"),
+        ),
+        "Run configurable public-web search with source URL and content-fingerprint evidence; unconfigured search stays SKIP_EXTERNAL.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "retrieval_search",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.retrieval_search(
+            str(a["query"]),
+            documents=list(a.get("documents") or []),
+            backend=str(a.get("backend") or "local"),
+            limit=int(a.get("limit", 10)),
+            account_url=a.get("account_url"),
+            token=a.get("token"),
+            service=a.get("service"),
+            columns=list(a.get("columns") or []),
+        ),
+        "Search local project evidence or a configured Snowflake Cortex Search service under one provider-neutral result contract.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "embedded_agent_sdk_contract",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.sdk_contract(),
+        "Describe the embeddable ADE session SDK and its inherited ToolRegistry/per-tool approval boundary.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "account_admin_plan",
+        Capability.PLAN,
+        lambda a: advanced_caps.account_admin_plan(
+            str(a["sql"]),
+            environment=str(a.get("environment") or a.get("_environment") or "dev"),
+        ),
+        "Plan a governed Snowflake account/security/cost administration statement with exact approval binding and independent verification.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "gpu_job_plan",
+        Capability.PLAN,
+        lambda a: advanced_caps.gpu_job_plan(
+            backend=str(a["backend"]),
+            image=str(a["image"]),
+            command=a["command"],
+            gpu_count=int(a.get("gpu_count", 1)),
+            max_runtime_seconds=int(a.get("max_runtime_seconds", 3600)),
+            hourly_cost_usd=float(a.get("hourly_cost_usd", 0.0)),
+            max_cost_usd=float(a.get("max_cost_usd", 25.0)),
+        ),
+        "Plan a portable Snowflake/Kubernetes/local-CUDA GPU job with runtime, GPU-count and maximum-cost guardrails.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "gpu_job_run",
+        Capability.EXECUTE,
+        lambda a: advanced_caps.gpu_job_run(
+            a.get("workspace") or str(_target(a)),
+            dict(a["plan"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+        ),
+        "Execute an approved local-CUDA GPU job through bounded command execution; external backends remain NOT_RUN_EXTERNAL until configured.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+
     # Local-first semantic search spans code, dbt, Airflow, docs and warehouse metadata.
     add(
         "semantic_index_project",
