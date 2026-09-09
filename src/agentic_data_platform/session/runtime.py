@@ -17,6 +17,7 @@ from agentic_data_platform.providers import (
     output_token_budget,
 )
 from agentic_data_platform.session.store import SessionStore
+from agentic_data_platform.rules import RuleStore
 from agentic_data_platform.training import TrainingStore
 
 
@@ -52,23 +53,26 @@ class ValidatorRegistry:
         }
 
 
-def load_instructions(project_root: str | Path) -> list[dict[str, str]]:
-    root = Path(project_root).expanduser().resolve()
-    candidates = (
-        root / "AGENTS.md",
-        root / "CLAUDE.md",
-        root / ".github" / "copilot-instructions.md",
-        root / ".altimate-code" / "instructions.md",
-    )
-    result = []
-    for path in candidates:
-        if not path.is_file():
-            continue
-        text = path.read_text(errors="replace").strip()
-        if text:
-            result.append({"path": str(path), "content": text})
-    return result
-
+def load_instructions(
+    project_root: str | Path,
+    *,
+    target_path: str | None = None,
+    global_root: str | Path | None = None,
+) -> list[dict[str, str]]:
+    resolved = RuleStore(
+        project_root,
+        global_root=global_root,
+    ).resolve(target_path=target_path)
+    return [
+        {
+            "path": str(item.get("path") or item.get("source") or item["name"]),
+            "content": str(item["content"]),
+            "name": str(item["name"]),
+            "scope": str(item["scope"]),
+            "rule_fingerprint": str(item["rule_fingerprint"]),
+        }
+        for item in resolved["rules"]
+    ]
 
 def cap_tool_result(value: Any, *, max_chars: int = 20000) -> dict[str, Any]:
     raw = value if isinstance(value, str) else json.dumps(value, default=str, sort_keys=True)
