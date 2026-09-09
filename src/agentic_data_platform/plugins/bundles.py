@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 import re
 import shutil
-from typing import Any, Iterable
+from typing import Any
 
 import yaml
 
