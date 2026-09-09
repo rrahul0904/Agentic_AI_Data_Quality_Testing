@@ -734,9 +734,10 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             "run-once": "hosted_runner_run_once",
         },
         "notebook": {
-            "inspect": "notebook_inspect", "patch-plan": "notebook_patch_plan",
-            "patch-apply": "notebook_patch_apply", "snowflake-plan": "notebook_snowflake_plan",
-            "snowflake-run": "notebook_snowflake_run",
+            "inspect": "notebook_inspect", "create-plan": "notebook_create_plan",
+            "create-apply": "notebook_create_apply", "local-run": "notebook_local_run",
+            "patch-plan": "notebook_patch_plan", "patch-apply": "notebook_patch_apply",
+            "snowflake-plan": "notebook_snowflake_plan", "snowflake-run": "notebook_snowflake_run",
         },
         "browser": {
             "plan": "browser_plan", "read": "browser_read", "act": "browser_act",
