@@ -144,7 +144,9 @@ class SnowflakeAppBuilder:
         }
 
     def apply(self, plan: dict[str, Any], *, approval_fingerprint: str, overwrite: bool = False) -> dict[str, Any]:
-        if approval_fingerprint != plan.get("approval_fingerprint"):
+        files = {str(key): str(value) for key, value in dict(plan.get("files") or {}).items()}
+        expected = _fingerprint(files)
+        if approval_fingerprint != expected or plan.get("approval_fingerprint") != expected:
             return {"status": "BLOCKED_APPROVAL", "reason": "app plan does not match approved fingerprint"}
         target = Path(str(plan["target"])).resolve()
         if self.project_root not in target.parents and target != self.project_root:
