@@ -114,6 +114,7 @@ from agentic_data_platform.metadata.service import MetadataService
 from agentic_data_platform.search import UnifiedSemanticIndex
 from agentic_data_platform.semantic import CortexAnalystAdapter, SemanticRegistry, SnowflakeSemanticAdapter, build_analyst_request, evaluate_batch, evaluate_candidate
 from agentic_data_platform.cortex import CortexAgentClient
+from agentic_data_platform.runners import HostedRunnerStore
 from agentic_data_platform.training import (
     TrainingStore,
     import_markdown as training_import_markdown,
@@ -290,6 +291,11 @@ def _cortex_agent_client(args: dict[str, Any]) -> CortexAgentClient:
         role=args.get("role"),
         timeout_seconds=int(args.get("timeout_seconds", 120)),
     )
+
+
+def _hosted_runner_store(args: dict[str, Any]) -> HostedRunnerStore:
+    path = args.get("runner_database") or (_target(args) / ".ade" / "hosted-runner.db")
+    return HostedRunnerStore(path)
 
 
 def _dbt(args: dict[str, Any]) -> DbtManifestGraph:
@@ -1135,6 +1141,85 @@ def build_tool_registry() -> ToolRegistry:
         platforms=frozenset({Platform.SNOWFLAKE}),
         risk=Risk.MUTATING,
         requires_approval=True,
+    )
+
+    add(
+        "hosted_runner_submit",
+        Capability.GENERATE,
+        lambda a: _hosted_runner_store(a).submit(
+            tool_name=str(a["tool_name"]),
+            args=dict(a.get("args") or {}),
+            actor_mode=ActorMode(str(a.get("actor_mode") or a.get("_actor_mode") or "analyst")),
+            environment=Environment(str(a.get("environment") or a.get("_environment") or "dev")),
+            approved=bool(a.get("approved", False)),
+            delay_seconds=int(a.get("delay_seconds", 0)),
+            max_attempts=int(a.get("max_attempts", 3)),
+        ),
+        "Submit a durable hosted ADE tool job; queued approval state is preserved exactly.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "hosted_runner_jobs",
+        Capability.DISCOVER,
+        lambda a: {"jobs": _hosted_runner_store(a).jobs(limit=int(a.get("limit", 100)), status=a.get("status"))},
+        "List durable hosted ADE runner jobs.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "hosted_runner_job",
+        Capability.DISCOVER,
+        lambda a: _hosted_runner_store(a).job(str(a["job_id"])),
+        "Inspect one hosted ADE runner job and evidence.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "hosted_runner_cancel",
+        Capability.GENERATE,
+        lambda a: _hosted_runner_store(a).cancel(str(a["job_id"])),
+        "Cancel a queued or leased hosted ADE runner job.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "hosted_runner_register",
+        Capability.GENERATE,
+        lambda a: _hosted_runner_store(a).register_runner(
+            name=str(a.get("name") or "ade-runner"),
+            capabilities=[str(item) for item in a.get("capabilities") or ["*"]],
+            metadata=dict(a.get("metadata") or {}),
+            runner_id=a.get("runner_id"),
+        ),
+        "Register or refresh a hostable ADE runner worker.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "hosted_runner_runners",
+        Capability.DISCOVER,
+        lambda a: {"runners": _hosted_runner_store(a).runners()},
+        "List registered ADE runner workers and heartbeats.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "hosted_runner_heartbeat",
+        Capability.GENERATE,
+        lambda a: _hosted_runner_store(a).heartbeat(str(a["runner_id"]), metadata=dict(a.get("metadata") or {})),
+        "Heartbeat a registered ADE runner worker.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "hosted_runner_run_once",
+        Capability.EXECUTE,
+        lambda a: _hosted_runner_store(a).run_once(
+            registry,
+            str(a["runner_id"]),
+            lease_seconds=int(a.get("lease_seconds", 120)),
+        ),
+        "Lease and execute one hosted ADE job through the normal ToolRegistry policy boundary.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
     )
 
     def training_store(a: dict[str, Any]) -> TrainingStore:
