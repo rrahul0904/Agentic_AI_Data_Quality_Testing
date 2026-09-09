@@ -6,7 +6,12 @@
     "score_1": "PARITY: reference behavior is implemented and certified",
     "score_2": "SUPERIOR: parity plus at least two independently testable ADE advantages",
     "target_score": 2,
-    "public_product_docs": "Do not frame ADE public documentation as a competitor clone; this benchmark is internal engineering evidence."
+    "public_product_docs": "Do not frame ADE public documentation as a competitor clone; this benchmark is internal engineering evidence.",
+    "classifications": {
+      "COCO_CORE": "Direct CoCo user-facing capability; required for parity closure.",
+      "COCO_WORKFLOW": "CoCo end-user workflow; ADE must provide equivalent outcome without cloning every backing Snowflake service.",
+      "ADE_EXTENSION": "Additional ADE Snowflake/Cortex capability; valuable but non-blocking for CoCo parity."
+    }
   },
   "sources": [
     "https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code",
@@ -47,7 +52,10 @@
         "cross-platform web console",
         "same governed tools as CLI/API"
       ],
-      "acceptance": "Web surface can perform the same certified workflows as CLI without Snowflake-only coupling."
+      "acceptance": "Web surface can perform the same certified workflows as CLI without Snowflake-only coupling.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "surfaces.desktop_ide",
@@ -70,7 +78,10 @@
           "src/agentic_data_platform/ide/bridge.py",
           "apps/web/app/CapabilityWorkbench.tsx"
         ]
-      }
+      },
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "surfaces.cli",
@@ -82,7 +93,10 @@
         "22-provider control plane",
         "cross-warehouse tools"
       ],
-      "acceptance": "CLI retains all ADE capabilities and gains mode/automation/plugin parity."
+      "acceptance": "CLI retains all ADE capabilities and gains mode/automation/plugin parity.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "modes.agent",
@@ -94,7 +108,10 @@
         "deterministic tool evidence",
         "cross-system execution"
       ],
-      "acceptance": "Agent can plan, execute, verify and recover Snowflake+Airflow+dbt work."
+      "acceptance": "Agent can plan, execute, verify and recover Snowflake+Airflow+dbt work.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "modes.plan",
@@ -106,31 +123,42 @@
         "risk-aware plans",
         "approval-bound execution fingerprints"
       ],
-      "acceptance": "Plan is immutable/auditable and executable only after matching approval."
+      "acceptance": "Plan is immutable/auditable and executable only after matching approval.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "modes.ask",
       "reference": "Read-only ask/explain mode",
-      "ade_current": "implemented",
+      "ade_current": "partial",
       "phase": "P1",
       "target_score": 2,
       "superiority_advantages": [
         "project context",
         "evidence citations"
       ],
-      "acceptance": "Ask mode never mutates and grounds responses in runtime/project evidence."
+      "acceptance": "Ask mode never mutates and grounds responses in runtime/project evidence.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "known_limitation": "Explicit Ask runtime/tool-policy certification was missing before this branch update."
     },
     {
       "id": "modes.edit",
       "reference": "Scoped edit/refactor mode",
-      "ade_current": "gap",
+      "ade_current": "partial",
       "phase": "P2",
       "target_score": 2,
       "superiority_advantages": [
         "policy-scoped filesystem edits",
         "test-before-apply"
       ],
-      "acceptance": "Selected-region edits support review, tests and rollback."
+      "acceptance": "Selected-region edits support review, tests and rollback.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "known_limitation": "Selected-region implementation is on branch and awaits exact-head deterministic certification."
     },
     {
       "id": "modes.code",
@@ -142,7 +170,10 @@
         "provider routing",
         "cost budgets"
       ],
-      "acceptance": "Code mode disables data mutations and chooses low-cost models automatically."
+      "acceptance": "Code mode disables data mutations and chooses low-cost models automatically.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "tools.files",
@@ -154,7 +185,10 @@
         "workspace policy",
         "diff+rollback evidence"
       ],
-      "acceptance": "Agent can edit workspace files with scoped policy and post-edit verification."
+      "acceptance": "Agent can edit workspace files with scoped policy and post-edit verification.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "tools.shell",
@@ -166,7 +200,10 @@
         "sandbox policy",
         "resource/time budgets"
       ],
-      "acceptance": "Shell runs are sandboxed, killable, logged, and approval-gated by risk."
+      "acceptance": "Shell runs are sandboxed, killable, logged, and approval-gated by risk.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "tools.sql_read",
@@ -178,7 +215,10 @@
         "13 warehouse connectors",
         "deterministic SQL safety"
       ],
-      "acceptance": "Same read workflow works across supported warehouses."
+      "acceptance": "Same read workflow works across supported warehouses.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "tools.sql_mutation",
@@ -190,7 +230,10 @@
         "exact approval fingerprint",
         "post-change verification"
       ],
-      "acceptance": "CREATE/ALTER/DML/DROP is governed, verified and prod-safe."
+      "acceptance": "CREATE/ALTER/DML/DROP is governed, verified and prod-safe.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "tools.notebook",
@@ -213,7 +256,10 @@
           "src/agentic_data_platform/notebooks/agent.py",
           "scripts/live_advanced_capabilities.py"
         ]
-      }
+      },
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "tools.browser",
@@ -235,7 +281,10 @@
         "implementation_files": [
           "src/agentic_data_platform/browser/agent.py"
         ]
-      }
+      },
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "tools.web_search",
@@ -247,7 +296,10 @@
         "source policy",
         "citation capture"
       ],
-      "acceptance": "Research is source-audited and separable from deterministic platform facts."
+      "acceptance": "Research is source-audited and separable from deterministic platform facts.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "tools.git",
@@ -259,7 +311,10 @@
         "GitHub+GitLab review",
         "policy-controlled commits"
       ],
-      "acceptance": "Agent can branch/edit/test/commit with review evidence and no force-push by default."
+      "acceptance": "Agent can branch/edit/test/commit with review evidence and no force-push by default.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "tools.todos",
@@ -271,7 +326,10 @@
         "session persistence",
         "run-state linkage"
       ],
-      "acceptance": "Todos link directly to runs, evidence and approvals."
+      "acceptance": "Todos link directly to runs, evidence and approvals.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "memory.persistent",
@@ -283,7 +341,10 @@
         "scope/expiry controls",
         "trace linkage"
       ],
-      "acceptance": "Memory is governed by project scope, expiry and provenance."
+      "acceptance": "Memory is governed by project scope, expiry and provenance.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "context.management",
@@ -295,7 +356,10 @@
         "bounded evidence hierarchy",
         "cost budgets"
       ],
-      "acceptance": "Context selection is evidence-ranked, bounded and provider-aware."
+      "acceptance": "Context selection is evidence-ranked, bounded and provider-aware.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "agents.parallel",
@@ -317,7 +381,10 @@
         "implementation_files": [
           "src/agentic_data_platform/agents/parallel.py"
         ]
-      }
+      },
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "agents.custom",
@@ -329,7 +396,10 @@
         "policy inheritance",
         "capability contracts"
       ],
-      "acceptance": "Custom agents declare allowed tools, budgets, scopes and verification contracts."
+      "acceptance": "Custom agents declare allowed tools, budgets, scopes and verification contracts.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "agents.review",
@@ -341,7 +411,10 @@
         "GitHub+GitLab",
         "deterministic review tools"
       ],
-      "acceptance": "Review agent can independently certify changes before merge."
+      "acceptance": "Review agent can independently certify changes before merge.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "automations.desktop",
@@ -363,7 +436,10 @@
         "implementation_files": [
           "src/agentic_data_platform/automations"
         ]
-      }
+      },
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "automations.hosted",
@@ -387,7 +463,10 @@
           "src/agentic_data_platform/runners/hosted.py",
           "scripts/run_hosted_runner.py"
         ]
-      }
+      },
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "extensibility.skills",
@@ -399,7 +478,10 @@
         "32+ data-engineering skills",
         "cross-provider portability"
       ],
-      "acceptance": "Skills are portable across ADE agents/providers and certifiable."
+      "acceptance": "Skills are portable across ADE agents/providers and certifiable.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "extensibility.mcp",
@@ -411,7 +493,10 @@
         "governed boundary",
         "replayable tool evidence"
       ],
-      "acceptance": "MCP calls inherit ADE risk policy, redaction and traces."
+      "acceptance": "MCP calls inherit ADE risk policy, redaction and traces.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "extensibility.plugins",
@@ -433,7 +518,10 @@
         "implementation_files": [
           "src/agentic_data_platform/plugins"
         ]
-      }
+      },
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "extensibility.hooks",
@@ -455,7 +543,10 @@
         "implementation_files": [
           "src/agentic_data_platform/runtime/agent.py"
         ]
-      }
+      },
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "search.semantic_code",
@@ -477,7 +568,10 @@
         "implementation_files": [
           "src/agentic_data_platform/search"
         ]
-      }
+      },
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "search.snowflake_objects",
@@ -489,7 +583,10 @@
         "cross-warehouse catalog",
         "lineage-aware ranking"
       ],
-      "acceptance": "Intent search spans Snowflake plus all supported warehouses and ranks by lineage/recent evidence."
+      "acceptance": "Intent search spans Snowflake plus all supported warehouses and ranks by lineage/recent evidence.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "sql.playground",
@@ -501,7 +598,10 @@
         "multi-dialect",
         "review+lineage+cost"
       ],
-      "acceptance": "Playground supports execution, lineage, optimization, policy and cost evidence."
+      "acceptance": "Playground supports execution, lineage, optimization, policy and cost evidence.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "visualization.inline",
@@ -513,7 +613,10 @@
         "chart provenance",
         "cross-warehouse"
       ],
-      "acceptance": "Every chart stores source query, result fingerprint and replay metadata."
+      "acceptance": "Every chart stores source query, result fingerprint and replay metadata.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "dbt.local",
@@ -525,7 +628,10 @@
         "impact analysis",
         "test generation"
       ],
-      "acceptance": "Local dbt workspace combines execution with ADE lineage, quality and RCA."
+      "acceptance": "Local dbt workspace combines execution with ADE lineage, quality and RCA.",
+      "classification": "COCO_WORKFLOW",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "dbt.snowflake_managed",
@@ -547,7 +653,10 @@
         "implementation_files": [
           "src/agentic_data_platform/snowflake/managed_dbt.py"
         ]
-      }
+      },
+      "classification": "COCO_WORKFLOW",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "apps.streamlit",
@@ -570,7 +679,10 @@
           "src/agentic_data_platform/apps/builder.py",
           "scripts/live_advanced_capabilities.py"
         ]
-      }
+      },
+      "classification": "COCO_WORKFLOW",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "apps.app_runtime",
@@ -593,7 +705,10 @@
           "src/agentic_data_platform/apps/builder.py",
           "scripts/live_advanced_capabilities.py"
         ]
-      }
+      },
+      "classification": "COCO_WORKFLOW",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "semantic.cortex_analyst",
@@ -619,7 +734,10 @@
           "src/agentic_data_platform/semantic/dbt_adapter.py",
           "src/agentic_data_platform/semantic/lookml_adapter.py"
         ]
-      }
+      },
+      "classification": "ADE_EXTENSION",
+      "release_blocking": false,
+      "certification_track": "SNOWFLAKE_EXTENSION_CERTIFICATION"
     },
     {
       "id": "semantic.verified_queries",
@@ -642,7 +760,10 @@
           "src/agentic_data_platform/semantic/registry.py",
           "src/agentic_data_platform/semantic/evaluation.py"
         ]
-      }
+      },
+      "classification": "ADE_EXTENSION",
+      "release_blocking": false,
+      "certification_track": "SNOWFLAKE_EXTENSION_CERTIFICATION"
     },
     {
       "id": "search.cortex_search",
@@ -654,7 +775,10 @@
         "provider-neutral retrieval",
         "project evidence hierarchy"
       ],
-      "acceptance": "ADE can use Cortex Search or local/other retrieval backends under the same evidence contract."
+      "acceptance": "ADE can use Cortex Search or local/other retrieval backends under the same evidence contract.",
+      "classification": "ADE_EXTENSION",
+      "release_blocking": false,
+      "certification_track": "SNOWFLAKE_EXTENSION_CERTIFICATION"
     },
     {
       "id": "agents.cortex_admin",
@@ -677,7 +801,10 @@
           "src/agentic_data_platform/cortex/agents.py",
           "scripts/live_advanced_capabilities.py"
         ]
-      }
+      },
+      "classification": "ADE_EXTENSION",
+      "release_blocking": false,
+      "certification_track": "SNOWFLAKE_EXTENSION_CERTIFICATION"
     },
     {
       "id": "sdk.coding_agent",
@@ -689,7 +816,10 @@
         "self-hosted/cloud backends",
         "policy SDK"
       ],
-      "acceptance": "Applications can embed ADE agent sessions with granular per-tool approval callbacks."
+      "acceptance": "Applications can embed ADE agent sessions with granular per-tool approval callbacks.",
+      "classification": "ADE_EXTENSION",
+      "release_blocking": false,
+      "certification_track": "SNOWFLAKE_EXTENSION_CERTIFICATION"
     },
     {
       "id": "admin.account",
@@ -701,7 +831,10 @@
         "cross-cloud warehouse admin",
         "blast-radius verification"
       ],
-      "acceptance": "ADE can plan/administer governed platform changes with independent verification."
+      "acceptance": "ADE can plan/administer governed platform changes with independent verification.",
+      "classification": "COCO_WORKFLOW",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "ml.snowpark",
@@ -723,7 +856,10 @@
         "implementation_files": [
           "src/agentic_data_platform/ml/workflow.py"
         ]
-      }
+      },
+      "classification": "ADE_EXTENSION",
+      "release_blocking": false,
+      "certification_track": "SNOWFLAKE_EXTENSION_CERTIFICATION"
     },
     {
       "id": "ml.registry",
@@ -747,7 +883,10 @@
           "src/agentic_data_platform/ml/registry.py",
           "src/agentic_data_platform/ml/workflow.py"
         ]
-      }
+      },
+      "classification": "ADE_EXTENSION",
+      "release_blocking": false,
+      "certification_track": "SNOWFLAKE_EXTENSION_CERTIFICATION"
     },
     {
       "id": "ml.forecasting_anomaly",
@@ -759,7 +898,10 @@
         "deterministic baselines",
         "cross-platform signals"
       ],
-      "acceptance": "ADE compares statistical and model-based detectors with stored evaluation evidence."
+      "acceptance": "ADE compares statistical and model-based detectors with stored evaluation evidence.",
+      "classification": "COCO_WORKFLOW",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "ml.gpu_jobs",
@@ -771,7 +913,10 @@
         "portable compute plans",
         "cost guardrails"
       ],
-      "acceptance": "Agent can plan/run GPU work with quota/cost controls and alternate backends."
+      "acceptance": "Agent can plan/run GPU work with quota/cost controls and alternate backends.",
+      "classification": "ADE_EXTENSION",
+      "release_blocking": false,
+      "certification_track": "SNOWFLAKE_EXTENSION_CERTIFICATION"
     },
     {
       "id": "ai.functions",
@@ -794,7 +939,10 @@
           "src/agentic_data_platform/ai/workflows.py",
           "scripts/live_advanced_capabilities.py"
         ]
-      }
+      },
+      "classification": "ADE_EXTENSION",
+      "release_blocking": false,
+      "certification_track": "SNOWFLAKE_EXTENSION_CERTIFICATION"
     },
     {
       "id": "ai.document_intelligence",
@@ -806,7 +954,10 @@
         "local document ingestion",
         "cross-provider extraction"
       ],
-      "acceptance": "Documents can be processed locally or via Snowflake with accuracy/cost comparisons."
+      "acceptance": "Documents can be processed locally or via Snowflake with accuracy/cost comparisons.",
+      "classification": "ADE_EXTENSION",
+      "release_blocking": false,
+      "certification_track": "SNOWFLAKE_EXTENSION_CERTIFICATION"
     },
     {
       "id": "governance.rbac",
@@ -818,7 +969,10 @@
         "ADE policy overlay",
         "environment-aware approvals"
       ],
-      "acceptance": "Warehouse RBAC and ADE policy must both authorize mutations."
+      "acceptance": "Warehouse RBAC and ADE policy must both authorize mutations.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "observability.traces",
@@ -830,7 +984,10 @@
         "recorded replay",
         "redaction"
       ],
-      "acceptance": "Every agent execution is replayable without re-running mutations."
+      "acceptance": "Every agent execution is replayable without re-running mutations.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     },
     {
       "id": "providers.multi_model",
@@ -842,7 +999,25 @@
         "22-provider control plane",
         "cost budgets"
       ],
-      "acceptance": "ADE can choose/fail over providers while retaining identical governed tools."
+      "acceptance": "ADE can choose/fail over providers while retaining identical governed tools.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
     }
-  ]
+  ],
+  "benchmark_tracks": {
+    "coco_parity": {
+      "description": "Release-critical CoCo end-user capability parity/superiority. Cortex-specific extension live certification does not block this track.",
+      "classifications": [
+        "COCO_CORE",
+        "COCO_WORKFLOW"
+      ]
+    },
+    "snowflake_extensions": {
+      "description": "Additional Snowflake/Cortex capabilities retained as ADE extensions and certified independently.",
+      "classifications": [
+        "ADE_EXTENSION"
+      ]
+    }
+  }
 }
