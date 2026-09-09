@@ -1,0 +1,20 @@
+version: 1
+rules:
+  - {name: reservation_business_key_not_null, layer: RAW, entity: reservations, severity: ERROR, sql: "reservation_id IS NULL"}
+  - {name: reservation_key_unique_per_generation, layer: RAW, entity: reservations, severity: ERROR, aggregate: duplicate_key}
+  - {name: reservation_dates_valid, layer: RAW, entity: reservations, severity: ERROR, sql: "checkout_date < checkin_date"}
+  - {name: reservation_amount_non_negative, layer: RAW, entity: reservations, severity: ERROR, sql: "total_amount < 0"}
+  - {name: reservation_hotel_exists, layer: RAW, entity: reservations, severity: ERROR, relationship: "hotel_id=hotels.hotel_id"}
+  - {name: reservation_guest_exists, layer: RAW, entity: reservations, severity: ERROR, relationship: "guest_id=guests.guest_id"}
+  - {name: reservation_room_exists, layer: RAW, entity: reservations, severity: ERROR, relationship: "room_id=rooms.room_id"}
+  - {name: room_belongs_to_hotel, layer: RAW, entity: rooms, severity: ERROR, relationship: "hotel_id=hotels.hotel_id"}
+  - {name: payment_amount_non_negative, layer: RAW, entity: payments, severity: ERROR, sql: "amount < 0"}
+  - {name: payment_reservation_exists, layer: RAW, entity: payments, severity: ERROR, relationship: "reservation_id=reservations.reservation_id"}
+  - {name: refund_not_greater_than_payment, layer: RAW, entity: refunds, severity: ERROR, custom: refund_payment_bound}
+  - {name: raw_freshness, layer: RAW, entity: reservations, severity: WARN, custom: freshness}
+  - {name: occupied_not_above_available, layer: MART, entity: mart_daily_occupancy, severity: ERROR, sql: "occupied_rooms > available_rooms"}
+  - {name: occupancy_pct_range, layer: MART, entity: mart_daily_occupancy, severity: ERROR, sql: "occupancy_pct NOT BETWEEN 0 AND 100"}
+  - {name: adr_non_negative, layer: MART, entity: mart_daily_revenue, severity: ERROR, sql: "adr < 0"}
+  - {name: revpar_non_negative, layer: MART, entity: mart_daily_revenue, severity: ERROR, sql: "revpar < 0"}
+  - {name: refunds_within_gross_payments, layer: MART, entity: mart_payment_reconciliation, severity: ERROR, sql: "refund_amount > gross_payment_amount"}
+  - {name: row_conservation, layer: TRANSFORMATION, entity: fact_reservation, severity: ERROR, custom: generation_bounded_count}

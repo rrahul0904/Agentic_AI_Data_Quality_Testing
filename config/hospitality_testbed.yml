@@ -1,0 +1,33 @@
+version: 1
+defaults:
+  database: HOSPITALITY_TESTBED
+  warehouse: ADE_HOSPITALITY_TESTBED_WH
+  role: ADE_HOSPITALITY_TESTBED_ROLE
+  mode: local
+  preset: tiny
+  seed: 42
+  output: data/hospitality
+  artifacts: artifacts/hospitality
+  state: .ade/testbed
+  reference_date: "2026-09-09"
+  rows_per_file: 50000
+
+presets:
+  tiny: {hotels: 3, guests: 500, reservations: 1000, rows_per_file: 250}
+  small: {hotels: 10, guests: 10000, reservations: 25000, rows_per_file: 5000}
+  medium: {hotels: 25, guests: 100000, reservations: 250000, rows_per_file: 25000}
+  large: {hotels: 100, guests: 750000, reservations: 2000000, rows_per_file: 50000}
+
+snowflake:
+  schemas: [RAW, CDC, STAGING, CORE, MARTS, QUALITY, OPS]
+  internal_stage: STAGE_HOSPITALITY_INTERNAL
+  external_stage: STAGE_HOSPITALITY_S3
+  storage_integration: ADE_HOSPITALITY_S3_INT
+  sns_topic_arn_env: ADE_TESTBED_SNS_TOPIC_ARN
+  task_schedule: "1 MINUTE"
+  tasks_enabled_by_default: false
+
+service_levels:
+  snowpipe_latency_minutes: 15
+  stream_backlog_rows: 100000
+  source_freshness_hours: 26
