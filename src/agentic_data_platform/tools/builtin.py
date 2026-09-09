@@ -3023,8 +3023,13 @@ def build_tool_registry() -> ToolRegistry:
             max_runtime_seconds=int(a.get("max_runtime_seconds", 3600)),
             hourly_cost_usd=float(a.get("hourly_cost_usd", 0.0)),
             max_cost_usd=float(a.get("max_cost_usd", 25.0)),
+            compute_pool=a.get("compute_pool"),
+            job_name=a.get("job_name"),
+            connection=a.get("connection"),
+            namespace=str(a.get("namespace") or "default"),
+            replicas=int(a.get("replicas", 1)),
         ),
-        "Plan a portable Snowflake/Kubernetes/local-CUDA GPU job with runtime, GPU-count and maximum-cost guardrails.",
+        "Plan a portable Snowflake/Kubernetes/local-CUDA GPU job with runtime, GPU-count, replica and maximum-cost guardrails.",
         platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
     )
     add(
