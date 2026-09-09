@@ -45,6 +45,7 @@ _GRANT = re.compile(r"(?is)^\s*GRANT\b")
 _REVOKE = re.compile(r"(?is)^\s*REVOKE\b")
 _USE = re.compile(r"(?is)^\s*USE\s+(ROLE|WAREHOUSE|DATABASE|SCHEMA)\s+([^\s;]+)")
 _CALL = re.compile(r"(?is)^\s*CALL\s+([^\s(;]+)")
+_EXECUTE_DBT = re.compile(r"(?is)^\s*EXECUTE\s+DBT\s+PROJECT(?:\s+IF\s+EXISTS)?(?:\s+FROM\s+WORKSPACE)?\s+([^\s;]+)")
 
 
 @dataclass(frozen=True)
@@ -163,6 +164,16 @@ def _describe(sql: str) -> MutationDescriptor:
             False,
         )
 
+    match = _EXECUTE_DBT.match(normalized)
+    if match:
+        return MutationDescriptor(
+            "EXECUTE_DBT_PROJECT",
+            "DBT_PROJECT",
+            _clean_identifier(match.group(1)),
+            "data_change",
+            False,
+        )
+
     if _GRANT.match(normalized):
         return MutationDescriptor("GRANT", "PRIVILEGE", None, "security_change", False)
 
@@ -278,7 +289,7 @@ def _verification_plan(descriptor: MutationDescriptor, sql: str) -> list[dict[st
             }
         )
 
-    if descriptor.statement_type in {"INSERT", "UPDATE", "DELETE", "MERGE", "COPY_INTO", "CALL", "GRANT", "REVOKE", "USE"}:
+    if descriptor.statement_type in {"INSERT", "UPDATE", "DELETE", "MERGE", "COPY_INTO", "CALL", "GRANT", "REVOKE", "USE", "EXECUTE_DBT_PROJECT"}:
         checks.append(
             {
                 "kind": "query_status",
