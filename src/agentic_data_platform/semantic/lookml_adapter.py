@@ -24,7 +24,7 @@ def _lookml_files(root: Path) -> list[Path]:
 
 
 def _named_blocks(text: str, keyword: str) -> list[tuple[str, str]]:
-    pattern = re.compile(r"(?m)^\\s*" + re.escape(keyword) + r":\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\{")
+    pattern = re.compile(r"(?m)^\s*" + re.escape(keyword) + r":\s*([A-Za-z_][A-Za-z0-9_]*)\s*\{")
     blocks: list[tuple[str, str]] = []
     for match in pattern.finditer(text):
         depth = 1
@@ -57,11 +57,11 @@ def _named_blocks(text: str, keyword: str) -> list[tuple[str, str]]:
 
 
 def _value(body: str, key: str) -> str | None:
-    sql_pattern = re.compile(r"(?ms)^\\s*" + re.escape(key) + r":\\s*(.*?)\\s*;;")
+    sql_pattern = re.compile(r"(?ms)^\s*" + re.escape(key) + r":\s*(.*?)\s*;;")
     sql_match = sql_pattern.search(body)
     if sql_match:
         return sql_match.group(1).strip()
-    plain = re.compile(r"(?m)^\\s*" + re.escape(key) + r":\\s*(?:\"([^\"]*)\"|([^\\s#]+))")
+    plain = re.compile(r"(?m)^\s*" + re.escape(key) + r":\s*(?:\"([^\"]*)\"|([^\s#]+))")
     match = plain.search(body)
     if not match:
         return None
