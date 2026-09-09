@@ -112,6 +112,7 @@ from agentic_data_platform.snowflake import GovernedSnowflakeMutationExecutor, M
 from agentic_data_platform.metadata.index import MetadataIndex
 from agentic_data_platform.metadata.service import MetadataService
 from agentic_data_platform.search import UnifiedSemanticIndex
+from agentic_data_platform.semantic import CortexAnalystAdapter, SemanticRegistry, SnowflakeSemanticAdapter, build_analyst_request, evaluate_batch, evaluate_candidate
 from agentic_data_platform.training import (
     TrainingStore,
     import_markdown as training_import_markdown,
@@ -267,6 +268,18 @@ def _automation_service(args: dict[str, Any]) -> AutomationService:
 
 def _plugin_bundle_service(args: dict[str, Any]) -> PluginBundleService:
     return PluginBundleService(_target(args))
+
+
+def _semantic_registry(args: dict[str, Any]) -> SemanticRegistry:
+    path = args.get("semantic_database") or (_target(args) / ".ade" / "semantic.db")
+    return SemanticRegistry(path)
+
+
+def _snowflake_semantic_adapter(args: dict[str, Any]) -> SnowflakeSemanticAdapter:
+    connector = connector_from_args({**args, "platform": "snowflake"})
+    if not isinstance(connector, SnowflakeConnector):
+        raise TypeError("semantic Snowflake sync requires SnowflakeConnector")
+    return SnowflakeSemanticAdapter(connector)
 
 
 def _dbt(args: dict[str, Any]) -> DbtManifestGraph:
@@ -847,6 +860,116 @@ def build_tool_registry() -> ToolRegistry:
         "Remove an installed ADE plugin bundle package.",
         platforms=frozenset({Platform.LOCAL}),
         risk=Risk.MUTATING,
+    )
+
+    add(
+        "semantic_ingest_yaml",
+        Capability.GENERATE,
+        lambda a: _semantic_registry(a).ingest_yaml(a["source"], provider=str(a.get("provider") or "snowflake-semantic-yaml")),
+        "Ingest a semantic-model/view YAML specification into the provider-neutral ADE semantic registry.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "semantic_list",
+        Capability.DISCOVER,
+        lambda a: {"resources": _semantic_registry(a).list()},
+        "List semantic resources across providers.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "semantic_show",
+        Capability.DISCOVER,
+        lambda a: _semantic_registry(a).show(a["resource"]),
+        "Inspect a semantic resource with dimensions, facts, metrics, relationships and verified queries.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "semantic_search",
+        Capability.DISCOVER,
+        lambda a: {"results": _semantic_registry(a).search(str(a["query"]), limit=int(a.get("limit", 25)))},
+        "Search business semantic concepts across providers.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "semantic_verified_search",
+        Capability.DISCOVER,
+        lambda a: {"results": _semantic_registry(a).find_verified(str(a["question"]), limit=int(a.get("limit", 10)))},
+        "Find verified-query ground truth related to a business question.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "semantic_evaluate",
+        Capability.VERIFY,
+        lambda a: evaluate_candidate(
+            _semantic_registry(a),
+            question=str(a["question"]),
+            candidate_sql=str(a["sql"]),
+            dialect=str(a.get("dialect") or "snowflake"),
+        ),
+        "Evaluate generated SQL against verified-query semantic ground truth.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "semantic_evaluate_batch",
+        Capability.VERIFY,
+        lambda a: evaluate_batch(
+            _semantic_registry(a),
+            list(a.get("cases") or []),
+            dialect=str(a.get("dialect") or "snowflake"),
+        ),
+        "Evaluate a batch of generated SQL cases against verified-query ground truth.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+
+    def semantic_snowflake_sync(a: dict[str, Any]) -> dict[str, Any]:
+        try:
+            adapter = _snowflake_semantic_adapter(a)
+        except ExternalConnectionUnavailable as exc:
+            return {"status": "SKIP_EXTERNAL", "platform": "snowflake", "reason": str(exc)}
+        return adapter.sync(
+            _semantic_registry(a),
+            database=a.get("database"),
+            schema=a.get("schema"),
+            account=bool(a.get("account", False)),
+        )
+
+    add(
+        "semantic_snowflake_sync",
+        Capability.DISCOVER,
+        semantic_snowflake_sync,
+        "Discover Snowflake semantic views, DESCRIBE each view, and synchronize their semantic metadata into ADE.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "cortex_analyst_plan",
+        Capability.PLAN,
+        lambda a: {
+            "status": "PASS",
+            "request": build_analyst_request(
+                str(a["question"]),
+                [str(item) for item in a.get("semantic_views") or []],
+                conversation=list(a.get("conversation") or []),
+            ),
+        },
+        "Build a Cortex Analyst request over one or more Snowflake semantic views without sending it.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "cortex_analyst_run",
+        Capability.EXECUTE,
+        lambda a: CortexAnalystAdapter(
+            account_url=a.get("account_url"),
+            token=a.get("token"),
+            role=a.get("role"),
+            timeout_seconds=int(a.get("timeout_seconds", 120)),
+        ).run(
+            str(a["question"]),
+            [str(item) for item in a.get("semantic_views") or []],
+            conversation=list(a.get("conversation") or []),
+        ),
+        "Run a live Cortex Analyst request when Snowflake REST credentials are configured.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
     )
 
     def training_store(a: dict[str, Any]) -> TrainingStore:
