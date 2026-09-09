@@ -908,6 +908,13 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
         "sessions": {
             "create": "session_create", "list": "session_list", "show": "session_show",
             "message-add": "session_message_add", "messages": "session_messages",
+            "history": "session_history",
+            "checkpoint-create": "session_checkpoint_create",
+            "checkpoint-list": "session_checkpoint_list",
+            "checkpoint-show": "session_checkpoint_show",
+            "checkpoint-diff": "session_checkpoint_diff",
+            "checkpoint-review": "session_checkpoint_review",
+            "checkpoint-delete": "session_checkpoint_delete",
             "status": "session_status", "status-set": "session_status_set",
             "todo-add": "session_todo_add", "todo-update": "session_todo_update",
             "todo-complete": "session_todo_complete", "todo-reopen": "session_todo_reopen",
@@ -1006,6 +1013,67 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
                 metadata=payload.metadata,
             ),
             actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/sessions/{session_id}/history")
+    def session_history(session_id: str, limit: int | None = None) -> dict[str, Any]:
+        return invoke_read(
+            "session_history",
+            runtime_args(session_id=session_id, limit=limit),
+        )
+
+    @app.get("/api/v1/sessions/{session_id}/checkpoints")
+    def session_checkpoint_list(session_id: str, limit: int = 100) -> dict[str, Any]:
+        return invoke_read(
+            "session_checkpoint_list",
+            runtime_args(session_id=session_id, limit=limit),
+        )
+
+    @app.post("/api/v1/sessions/{session_id}/checkpoints")
+    def session_checkpoint_create(session_id: str, payload: ArgsInput) -> dict[str, Any]:
+        return invoke_governed(
+            "session_checkpoint_create",
+            runtime_args(
+                session_id=session_id,
+                label=payload.args.get("label"),
+                metadata=payload.args.get("metadata") or {},
+            ),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/sessions/{session_id}/checkpoint-review")
+    def session_checkpoint_review(session_id: str) -> dict[str, Any]:
+        return invoke_read(
+            "session_checkpoint_review",
+            runtime_args(session_id=session_id),
+        )
+
+    @app.get("/api/v1/session-checkpoints/{checkpoint_id}")
+    def session_checkpoint_show(checkpoint_id: str) -> dict[str, Any]:
+        return invoke_read(
+            "session_checkpoint_show",
+            runtime_args(checkpoint_id=checkpoint_id),
+        )
+
+    @app.delete("/api/v1/session-checkpoints/{checkpoint_id}")
+    def session_checkpoint_delete(checkpoint_id: str) -> dict[str, Any]:
+        return invoke_governed(
+            "session_checkpoint_delete",
+            runtime_args(checkpoint_id=checkpoint_id),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/session-checkpoint-diff")
+    def session_checkpoint_diff(
+        from_checkpoint_id: str,
+        to_checkpoint_id: str,
+    ) -> dict[str, Any]:
+        return invoke_read(
+            "session_checkpoint_diff",
+            runtime_args(
+                from_checkpoint_id=from_checkpoint_id,
+                to_checkpoint_id=to_checkpoint_id,
+            ),
         )
 
     @app.get("/api/v1/sessions/{session_id}/todos")
