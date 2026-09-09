@@ -66,6 +66,24 @@ class SessionStore:
             CREATE INDEX IF NOT EXISTS idx_todos_session ON session_todos(session_id, status);
             """
         )
+        todo_columns = {
+            str(row["name"])
+            for row in self.connection.execute("PRAGMA table_info(session_todos)").fetchall()
+        }
+        todo_migrations = {
+            "position": "INTEGER NOT NULL DEFAULT 0",
+            "dependencies_json": "TEXT NOT NULL DEFAULT '[]'",
+            "evidence_json": "TEXT NOT NULL DEFAULT '[]'",
+            "plan_fingerprint": "TEXT",
+            "subagent_id": "TEXT",
+            "progress": "REAL NOT NULL DEFAULT 0",
+            "verified": "INTEGER NOT NULL DEFAULT 0",
+        }
+        for column, ddl in todo_migrations.items():
+            if column not in todo_columns:
+                self.connection.execute(
+                    f"ALTER TABLE session_todos ADD COLUMN {column} {ddl}"
+                )
         self.connection.commit()
 
     def create(
@@ -214,13 +232,52 @@ class SessionStore:
         text: str,
         *,
         priority: int = 0,
+        position: int | None = None,
+        dependencies: list[str] | None = None,
+        plan_fingerprint: str | None = None,
+        subagent_id: str | None = None,
     ) -> dict[str, Any]:
         self.get(session_id)
+        value = str(text).strip()
+        if not value:
+            raise ValueError("todo text cannot be empty")
+        dependency_ids = [str(item) for item in dependencies or []]
+        if dependency_ids:
+            rows = self.connection.execute(
+                f"SELECT todo_id, session_id FROM session_todos WHERE todo_id IN ({','.join('?' for _ in dependency_ids)})",
+                tuple(dependency_ids),
+            ).fetchall()
+            if len(rows) != len(set(dependency_ids)) or any(row["session_id"] != session_id for row in rows):
+                raise ValueError("todo dependencies must exist in the same session")
+        if position is None:
+            position = int(
+                self.connection.execute(
+                    "SELECT COALESCE(MAX(position), 0) + 1 AS next_position FROM session_todos WHERE session_id=?",
+                    (session_id,),
+                ).fetchone()["next_position"]
+            )
         todo_id = new_id("todo")
         now = utc_now()
         self.connection.execute(
-            "INSERT INTO session_todos VALUES (?, ?, ?, 'OPEN', ?, ?, ?)",
-            (todo_id, session_id, text, int(priority), now, now),
+            """
+            INSERT INTO session_todos(
+              todo_id,session_id,text,status,priority,created_at,updated_at,
+              position,dependencies_json,evidence_json,plan_fingerprint,
+              subagent_id,progress,verified
+            ) VALUES (?,?,?,'OPEN',?,?,?,?,?,'[]',?,?,0,0)
+            """,
+            (
+                todo_id,
+                session_id,
+                value,
+                int(priority),
+                now,
+                now,
+                int(position),
+                json.dumps(dependency_ids, sort_keys=True),
+                plan_fingerprint,
+                subagent_id,
+            ),
         )
         self.connection.commit()
         return self.todo(todo_id)
@@ -232,26 +289,172 @@ class SessionStore:
         ).fetchone()
         if row is None:
             raise KeyError(f"todo not found: {todo_id}")
-        return dict(row)
+        value = dict(row)
+        value["dependencies"] = json.loads(value.pop("dependencies_json", "[]") or "[]")
+        value["evidence"] = json.loads(value.pop("evidence_json", "[]") or "[]")
+        value["verified"] = bool(value.get("verified"))
+        value["progress"] = float(value.get("progress") or 0)
+        return value
 
-    def update_todo(self, todo_id: str, status: str) -> dict[str, Any]:
+    def _dependencies_complete(self, todo: Mapping[str, Any]) -> bool:
+        dependencies = list(todo.get("dependencies") or [])
+        if not dependencies:
+            return True
+        rows = [self.todo(todo_id) for todo_id in dependencies]
+        return all(item["status"] == "DONE" and item["verified"] for item in rows)
+
+    def update_todo(
+        self,
+        todo_id: str,
+        status: str,
+        *,
+        progress: float | None = None,
+        evidence: list[Mapping[str, Any] | str] | None = None,
+        verified: bool | None = None,
+    ) -> dict[str, Any]:
         if status not in {"OPEN", "IN_PROGRESS", "DONE", "BLOCKED"}:
             raise ValueError(f"invalid todo status: {status}")
+        current = self.todo(todo_id)
+        next_verified = current["verified"] if verified is None else bool(verified)
+        next_evidence = current["evidence"] if evidence is None else list(evidence)
+        next_progress = current["progress"] if progress is None else max(0.0, min(float(progress), 100.0))
+        if status == "DONE":
+            if not next_verified:
+                raise PermissionError("todo cannot be DONE until verification passes")
+            if not next_evidence:
+                raise PermissionError("todo cannot be DONE without verification evidence")
+            if not self._dependencies_complete(current):
+                raise PermissionError("todo dependencies must be verified DONE before completion")
+            next_progress = 100.0
+        elif status == "OPEN":
+            next_verified = False
+            next_progress = 0.0 if progress is None else next_progress
         self.connection.execute(
-            "UPDATE session_todos SET status = ?, updated_at = ? WHERE todo_id = ?",
-            (status, utc_now(), todo_id),
+            """
+            UPDATE session_todos
+            SET status=?, progress=?, evidence_json=?, verified=?, updated_at=?
+            WHERE todo_id=?
+            """,
+            (
+                status,
+                next_progress,
+                json.dumps(next_evidence, sort_keys=True, default=str),
+                int(next_verified),
+                utc_now(),
+                todo_id,
+            ),
+        )
+        self.connection.commit()
+        return self.todo(todo_id)
+
+    def complete_todo(
+        self,
+        todo_id: str,
+        *,
+        evidence: list[Mapping[str, Any] | str],
+        verification: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        verification_payload = dict(verification or {})
+        if verification_payload and verification_payload.get("status") not in {"PASS", "VERIFIED", True}:
+            raise PermissionError("todo verification did not pass")
+        combined: list[Mapping[str, Any] | str] = list(evidence)
+        if verification_payload:
+            combined.append({"verification": verification_payload})
+        return self.update_todo(
+            todo_id,
+            "DONE",
+            progress=100,
+            evidence=combined,
+            verified=True,
+        )
+
+    def reopen_todo(self, todo_id: str) -> dict[str, Any]:
+        return self.update_todo(todo_id, "OPEN", verified=False)
+
+    def remove_todo(self, todo_id: str) -> dict[str, Any]:
+        current = self.todo(todo_id)
+        dependents = self.connection.execute(
+            "SELECT todo_id, dependencies_json FROM session_todos WHERE session_id=? AND todo_id!=?",
+            (current["session_id"], todo_id),
+        ).fetchall()
+        blocking = [
+            str(row["todo_id"])
+            for row in dependents
+            if todo_id in json.loads(row["dependencies_json"] or "[]")
+        ]
+        if blocking:
+            raise PermissionError(f"todo is required by dependent tasks: {', '.join(blocking)}")
+        cursor = self.connection.execute(
+            "DELETE FROM session_todos WHERE todo_id=?",
+            (todo_id,),
+        )
+        self.connection.commit()
+        return {"todo_id": todo_id, "removed": cursor.rowcount == 1}
+
+    def reorder_todo(self, todo_id: str, position: int) -> dict[str, Any]:
+        self.todo(todo_id)
+        self.connection.execute(
+            "UPDATE session_todos SET position=?, updated_at=? WHERE todo_id=?",
+            (max(0, int(position)), utc_now(), todo_id),
+        )
+        self.connection.commit()
+        return self.todo(todo_id)
+
+    def set_todo_dependencies(self, todo_id: str, dependencies: list[str]) -> dict[str, Any]:
+        current = self.todo(todo_id)
+        dependency_ids = [str(item) for item in dependencies]
+        if todo_id in dependency_ids:
+            raise ValueError("todo cannot depend on itself")
+        for dependency_id in dependency_ids:
+            dependency = self.todo(dependency_id)
+            if dependency["session_id"] != current["session_id"]:
+                raise ValueError("todo dependencies must belong to the same session")
+        self.connection.execute(
+            "UPDATE session_todos SET dependencies_json=?, updated_at=? WHERE todo_id=?",
+            (json.dumps(dependency_ids, sort_keys=True), utc_now(), todo_id),
         )
         self.connection.commit()
         return self.todo(todo_id)
 
     def todos(self, session_id: str) -> list[dict[str, Any]]:
-        return [
-            dict(row)
-            for row in self.connection.execute(
-                "SELECT * FROM session_todos WHERE session_id = ? ORDER BY priority DESC, created_at",
-                (session_id,),
-            ).fetchall()
-        ]
+        rows = self.connection.execute(
+            """
+            SELECT todo_id FROM session_todos
+            WHERE session_id=?
+            ORDER BY position, priority DESC, created_at
+            """,
+            (session_id,),
+        ).fetchall()
+        return [self.todo(str(row["todo_id"])) for row in rows]
+
+    def todos_from_plan(
+        self,
+        session_id: str,
+        plan: Mapping[str, Any],
+    ) -> list[dict[str, Any]]:
+        fingerprint = str(plan.get("plan_fingerprint") or "")
+        if not fingerprint:
+            raise ValueError("approved plan_fingerprint is required")
+        steps = list(plan.get("steps") or [])
+        created: list[dict[str, Any]] = []
+        previous_id: str | None = None
+        for index, step in enumerate(steps, start=1):
+            text = str(
+                step.get("description")
+                or step.get("name")
+                or step.get("tool")
+                or f"Plan step {index}"
+            )
+            todo = self.add_todo(
+                session_id,
+                text,
+                position=index,
+                dependencies=[previous_id] if previous_id else [],
+                plan_fingerprint=fingerprint,
+            )
+            created.append(todo)
+            previous_id = todo["todo_id"]
+        return created
 
     def add_reminder(
         self,
