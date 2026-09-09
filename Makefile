@@ -197,4 +197,19 @@ snowflake-governed-mutation-test:
 
 .PHONY: capability-superiority-p1-check
 capability-superiority-p1-check:
-	PYTHONPATH=src $(PYTHON) -m pytest -q 		tests/test_unified_semantic_search.py 		tests/test_parallel_subagents.py 		tests/test_enforceable_plugin_hooks.py 		tests/test_automation_scheduler.py 		tests/test_plugin_bundles.py 		tests/test_snowflake_managed_dbt.py
+	PYTHONPATH=src $(PYTHON) -m pytest -q \
+		tests/test_unified_semantic_search.py \
+		tests/test_parallel_subagents.py \
+		tests/test_enforceable_plugin_hooks.py \
+		tests/test_automation_scheduler.py \
+		tests/test_plugin_bundles.py \
+		tests/test_snowflake_managed_dbt.py \
+		tests/test_semantic_layer.py \
+		tests/test_cortex_agents.py \
+		tests/test_hosted_runner.py \
+		tests/test_notebook_agent.py \
+		tests/test_agentic_browser.py \
+		tests/test_snowflake_app_builder.py \
+		tests/test_snowpark_model_registry.py \
+		tests/test_ai_workflows.py \
+		tests/test_ide_bridge.py
