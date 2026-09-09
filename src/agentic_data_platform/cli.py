@@ -41,7 +41,7 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
         "query": "semantic_search",
     },
     "semantic": {
-        "ingest-yaml": "semantic_ingest_yaml", "list": "semantic_list", "show": "semantic_show",
+        "ingest-yaml": "semantic_ingest_yaml", "ingest-dbt": "semantic_ingest_dbt", "ingest-lookml": "semantic_ingest_lookml", "list": "semantic_list", "show": "semantic_show",
         "search": "semantic_registry_search", "verified-search": "semantic_verified_search",
         "evaluate": "semantic_evaluate", "evaluate-batch": "semantic_evaluate_batch",
         "snowflake-sync": "semantic_snowflake_sync",
