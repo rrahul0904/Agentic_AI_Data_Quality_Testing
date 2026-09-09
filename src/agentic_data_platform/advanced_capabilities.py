@@ -598,34 +598,231 @@ def apply_file_edit(
     }
 
 
-def select_context(items: list[dict[str, Any]], *, budget_tokens: int = 4000, provider: str = "generic") -> dict[str, Any]:
-    budget = max(128, int(budget_tokens))
-    ranked: list[tuple[tuple[float, float, float], dict[str, Any], int]] = []
-    for item in items:
+def _context_item_id(item: dict[str, Any], index: int) -> str:
+    value = item.get("id")
+    if value is not None and str(value).strip():
+        return str(value)
+    return f"context_{index}_{_digest(str(item.get('text') or ''))[:12]}"
+
+
+def _provider_chars_per_token(provider: str) -> float:
+    key = str(provider).casefold()
+    if "anthropic" in key or "claude" in key:
+        return 3.7
+    if "google" in key or "gemini" in key:
+        return 4.2
+    if "openai" in key or "gpt" in key:
+        return 4.0
+    return 4.0
+
+
+def select_context(
+    items: list[dict[str, Any]],
+    *,
+    budget_tokens: int = 4000,
+    provider: str = "generic",
+    provider_limit_tokens: int | None = None,
+    pinned_ids: list[str] | None = None,
+    excluded_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    requested_budget = max(128, int(budget_tokens))
+    provider_limit = (
+        max(128, int(provider_limit_tokens))
+        if provider_limit_tokens is not None
+        else requested_budget
+    )
+    budget = min(requested_budget, provider_limit)
+    chars_per_token = _provider_chars_per_token(provider)
+    pinned = {str(item) for item in (pinned_ids or [])}
+    excluded = {str(item) for item in (excluded_ids or [])}
+    overlap = sorted(pinned & excluded)
+    if overlap:
+        return {
+            "status": "INVALID_CONTEXT_POLICY",
+            "reason": "the same context item cannot be both pinned and excluded",
+            "conflicts": overlap,
+        }
+
+    ranked: list[tuple[tuple[int, float, float, float], dict[str, Any], int, str]] = []
+    excluded_items: list[str] = []
+    for index, raw_item in enumerate(items):
+        item = dict(raw_item)
+        item_id = _context_item_id(item, index)
+        item["id"] = item_id
+        if item_id in excluded or bool(item.get("excluded", False)):
+            excluded_items.append(item_id)
+            continue
         text = str(item.get("text") or "")
-        estimated = max(1, math.ceil(len(text) / 4))
+        estimated = max(1, math.ceil(len(text) / chars_per_token))
         evidence = float(item.get("evidence_rank", item.get("evidence_tier", 0)) or 0)
         relevance = float(item.get("relevance", 0) or 0)
         recency = float(item.get("recency", 0) or 0)
-        ranked.append(((evidence, relevance, recency), item, estimated))
+        is_pinned = item_id in pinned or bool(item.get("pinned", False))
+        if is_pinned:
+            pinned.add(item_id)
+        ranked.append(
+            (
+                (1 if is_pinned else 0, evidence, relevance, recency),
+                item,
+                estimated,
+                item_id,
+            )
+        )
+
     ranked.sort(key=lambda row: row[0], reverse=True)
+    pinned_cost = sum(estimated for _, _, estimated, item_id in ranked if item_id in pinned)
+    if pinned_cost > budget:
+        return {
+            "status": "BLOCKED_PIN_BUDGET",
+            "provider": provider,
+            "budget_tokens": budget,
+            "pinned_tokens": pinned_cost,
+            "pinned_ids": sorted(pinned),
+            "reason": "pinned context alone exceeds the effective provider budget",
+        }
+
     selected: list[dict[str, Any]] = []
+    omitted: list[dict[str, Any]] = []
     used = 0
-    for _, item, estimated in ranked:
-        if used + estimated > budget:
+    for _, item, estimated, item_id in ranked:
+        is_pinned = item_id in pinned
+        if not is_pinned and used + estimated > budget:
+            omitted.append({**item, "estimated_tokens": estimated})
             continue
-        selected.append({**item, "estimated_tokens": estimated})
+        selected.append(
+            {
+                **item,
+                "estimated_tokens": estimated,
+                "pinned": is_pinned,
+            }
+        )
         used += estimated
-    return {
+
+    result = {
         "status": "PASS",
         "provider": provider,
+        "provider_chars_per_token": chars_per_token,
+        "requested_budget_tokens": requested_budget,
+        "provider_limit_tokens": provider_limit,
         "budget_tokens": budget,
         "used_tokens": used,
         "selected": selected,
-        "omitted_count": len(items) - len(selected),
-        "selection_fingerprint": _digest([item.get("id") or item.get("text") for item in selected]),
+        "omitted": omitted,
+        "pinned_ids": sorted(pinned),
+        "excluded_ids": sorted(set(excluded_items) | excluded),
+        "omitted_count": len(omitted),
     }
+    result["selection_fingerprint"] = _digest(
+        {
+            "provider": provider,
+            "budget": budget,
+            "selected": [
+                (item["id"], item.get("text"), item.get("pinned", False))
+                for item in selected
+            ],
+            "excluded": result["excluded_ids"],
+        }
+    )
+    return result
 
+
+def compact_context(
+    items: list[dict[str, Any]],
+    *,
+    budget_tokens: int = 4000,
+    provider: str = "generic",
+    provider_limit_tokens: int | None = None,
+    pinned_ids: list[str] | None = None,
+    excluded_ids: list[str] | None = None,
+    summary_chars: int = 800,
+) -> dict[str, Any]:
+    initial = select_context(
+        items,
+        budget_tokens=budget_tokens,
+        provider=provider,
+        provider_limit_tokens=provider_limit_tokens,
+        pinned_ids=pinned_ids,
+        excluded_ids=excluded_ids,
+    )
+    if initial["status"] != "PASS":
+        return initial
+    if not initial["omitted"]:
+        return {
+            **initial,
+            "compacted": False,
+            "compaction_boundaries": [],
+            "compaction_fingerprint": _digest([]),
+        }
+
+    cap = max(128, min(int(summary_chars), 4000))
+    selected_ids = {item["id"] for item in initial["selected"]}
+    compacted_items: list[dict[str, Any]] = [
+        dict(item)
+        for item in initial["selected"]
+        if item.get("pinned")
+    ]
+    boundaries: list[dict[str, Any]] = []
+    for index, raw_item in enumerate(items):
+        item = dict(raw_item)
+        item_id = _context_item_id(item, index)
+        if item_id in set(initial["excluded_ids"]):
+            continue
+        if item_id in selected_ids and item_id not in set(initial["pinned_ids"]):
+            compacted_items.append(item)
+            continue
+        if item_id in set(initial["pinned_ids"]):
+            continue
+        text = str(item.get("text") or "")
+        if len(text) <= cap:
+            compacted_text = text
+            kept_head = len(text)
+            kept_tail = 0
+        else:
+            head = max(64, int(cap * 0.7))
+            tail = max(32, cap - head)
+            compacted_text = text[:head] + "\n…[deterministic compaction]…\n" + text[-tail:]
+            kept_head = head
+            kept_tail = tail
+        compacted_items.append(
+            {
+                **item,
+                "id": item_id,
+                "text": compacted_text,
+                "compacted": True,
+                "original_text_sha256": _text_digest(text),
+            }
+        )
+        boundaries.append(
+            {
+                "id": item_id,
+                "original_chars": len(text),
+                "compacted_chars": len(compacted_text),
+                "kept_head_chars": kept_head,
+                "kept_tail_chars": kept_tail,
+                "original_text_sha256": _text_digest(text),
+            }
+        )
+
+    final = select_context(
+        compacted_items,
+        budget_tokens=budget_tokens,
+        provider=provider,
+        provider_limit_tokens=provider_limit_tokens,
+        pinned_ids=initial["pinned_ids"],
+        excluded_ids=initial["excluded_ids"],
+    )
+    if final["status"] != "PASS":
+        return final
+    final.update(
+        {
+            "compacted": True,
+            "pre_compaction_used_tokens": initial["used_tokens"],
+            "pre_compaction_omitted_count": initial["omitted_count"],
+            "compaction_boundaries": boundaries,
+            "compaction_fingerprint": _digest(boundaries),
+        }
+    )
+    return final
 
 def validate_agent_definition(definition: dict[str, Any]) -> dict[str, Any]:
     name = str(definition.get("name") or "").strip()
