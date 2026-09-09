@@ -208,6 +208,7 @@ capability-superiority-p1-check:
 		tests/test_semantic_adapters.py \
 		tests/test_cortex_agents.py \
 		tests/test_hosted_runner.py \
+		tests/test_hosted_runner_deployment.py \
 		tests/test_notebook_agent.py \
 		tests/test_agentic_browser.py \
 		tests/test_snowflake_app_builder.py \
@@ -216,3 +217,8 @@ capability-superiority-p1-check:
 		tests/test_ai_workflows.py \
 		tests/test_ide_bridge.py \
 		tests/test_advanced_live_capabilities.py
+
+.PHONY: advanced-live-e2e
+advanced-live-e2e:
+	PYTHONPATH=src $(PYTHON) scripts/live_advanced_capabilities.py
+
