@@ -3159,8 +3159,26 @@ def build_tool_registry() -> ToolRegistry:
             list(a.get("items") or []),
             budget_tokens=int(a.get("budget_tokens", 4000)),
             provider=str(a.get("provider") or "generic"),
+            provider_limit_tokens=a.get("provider_limit_tokens"),
+            pinned_ids=list(a.get("pinned_ids") or []),
+            excluded_ids=list(a.get("excluded_ids") or []),
         ),
-        "Select evidence-ranked context under a provider-aware token budget and record the selection fingerprint.",
+        "Select evidence-ranked context with explicit pin/exclude constraints and provider-aware budgets.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "context_compact",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.compact_context(
+            list(a.get("items") or []),
+            budget_tokens=int(a.get("budget_tokens", 4000)),
+            provider=str(a.get("provider") or "generic"),
+            provider_limit_tokens=a.get("provider_limit_tokens"),
+            pinned_ids=list(a.get("pinned_ids") or []),
+            excluded_ids=list(a.get("excluded_ids") or []),
+            summary_chars=int(a.get("summary_chars", 800)),
+        ),
+        "Deterministically compact overflow context while preserving pinned evidence and recording boundaries.",
         platforms=frozenset({Platform.LOCAL}),
     )
     add(
