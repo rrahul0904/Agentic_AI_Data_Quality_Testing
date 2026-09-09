@@ -423,3 +423,20 @@ def test_cli_and_api_expose_governed_snowflake_admin_surface(monkeypatch):
     assert execute.json()["status"] == "PASS"
     assert execute.json()["mode"] == "DRY_RUN"
     assert execute.json()["executed"] is False
+
+    direct = client.post(
+        "/tools/snowflake_mutation_execute",
+        json={
+            "args": {
+                "sql": "CREATE TABLE HOTEL.RAW.T(ID NUMBER)",
+                "approval_fingerprint": response.json()["approval_fingerprint"],
+            },
+            "actor_mode": "builder",
+            "environment": "dev",
+            "approved": True,
+            "dry_run": True,
+        },
+    )
+    assert direct.status_code == 200
+    assert direct.json()["status"] == "PASS"
+    assert direct.json()["mode"] == "DRY_RUN"
