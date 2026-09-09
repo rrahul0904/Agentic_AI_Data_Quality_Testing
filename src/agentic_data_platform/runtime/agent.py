@@ -257,23 +257,37 @@ class AgentRuntime:
                     if signatures[signature] > self.repeated_tool_limit:
                         raise AgentLoopError(f"repeated tool loop detected: {call.name}")
 
-                    before_tool_hooks = self._emit("tool.before", {
+                    tool_decision = self.plugins.evaluate("tool.before", {
                         "session_id": session_id,
                         "trace_id": trace_id,
                         "generation_id": generation_id,
                         "tool": call.name,
-                        "args": call.args,
+                        "args": dict(call.args),
                         "risk": definition.risk.value,
                     })
-                    permission_hooks = self._emit("permission.before", {
+                    before_tool_hooks = tool_decision.public()["results"]
+                    effective_args = tool_decision.payload.get("args", dict(call.args))
+                    if not isinstance(effective_args, dict):
+                        raise ValueError("tool.before hook must preserve args as an object")
+                    effective_args = dict(effective_args)
+                    approval_was_modified = bool(
+                        tool_decision.modified
+                        and effective_args != dict(call.args)
+                        and definition.requires_approval
+                    )
+                    effective_approved = bool(
+                        call.name in approved_tools and not approval_was_modified
+                    )
+                    permission_decision = self.plugins.evaluate("permission.before", {
                         "session_id": session_id,
                         "trace_id": trace_id,
                         "tool": call.name,
                         "actor_mode": actor_mode.value,
                         "environment": environment.value,
-                        "approved": call.name in approved_tools,
+                        "approved": effective_approved,
                         "risk": definition.risk.value,
                     })
+                    permission_hooks = permission_decision.public()["results"]
                     tool_event = self.traces.start(
                         "tool",
                         call.name,
@@ -281,17 +295,20 @@ class AgentRuntime:
                         session_id=session_id,
                         parent_id=generation_event,
                         payload={
-                            "args": call.args,
+                            "args": effective_args,
+                            "original_args": dict(call.args),
                             "risk": definition.risk.value,
                             "plugins_before": before_tool_hooks,
                             "permission_plugins": permission_hooks,
+                            "hook_modified": tool_decision.modified,
+                            "approval_invalidated_by_hook": approval_was_modified,
                         },
                     )
                     tool_call_id = self.store.start_tool_call(
                         session_id,
                         generation_id,
                         call.name,
-                        call.args,
+                        effective_args,
                         call.call_id,
                     )
                     request = ToolRequest(
@@ -299,7 +316,7 @@ class AgentRuntime:
                         operation=call.name,
                         environment=environment,
                         risk=definition.risk,
-                        args=dict(call.args),
+                        args=effective_args,
                     )
                     requires_approval = bool(
                         definition.requires_approval
@@ -315,16 +332,25 @@ class AgentRuntime:
                         args=dict(call.args),
                         risk=definition.risk.value,
                         requires_approval=requires_approval,
-                        approved=call.name in approved_tools,
+                        approved=effective_approved,
+                        hook_modified=tool_decision.modified,
                     )
-                    if requires_approval and call.name not in approved_tools:
+                    if tool_decision.blocked:
+                        notify("tool.blocked", tool=call.name, reason=tool_decision.reason)
+                    if permission_decision.blocked:
+                        notify("tool.blocked", tool=call.name, reason=permission_decision.reason)
+                    if requires_approval and not effective_approved:
                         notify("approval.required", tool=call.name, risk=definition.risk.value)
                     try:
+                        if tool_decision.blocked:
+                            raise PermissionError(tool_decision.reason or f"tool blocked by plugin: {call.name}")
+                        if permission_decision.blocked:
+                            raise PermissionError(permission_decision.reason or f"permission blocked by plugin: {call.name}")
                         result = self.registry.invoke(
                             ToolInvocation(
                                 request,
                                 run_id=session_id,
-                                approved=call.name in approved_tools,
+                                approved=effective_approved,
                                 actor_mode=actor_mode,
                             )
                         )
