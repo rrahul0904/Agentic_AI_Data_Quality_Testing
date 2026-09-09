@@ -335,7 +335,7 @@ def apply_file_edit(
     if plan["status"] != "PASS":
         return plan
     if approval_fingerprint != plan["approval_fingerprint"]:
-        return {"status": "STALE_APPROVAL", **plan}
+        return {**plan, "status": "STALE_APPROVAL"}
     target = _path(workspace, path)
     root = _root(workspace)
     existed = target.exists()
@@ -618,16 +618,76 @@ def anomaly_compare(values: list[float], *, z_threshold: float = 3.0, mad_thresh
     mean = statistics.fmean(series)
     stdev = statistics.pstdev(series)
     median = statistics.median(series)
-    mad = statistics.median([abs(value - median) for value in series])
-    z_flags = [index for index, value in enumerate(series) if stdev and abs((value - mean) / stdev) >= z_threshold]
-    mad_flags = [index for index, value in enumerate(series) if mad and abs(0.6745 * (value - median) / mad) >= mad_threshold]
-    consensus = sorted(set(z_flags) & set(mad_flags))
+    deviations = [abs(value - median) for value in series]
+    mad = statistics.median(deviations)
+    # Repeated/flat signals legitimately have MAD=0. Fall back to the median
+    # non-zero absolute deviation instead of silently disabling robust detection.
+    nonzero_deviations = [value for value in deviations if value > 0]
+    robust_scale = mad or (statistics.median(nonzero_deviations) if nonzero_deviations else stdev)
+    z_flags = [
+        index
+        for index, value in enumerate(series)
+        if stdev and abs((value - mean) / stdev) >= z_threshold
+    ]
+    mad_flags = [
+        index
+        for index, value in enumerate(series)
+        if robust_scale and abs(0.6745 * (value - median) / robust_scale) >= mad_threshold
+    ]
+
+    # Model-based detector: rolling linear-trend residuals. Each observation is
+    # predicted only from prior observations, so the candidate point cannot
+    # reduce its own residual by influencing the fitted model.
+    residuals: list[tuple[int, float]] = []
+    for index in range(3, len(series)):
+        intercept, slope = _linear_fit(series[:index])
+        predicted = intercept + slope * index
+        residuals.append((index, series[index] - predicted))
+    absolute_residuals = [abs(residual) for _, residual in residuals]
+    residual_baseline = statistics.median(absolute_residuals) if absolute_residuals else 0.0
+    nonzero_residuals = [value for value in absolute_residuals if value > 1e-12]
+    residual_scale = residual_baseline or (
+        statistics.median(nonzero_residuals) if nonzero_residuals else 0.0
+    )
+    model_threshold = max(residual_scale * 6.0, 1e-9)
+    trend_flags = [
+        index for index, residual in residuals if abs(residual) >= model_threshold
+    ]
+
+    detector_sets = [set(z_flags), set(mad_flags), set(trend_flags)]
+    votes = {
+        index: sum(index in detector for detector in detector_sets)
+        for index in range(len(series))
+    }
+    consensus = sorted(index for index, count in votes.items() if count >= 2)
+    union = set().union(*detector_sets)
+    evidence = {
+        "series": series,
+        "zscore": z_flags,
+        "mad": mad_flags,
+        "trend_residual": trend_flags,
+        "trend_threshold": model_threshold,
+    }
     return {
         "status": "PASS",
-        "detectors": {"zscore": z_flags, "mad": mad_flags},
+        "detectors": {
+            "zscore": z_flags,
+            "mad": mad_flags,
+            "trend_residual": trend_flags,
+        },
+        "detector_types": {
+            "zscore": "statistical",
+            "mad": "robust_statistical",
+            "trend_residual": "model_based",
+        },
         "consensus": consensus,
-        "evaluation": {"agreement_count": len(consensus), "union_count": len(set(z_flags) | set(mad_flags))},
-        "evidence_fingerprint": _digest({"series": series, "z": z_flags, "mad": mad_flags}),
+        "evaluation": {
+            "agreement_count": len(consensus),
+            "union_count": len(union),
+            "detector_count": 3,
+            "trend_residual_threshold": model_threshold,
+        },
+        "evidence_fingerprint": _digest(evidence),
     }
 
 
@@ -748,12 +808,12 @@ def git_change_apply(
     if verification_command:
         verification = run_command(workspace, verification_command)
         if verification["status"] != "PASS":
-            return {"status": "BLOCKED_VERIFICATION", "verification": verification, **plan}
+            return {**plan, "status": "BLOCKED_VERIFICATION", "verification": verification}
     if plan["operation"] == "branch":
         result = _git(workspace, ["switch", "-c", str(plan["branch"])])
     else:
         if not plan["paths"]:
-            return {"status": "FAIL", "reason": "explicit paths are required for commits", **plan}
+            return {**plan, "status": "FAIL", "reason": "explicit paths are required for commits"}
         staged = _git(workspace, ["add", "--", *plan["paths"]])
         if staged["returncode"] != 0:
             return {"status": "FAIL", "stage": "git-add", **staged}
@@ -1086,3 +1146,240 @@ def agent_recovery_execute(
         "certifications": public.get("certifications") or [],
         "transitions": public.get("transitions") or [],
     }
+
+
+
+def route_model_for_mode(
+    mode: str,
+    candidates: list[dict[str, Any]],
+    *,
+    required_capabilities: list[str] | None = None,
+    budget_usd: float | None = None,
+) -> dict[str, Any]:
+    contract = mode_contract(mode, budget_usd=budget_usd)
+    required = set(required_capabilities or (["code"] if contract["mode"] == "code" else []))
+    eligible: list[dict[str, Any]] = []
+    for candidate in candidates:
+        capabilities = {str(item) for item in candidate.get("capabilities") or []}
+        if not required.issubset(capabilities):
+            continue
+        estimated_cost = float(
+            candidate.get(
+                "estimated_cost_usd",
+                float(candidate.get("input_cost_usd_per_million", 0.0))
+                + float(candidate.get("output_cost_usd_per_million", 0.0)),
+            )
+        )
+        if budget_usd is not None and estimated_cost > float(budget_usd):
+            continue
+        eligible.append({**candidate, "estimated_cost_usd": estimated_cost})
+    if not eligible:
+        return {
+            "status": "NO_ELIGIBLE_MODEL",
+            "mode": contract["mode"],
+            "required_capabilities": sorted(required),
+            "budget_usd": budget_usd,
+        }
+    if contract["mode"] == "code":
+        eligible.sort(
+            key=lambda item: (
+                float(item["estimated_cost_usd"]),
+                -float(item.get("quality_score", 0.0)),
+                str(item.get("name") or ""),
+            )
+        )
+    else:
+        eligible.sort(
+            key=lambda item: (
+                -float(item.get("quality_score", 0.0)),
+                float(item["estimated_cost_usd"]),
+                str(item.get("name") or ""),
+            )
+        )
+    selected = eligible[0]
+    evidence = {
+        "mode": contract["mode"],
+        "required_capabilities": sorted(required),
+        "budget_usd": budget_usd,
+        "eligible": [
+            {
+                "name": item.get("name"),
+                "estimated_cost_usd": item["estimated_cost_usd"],
+                "quality_score": item.get("quality_score", 0.0),
+            }
+            for item in eligible
+        ],
+        "selected": selected.get("name"),
+    }
+    return {
+        "status": "PASS",
+        "mode": contract["mode"],
+        "policy": contract["model_policy"],
+        "selected": selected,
+        "eligible_count": len(eligible),
+        "routing_evidence": evidence,
+        "routing_fingerprint": _digest(evidence),
+    }
+
+
+def _snowflake_string(value: str) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def snowflake_document_extract_plan(
+    stage: str,
+    document_path: str,
+    response_format: dict[str, Any] | list[Any],
+    *,
+    scores: bool = True,
+) -> dict[str, Any]:
+    stage_name = str(stage).strip()
+    if not re.fullmatch(r"@[A-Za-z0-9_$.-]+", stage_name):
+        raise ValueError("stage must be a fully qualified @database.schema.stage identifier")
+    if not document_path or document_path.startswith("/") or ".." in Path(document_path).parts:
+        raise ValueError("document_path must be a relative stage path")
+    response_json = _canonical(response_format)
+    sql = (
+        "SELECT AI_EXTRACT("
+        f"file => TO_FILE({_snowflake_string(stage_name)}, {_snowflake_string(document_path)}), "
+        f"responseFormat => PARSE_JSON({_snowflake_string(response_json)}), "
+        f"scores => {'TRUE' if scores else 'FALSE'}"
+        ") AS extraction"
+    )
+    evidence = {
+        "backend": "snowflake_ai_extract",
+        "stage": stage_name,
+        "document_path": document_path,
+        "response_format": response_format,
+        "scores": bool(scores),
+        "sql": sql,
+    }
+    return {
+        "status": "PASS",
+        "mode": "PLAN_ONLY",
+        "backend": "snowflake_ai_extract",
+        "read_only": True,
+        "sql": sql,
+        "query_fingerprint": _text_digest(sql),
+        "evidence_fingerprint": _digest(evidence),
+        "live": "NOT_RUN_EXTERNAL",
+    }
+
+
+def snowflake_document_parse_plan(
+    stage: str,
+    document_path: str,
+    *,
+    mode: str = "LAYOUT",
+    page_split: bool = True,
+    extract_images: bool = False,
+) -> dict[str, Any]:
+    stage_name = str(stage).strip()
+    if not re.fullmatch(r"@[A-Za-z0-9_$.-]+", stage_name):
+        raise ValueError("stage must be a fully qualified @database.schema.stage identifier")
+    if not document_path or document_path.startswith("/") or ".." in Path(document_path).parts:
+        raise ValueError("document_path must be a relative stage path")
+    parse_mode = str(mode).upper()
+    if parse_mode not in {"OCR", "LAYOUT"}:
+        raise ValueError("mode must be OCR or LAYOUT")
+    options = {
+        "mode": parse_mode,
+        "page_split": bool(page_split),
+        "extract_images": bool(extract_images),
+    }
+    options_sql = (
+        "OBJECT_CONSTRUCT("
+        + ", ".join(
+            [
+                "'mode', " + _snowflake_string(parse_mode),
+                "'page_split', " + ("TRUE" if page_split else "FALSE"),
+                "'extract_images', " + ("TRUE" if extract_images else "FALSE"),
+            ]
+        )
+        + ")"
+    )
+    sql = (
+        "SELECT AI_PARSE_DOCUMENT("
+        f"TO_FILE({_snowflake_string(stage_name)}, {_snowflake_string(document_path)}), "
+        f"{options_sql}, TRUE"
+        ") AS parsed_document"
+    )
+    return {
+        "status": "PASS",
+        "mode": "PLAN_ONLY",
+        "backend": "snowflake_ai_parse_document",
+        "read_only": True,
+        "sql": sql,
+        "options": options,
+        "query_fingerprint": _text_digest(sql),
+        "live": "NOT_RUN_EXTERNAL",
+    }
+
+
+def compare_document_extractions(
+    local_result: dict[str, Any],
+    provider_result: dict[str, Any],
+    *,
+    expected_fields: dict[str, Any] | None = None,
+    provider_cost_usd: float | None = None,
+) -> dict[str, Any]:
+    local_fields = dict(local_result.get("fields") or {})
+    raw_provider_fields = provider_result.get("fields")
+    if raw_provider_fields is None:
+        raw_provider_fields = (
+            provider_result.get("response")
+            or (provider_result.get("extraction") or {}).get("response")
+            or {}
+        )
+    provider_fields = dict(raw_provider_fields or {})
+    keys = sorted(set(local_fields) | set(provider_fields) | set(expected_fields or {}))
+
+    def normalize(value: Any) -> str:
+        return " ".join(str(value).casefold().split()) if value is not None else ""
+
+    comparisons = []
+    provider_correct = 0
+    local_correct = 0
+    for key in keys:
+        local_value = local_fields.get(key)
+        provider_value = provider_fields.get(key)
+        expected = (expected_fields or {}).get(key) if expected_fields is not None else None
+        agreement = normalize(local_value) == normalize(provider_value)
+        local_match = normalize(local_value) == normalize(expected) if expected_fields is not None else None
+        provider_match = normalize(provider_value) == normalize(expected) if expected_fields is not None else None
+        if local_match:
+            local_correct += 1
+        if provider_match:
+            provider_correct += 1
+        comparisons.append(
+            {
+                "field": key,
+                "local": local_value,
+                "provider": provider_value,
+                "expected": expected,
+                "agreement": agreement,
+                "local_matches_expected": local_match,
+                "provider_matches_expected": provider_match,
+            }
+        )
+    count = len(keys)
+    result = {
+        "status": "PASS",
+        "fields_compared": count,
+        "agreement_rate": (
+            sum(1 for item in comparisons if item["agreement"]) / count if count else 1.0
+        ),
+        "local_accuracy": (
+            local_correct / count if expected_fields is not None and count else None
+        ),
+        "provider_accuracy": (
+            provider_correct / count if expected_fields is not None and count else None
+        ),
+        "cost": {
+            "local_usd": float(local_result.get("estimated_cost_usd", 0.0) or 0.0),
+            "provider_usd": provider_cost_usd,
+        },
+        "comparisons": comparisons,
+    }
+    result["evaluation_fingerprint"] = _digest(result)
+    return result
