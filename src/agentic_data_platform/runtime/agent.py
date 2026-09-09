@@ -5,7 +5,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable
 
-from agentic_data_platform.models import ActorMode, Environment, ToolRequest, new_id
+from agentic_data_platform.models import ActorMode, Environment, Risk, ToolRequest, new_id
 from agentic_data_platform.plugins import PluginBundleService, PluginManager
 from agentic_data_platform.providers.base import Provider, ProviderRequest, ProviderResponse
 from agentic_data_platform.runtime.context import ContextManager
@@ -41,7 +41,8 @@ class AgentRuntime:
         self.max_steps = max_steps
         self.repeated_tool_limit = repeated_tool_limit
 
-    def _tool_specs(self) -> list[dict[str, Any]]:
+    def _tool_specs(self, actor_mode: ActorMode) -> list[dict[str, Any]]:
+        read_only_actor = actor_mode in {ActorMode.ANALYST, ActorMode.ASK, ActorMode.PLAN}
         return [
             {
                 "name": item.name,
@@ -50,7 +51,7 @@ class AgentRuntime:
                 "risk": item.risk.value,
             }
             for item in self.registry.definitions()
-            if item.enabled
+            if item.enabled and (not read_only_actor or item.risk is Risk.READ_ONLY)
         ]
 
     def _emit(self, hook: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -177,7 +178,7 @@ class AgentRuntime:
                     ProviderRequest(
                         model=model,
                         messages=compacted,
-                        tools=self._tool_specs(),
+                        tools=self._tool_specs(actor_mode),
                         metadata={
                             "session_id": session_id,
                             "step": step,
