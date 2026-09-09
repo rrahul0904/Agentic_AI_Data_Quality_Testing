@@ -40,6 +40,13 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
         "index-metadata": "semantic_index_metadata",
         "query": "semantic_search",
     },
+    "semantic": {
+        "ingest-yaml": "semantic_ingest_yaml", "list": "semantic_list", "show": "semantic_show",
+        "search": "semantic_search", "verified-search": "semantic_verified_search",
+        "evaluate": "semantic_evaluate", "evaluate-batch": "semantic_evaluate_batch",
+        "snowflake-sync": "semantic_snowflake_sync",
+        "analyst-plan": "cortex_analyst_plan", "analyst-run": "cortex_analyst_run",
+    },
     "warehouse": {
         "status": "warehouse_status", "add": "connection_add", "remove": "connection_remove",
         "list": "connection_list", "show": "connection_show", "test": "connection_test",
