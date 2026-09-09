@@ -22,7 +22,7 @@ EXPECTED_TOOLS = {
 
 def test_snowflake_pipeline_tools_are_registered():
     registry = build_tool_registry()
-    assert EXPECTED_TOOLS <= set(registry.names())
+    assert EXPECTED_TOOLS <= {definition.name for definition in registry.definitions()}
 
 
 def test_snowflake_pipeline_cli_domain_is_complete():
