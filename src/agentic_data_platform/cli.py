@@ -173,6 +173,11 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
         "submit": "job_submit", "list": "job_list", "show": "job_show",
         "cancel": "job_cancel",
     },
+    "automation": {
+        "create": "automation_create", "list": "automation_list", "show": "automation_show",
+        "enable": "automation_enable", "approve": "automation_approve",
+        "run-due": "automation_run_due", "delete": "automation_delete",
+    },
 }
 
 
