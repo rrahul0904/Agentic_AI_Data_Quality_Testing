@@ -118,7 +118,7 @@ from agentic_data_platform.runners import HostedRunnerStore
 from agentic_data_platform.notebooks import NotebookAgent
 from agentic_data_platform.browser import AgentBrowser, plan_browser_actions
 from agentic_data_platform.apps import SnowflakeAppBuilder
-from agentic_data_platform.ml import SnowflakeModelRegistryAdapter, plan_log_model, plan_model_lifecycle
+from agentic_data_platform.ml import SnowflakeModelRegistryAdapter, plan_log_model, plan_model_lifecycle, plan_snowpark_ml_workflow
 from agentic_data_platform.ai import AIWorkflowCompiler, SnowflakeAIWorkflowRunner
 from agentic_data_platform.ide import IDEBridge
 from agentic_data_platform.training import (
@@ -1535,6 +1535,27 @@ def build_tool_registry() -> ToolRegistry:
             python_version=a.get("python_version"),
         ),
         "Plan a Snowpark Registry.log_model call with exact parameter fingerprint and executable Python.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "snowpark_ml_workflow_plan",
+        Capability.PLAN,
+        lambda a: plan_snowpark_ml_workflow(
+            task=str(a["task"]),
+            training_table=str(a["training_table"]),
+            input_cols=[str(item) for item in a.get("input_cols") or []],
+            label_col=str(a["label_col"]),
+            output_col=str(a["output_col"]),
+            registry_database=str(a["registry_database"]),
+            registry_schema=str(a["registry_schema"]),
+            model_name=str(a["model_name"]),
+            version_name=str(a["version_name"]),
+            train_fraction=float(a.get("train_fraction", 0.8)),
+            seed=int(a.get("seed", 42)),
+            model_params=dict(a.get("model_params") or {}),
+            comment=a.get("comment"),
+        ),
+        "Plan a Snowpark ML train, evaluate, and Model Registry registration workflow with exact approval fingerprint.",
         platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
     )
     add(
