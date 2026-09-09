@@ -4,7 +4,9 @@ from fastapi.testclient import TestClient
 
 from agentic_data_platform.api.app import create_app
 from agentic_data_platform.cli import DOMAIN_CLI_TOOLS, build_parser
+from agentic_data_platform.models import ActorMode, Environment, ToolRequest
 from agentic_data_platform.tools.builtin import build_tool_registry
+from agentic_data_platform.tools.registry import ToolInvocation
 
 
 EXPECTED_TOOLS = {
@@ -56,4 +58,19 @@ def test_live_snowflake_tools_skip_external_without_credentials(monkeypatch):
         monkeypatch.delenv(name, raising=False)
     registry = build_tool_registry()
     definition = registry.describe("snowflake_pipe_inventory")
-    assert definition.capability.value == "discover"
+    request = ToolRequest(
+        "snowflake pipe inventory",
+        "snowflake_pipe_inventory",
+        Environment.DEV,
+        definition.risk,
+        args={},
+    )
+    result = registry.invoke(
+        ToolInvocation(
+            request,
+            run_id="snowflake-pipeline-no-credentials",
+            actor_mode=ActorMode.ANALYST,
+        )
+    )
+    assert result["status"] == "SKIP_EXTERNAL"
+    assert result["platform"] == "snowflake"
