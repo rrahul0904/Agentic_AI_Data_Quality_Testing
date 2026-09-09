@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 
 from agentic_data_platform.automations import AutomationService, next_run
 from agentic_data_platform.cli import DOMAIN_CLI_TOOLS
-from agentic_data_platform.models import ActorMode, Capability, Environment, Platform, Risk, ToolDefinition
-from agentic_data_platform.tools.registry import ToolRegistry
+from agentic_data_platform.models import ActorMode, Capability, Environment, Platform, Risk
+from agentic_data_platform.tools.registry import ToolDefinition, ToolRegistry
 
 
 UTC = timezone.utc
