@@ -240,6 +240,56 @@ class PluginBundleService:
                 })
         return items
 
+    def _register_hooks(self, name: str, plugins: PluginManager) -> int:
+        installed = self.inspect(name)
+        contributions = installed["contributions"]
+        plugins.unregister_plugin(name)
+        registered_hooks = 0
+        for hook in contributions.get("hooks", []):
+            event = hook["hook"]
+            action = hook["action"]
+            match = dict(hook.get("match") or {})
+            reason = str(hook.get("reason") or "")
+            updates = dict(hook.get("updates") or {})
+
+            def handler(
+                payload: dict[str, Any],
+                *,
+                action=action,
+                match=match,
+                reason=reason,
+                updates=updates,
+            ):
+                if not _match(payload, match):
+                    return {"action": "allow"}
+                if action == "block":
+                    return {"action": "block", "reason": reason or f"blocked by plugin {name}"}
+                if action == "modify":
+                    return {"action": "modify", "updates": updates}
+                return {"action": "allow"}
+
+            plugins.register(name, event, handler)
+            registered_hooks += 1
+        return registered_hooks
+
+    def load_active_hooks(self, plugins: PluginManager) -> dict[str, Any]:
+        loaded: list[str] = []
+        failed: list[dict[str, str]] = []
+        for item in self.list():
+            if item.get("status") != "PASS" or not item.get("active"):
+                continue
+            name = str(item["name"])
+            try:
+                self._register_hooks(name, plugins)
+                loaded.append(name)
+            except Exception as exc:
+                failed.append({"name": name, "error": f"{type(exc).__name__}: {exc}"})
+        return {
+            "status": "FAIL" if failed else "PASS",
+            "loaded": loaded,
+            "failed": failed,
+        }
+
     def activate(
         self,
         name: str,
@@ -280,27 +330,7 @@ class PluginBundleService:
                     shutil.copy2(source, destination)
                 materialized[kind].append(str(destination.relative_to(self.project_root)))
 
-        registered_hooks = 0
-        if plugins is not None:
-            plugins.unregister_plugin(name)
-            for hook in contributions.get("hooks", []):
-                event = hook["hook"]
-                action = hook["action"]
-                match = dict(hook.get("match") or {})
-                reason = str(hook.get("reason") or "")
-                updates = dict(hook.get("updates") or {})
-
-                def handler(payload: dict[str, Any], *, action=action, match=match, reason=reason, updates=updates):
-                    if not _match(payload, match):
-                        return {"action": "allow"}
-                    if action == "block":
-                        return {"action": "block", "reason": reason or f"blocked by plugin {name}"}
-                    if action == "modify":
-                        return {"action": "modify", "updates": updates}
-                    return {"action": "allow"}
-
-                plugins.register(name, event, handler)
-                registered_hooks += 1
+        registered_hooks = self._register_hooks(name, plugins) if plugins is not None else 0
 
         state_path = root / ".ade-plugin-state.json"
         state = json.loads(state_path.read_text()) if state_path.is_file() else {}
