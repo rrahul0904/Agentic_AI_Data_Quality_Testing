@@ -232,7 +232,11 @@ capability-superiority-p1-check:
 		tests/test_todo_management.py \
 		tests/test_coco_modes.py \
 		tests/test_workspace_files.py \
-		tests/test_git_parity.py
+		tests/test_git_parity.py \
+		tests/test_coding_workspace.py \
+		tests/test_session_checkpoints.py \
+		tests/test_context_controls.py \
+		tests/test_rules_instructions.py
 
 .PHONY: advanced-live-e2e
 advanced-live-e2e:
