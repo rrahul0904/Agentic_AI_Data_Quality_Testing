@@ -111,6 +111,7 @@ from agentic_data_platform.connectors.snowflake import SnowflakeConnector
 from agentic_data_platform.snowflake import GovernedSnowflakeMutationExecutor, SnowflakePipelineTester, analyze_copy_command, failure_lab, plan_snowflake_mutation
 from agentic_data_platform.metadata.index import MetadataIndex
 from agentic_data_platform.metadata.service import MetadataService
+from agentic_data_platform.search import UnifiedSemanticIndex
 from agentic_data_platform.training import (
     TrainingStore,
     import_markdown as training_import_markdown,
@@ -354,6 +355,11 @@ def _connection_store(args: dict[str, Any]) -> ConnectionStore:
 def _metadata_service(args: dict[str, Any]) -> MetadataService:
     path = args.get("metadata_database") or (_target(args) / ".ade" / "metadata.db")
     return MetadataService(path)
+
+
+def _semantic_search_index(args: dict[str, Any]) -> UnifiedSemanticIndex:
+    path = args.get("search_database") or (_target(args) / ".ade" / "semantic-search.db")
+    return UnifiedSemanticIndex(path)
 
 
 def _connector_profile(args: dict[str, Any], side: str):
@@ -1628,6 +1634,56 @@ def build_tool_registry() -> ToolRegistry:
     add("data_diff_cascade", Capability.VERIFY, lambda a: production_diff(a, "CASCADE"), "Run profile then bounded hash/detail cascade diff.", platforms=frozenset({Platform.LOCAL}))
 
     add("data_diff_duckdb_demo", Capability.VERIFY, lambda a: duckdb_demo_diff(), "Run a real in-memory DuckDB source-target data-diff fixture.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
+
+    # Local-first semantic search spans code, dbt, Airflow, docs and warehouse metadata.
+    add(
+        "semantic_index_project",
+        Capability.GENERATE,
+        lambda a: _semantic_search_index(a).index_project(
+            a.get("project") or str(_target(a)),
+            max_file_bytes=int(a.get("max_file_bytes", 1_000_000)),
+            max_files=int(a.get("max_files", 10_000)),
+        ),
+        "Index project code, dbt, Airflow, configuration and documentation into ADE's private hybrid semantic index.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "semantic_index_metadata",
+        Capability.GENERATE,
+        lambda a: _semantic_search_index(a).index_metadata(
+            _metadata_service(a),
+            connection_name=a.get("connection_name"),
+            limit=int(a.get("limit", 5000)),
+        ),
+        "Index ADE warehouse catalog objects and columns into the same cross-system semantic index.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "semantic_search",
+        Capability.DISCOVER,
+        lambda a: _semantic_search_index(a).search(
+            a["query"],
+            mode=str(a.get("mode", "hybrid")),
+            kinds=a.get("kinds", ()),
+            limit=int(a.get("limit", 20)),
+            candidate_limit=int(a.get("candidate_limit", 2000)),
+        ),
+        "Search code, dbt, Airflow, docs and warehouse objects through one hybrid semantic retrieval contract.",
+        platforms=frozenset({Platform.LOCAL}),
+        schema={
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+                "mode": {"type": "string"},
+                "kinds": {"type": "array"},
+                "limit": {"type": "integer"},
+            },
+        },
+    )
+
 
     # Governed Snowflake platform mutation. Plan first; execute only through ToolRegistry.
     add(
