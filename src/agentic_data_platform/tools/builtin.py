@@ -121,6 +121,7 @@ from agentic_data_platform.apps import SnowflakeAppBuilder
 from agentic_data_platform.ml import SnowflakeModelRegistryAdapter, plan_log_model, plan_model_lifecycle, plan_snowpark_ml_workflow
 from agentic_data_platform.ai import AIWorkflowCompiler, SnowflakeAIWorkflowRunner
 from agentic_data_platform.ide import IDEBridge
+from agentic_data_platform import advanced_capabilities as advanced_caps
 from agentic_data_platform.training import (
     TrainingStore,
     import_markdown as training_import_markdown,
@@ -2699,6 +2700,225 @@ def build_tool_registry() -> ToolRegistry:
     add("data_diff_cascade", Capability.VERIFY, lambda a: production_diff(a, "CASCADE"), "Run profile then bounded hash/detail cascade diff.", platforms=frozenset({Platform.LOCAL}))
 
     add("data_diff_duckdb_demo", Capability.VERIFY, lambda a: duckdb_demo_diff(), "Run a real in-memory DuckDB source-target data-diff fixture.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
+
+    # Governed advanced capability extensions: modes, workspace edits, shell, context,
+    # custom agents, object search, SQL playground, visualization, ML baselines and docs.
+    add(
+        "mode_contract",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.mode_contract(str(a["mode"]), budget_usd=a.get("budget_usd")),
+        "Return the enforceable ADE actor/tool/model contract for agent, plan, edit or code mode.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "immutable_plan",
+        Capability.PLAN,
+        lambda a: advanced_caps.immutable_plan(
+            list(a.get("steps") or []),
+            environment=str(a.get("environment") or a.get("_environment") or "dev"),
+            constraints=dict(a.get("constraints") or {}),
+            verification=list(a.get("verification") or []),
+        ),
+        "Create a hash-bound immutable execution plan whose material changes require re-approval.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "immutable_plan_verify",
+        Capability.VERIFY,
+        lambda a: advanced_caps.verify_immutable_plan(dict(a["plan"])),
+        "Verify that an immutable ADE plan still matches its approval fingerprint.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "workspace_edit_plan",
+        Capability.PLAN,
+        lambda a: advanced_caps.plan_file_edit(
+            a.get("workspace") or str(_target(a)),
+            str(a["path"]),
+            str(a["content"]),
+            expected_source_hash=a.get("expected_source_hash"),
+            verification_command=a.get("verification_command"),
+        ),
+        "Plan a workspace edit bound to source/result hashes and an optional verification command.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "workspace_edit_apply",
+        Capability.EXECUTE,
+        lambda a: advanced_caps.apply_file_edit(
+            a.get("workspace") or str(_target(a)),
+            str(a["path"]),
+            str(a["content"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+            expected_source_hash=a.get("expected_source_hash"),
+            verification_command=a.get("verification_command"),
+        ),
+        "Apply an approved hash-bound workspace edit, verify it and roll back automatically on verification failure.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "shell_plan",
+        Capability.PLAN,
+        lambda a: advanced_caps.command_plan(
+            a.get("workspace") or str(_target(a)),
+            a["command"],
+            cwd=str(a.get("cwd") or "."),
+            timeout_seconds=int(a.get("timeout_seconds", 120)),
+            max_output_bytes=int(a.get("max_output_bytes", 131072)),
+            background=bool(a.get("background", False)),
+        ),
+        "Plan a bounded argv-only foreground/background command without shell-string bypass.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "shell_run",
+        Capability.EXECUTE,
+        lambda a: advanced_caps.run_command(
+            a.get("workspace") or str(_target(a)),
+            a["command"],
+            cwd=str(a.get("cwd") or "."),
+            timeout_seconds=int(a.get("timeout_seconds", 120)),
+            max_output_bytes=int(a.get("max_output_bytes", 131072)),
+            background=bool(a.get("background", False)),
+            approval_fingerprint=a.get("approval_fingerprint"),
+        ),
+        "Run an approved bounded argv-only command with timeout/output budgets and durable background evidence.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "shell_status",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.shell_job_status(
+            a.get("workspace") or str(_target(a)),
+            str(a["job_id"]),
+        ),
+        "Inspect a durable background shell job and bounded log evidence.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "shell_kill",
+        Capability.EXECUTE,
+        lambda a: advanced_caps.shell_job_kill(
+            a.get("workspace") or str(_target(a)),
+            str(a["job_id"]),
+        ),
+        "Terminate an approved background ADE shell job by its recorded process group.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "context_select",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.select_context(
+            list(a.get("items") or []),
+            budget_tokens=int(a.get("budget_tokens", 4000)),
+            provider=str(a.get("provider") or "generic"),
+        ),
+        "Select evidence-ranked context under a provider-aware token budget and record the selection fingerprint.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "custom_agent_validate",
+        Capability.VERIFY,
+        lambda a: advanced_caps.validate_agent_definition(dict(a["definition"])),
+        "Validate a custom agent's allowed tools, scopes, model, budgets and verification contract.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "custom_agent_save",
+        Capability.EXECUTE,
+        lambda a: advanced_caps.save_agent_definition(
+            a.get("workspace") or str(_target(a)),
+            dict(a["definition"]),
+        ),
+        "Persist an approved project-scoped custom agent definition with inherited ToolRegistry policy.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "custom_agent_list",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.list_agent_definitions(a.get("workspace") or str(_target(a))),
+        "List project-scoped custom agent definitions.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "warehouse_object_search",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.search_warehouse_objects(
+            str(a["query"]),
+            list(a.get("objects") or []),
+            limit=int(a.get("limit", 20)),
+        ),
+        "Rank Snowflake and cross-warehouse objects by intent, columns, lineage and recent evidence.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE, Platform.REDSHIFT, Platform.POSTGRES, Platform.BIGQUERY, Platform.DATABRICKS}),
+    )
+    add(
+        "sql_playground",
+        Capability.EXECUTE,
+        lambda a: advanced_caps.sql_playground(
+            str(a["sql"]),
+            dialect=str(a.get("dialect") or "ansi"),
+            sqlite_database=a.get("sqlite_database"),
+            max_rows=int(a.get("max_rows", 500)),
+        ),
+        "Execute a read-only SQL playground request with query/result fingerprints, lineage, policy and cost evidence.",
+        platforms=frozenset({Platform.LOCAL, Platform.SQLITE, Platform.SNOWFLAKE, Platform.REDSHIFT, Platform.POSTGRES, Platform.BIGQUERY, Platform.DATABRICKS}),
+    )
+    add(
+        "chart_build",
+        Capability.GENERATE,
+        lambda a: advanced_caps.build_chart_spec(
+            list(a.get("rows") or []),
+            kind=str(a["kind"]),
+            x=str(a["x"]),
+            y=str(a["y"]),
+            source_query=str(a["source_query"]),
+            warehouse=str(a.get("warehouse") or "unknown"),
+            title=a.get("title"),
+        ),
+        "Build an inline chart/KPI spec that preserves source query, result fingerprint and replay metadata.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "forecast_series",
+        Capability.GENERATE,
+        lambda a: advanced_caps.forecast_series(
+            [float(item) for item in a.get("values") or []],
+            horizon=int(a.get("horizon", 5)),
+        ),
+        "Compare deterministic forecasting baselines and retain evaluation evidence for the selected forecast.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "anomaly_compare",
+        Capability.VERIFY,
+        lambda a: advanced_caps.anomaly_compare(
+            [float(item) for item in a.get("values") or []],
+            z_threshold=float(a.get("z_threshold", 3.0)),
+            mad_threshold=float(a.get("mad_threshold", 3.5)),
+        ),
+        "Compare independent z-score and robust MAD anomaly detectors and record consensus evidence.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "document_extract",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.document_extract(
+            a.get("workspace") or str(_target(a)),
+            str(a["path"]),
+            fields=dict(a.get("fields") or {}),
+            chunk_chars=int(a.get("chunk_chars", 2000)),
+        ),
+        "Extract local document text, fields and fingerprinted chunks with zero-provider-cost evidence.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
 
     # Local-first semantic search spans code, dbt, Airflow, docs and warehouse metadata.
     add(
