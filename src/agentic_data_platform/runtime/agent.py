@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from agentic_data_platform.models import ActorMode, Environment, ToolRequest, new_id
-from agentic_data_platform.plugins.manager import PluginManager
+from agentic_data_platform.plugins import PluginBundleService, PluginManager
 from agentic_data_platform.providers.base import Provider, ProviderRequest, ProviderResponse
 from agentic_data_platform.runtime.context import ContextManager
 from agentic_data_platform.runtime.context_sources import ContextSourceManager
@@ -82,6 +82,12 @@ class AgentRuntime:
         self.store.add_message(session_id, "user", user_message)
         notify("session.started", provider=provider.name, model=model, actor_mode=actor_mode.value)
 
+        bundle_hook_state = (
+            PluginBundleService(project_root).load_active_hooks(self.plugins)
+            if project_root is not None
+            else {"status": "PASS", "loaded": [], "failed": []}
+        )
+
         selected_context = (
             self.context_sources.select(
                 user_message,
@@ -105,6 +111,7 @@ class AgentRuntime:
             "actor_mode": actor_mode.value,
             "environment": environment.value,
             "context_sources": selected_meta,
+            "plugin_bundles": bundle_hook_state,
         }
         session_hooks = self._emit("session.start", {
             "session_id": session_id,
