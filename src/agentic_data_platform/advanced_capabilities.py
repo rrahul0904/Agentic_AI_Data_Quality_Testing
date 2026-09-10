@@ -876,14 +876,25 @@ def list_agent_definitions(workspace: str | Path) -> dict[str, Any]:
     return {"status": "PASS", "agents": [existing[name] for name in sorted(existing)]}
 
 
-def search_warehouse_objects(query: str, objects: list[dict[str, Any]], *, limit: int = 20) -> dict[str, Any]:
-    terms = {term for term in re.findall(r"[a-z0-9_]+", query.casefold()) if len(term) > 1}
-    scored: list[tuple[float, dict[str, Any]]] = []
-    for obj in objects:
+def search_warehouse_objects(
+    query: str,
+    objects: list[dict[str, Any]],
+    *,
+    limit: int = 20,
+) -> dict[str, Any]:
+    terms = {
+        term
+        for term in re.findall(r"[a-z0-9_]+", query.casefold())
+        if len(term) > 1
+    }
+    scored: list[tuple[float, dict[str, Any], dict[str, Any]]] = []
+    for raw in objects:
+        obj = dict(raw)
         haystack = " ".join(
             str(value)
             for value in [
                 obj.get("platform"),
+                obj.get("connection_name"),
                 obj.get("database"),
                 obj.get("schema"),
                 obj.get("name"),
@@ -894,18 +905,71 @@ def search_warehouse_objects(query: str, objects: list[dict[str, Any]], *, limit
             if value is not None
         ).casefold()
         tokens = set(re.findall(r"[a-z0-9_]+", haystack))
-        overlap = len(terms & tokens)
-        fuzzy = sum(1 for term in terms if term in haystack)
-        lineage_bonus = min(len(obj.get("upstream") or []) + len(obj.get("downstream") or []), 10) * 0.05
-        score = overlap * 2.0 + fuzzy + lineage_bonus + (0.25 if obj.get("recent_evidence") else 0.0)
+        overlap_terms = sorted(terms & tokens)
+        fuzzy_terms = sorted(term for term in terms if term in haystack)
+        lineage_count = min(
+            len(obj.get("upstream") or []) + len(obj.get("downstream") or []),
+            10,
+        )
+        lineage_bonus = lineage_count * 0.05
+        recent_bonus = 0.25 if obj.get("recent_evidence") else 0.0
+        score = (
+            len(overlap_terms) * 2.0
+            + len(fuzzy_terms)
+            + lineage_bonus
+            + recent_bonus
+        )
+        components = {
+            "exact_token_overlap": overlap_terms,
+            "fuzzy_terms": fuzzy_terms,
+            "lineage_neighbor_count": lineage_count,
+            "lineage_bonus": lineage_bonus,
+            "recent_evidence_bonus": recent_bonus,
+        }
         if score > 0 or not terms:
-            scored.append((score, obj))
-    scored.sort(key=lambda row: (-row[0], str(row[1].get("qualified_name") or row[1].get("name") or "")))
+            scored.append((score, obj, components))
+    scored.sort(
+        key=lambda row: (
+            -row[0],
+            str(row[1].get("qualified_name") or row[1].get("name") or ""),
+        )
+    )
+    selected = [
+        {
+            "score": round(score, 6),
+            "score_components": components,
+            **obj,
+        }
+        for score, obj, components in scored[: max(1, int(limit))]
+    ]
+    evidence = {
+        "query": query,
+        "candidate_count": len(objects),
+        "matched_count": len(scored),
+        "selected": [
+            (
+                item.get("platform"),
+                item.get("connection_name"),
+                item.get("qualified_name"),
+                item.get("score"),
+            )
+            for item in selected
+        ],
+    }
     return {
         "status": "PASS",
         "query": query,
-        "results": [{"score": score, **obj} for score, obj in scored[: max(1, int(limit))]],
-        "platforms": sorted({str(obj.get("platform")) for _, obj in scored if obj.get("platform")}),
+        "results": selected,
+        "candidate_count": len(objects),
+        "matched_count": len(scored),
+        "platforms": sorted(
+            {
+                str(obj.get("platform"))
+                for _, obj, _ in scored
+                if obj.get("platform")
+            }
+        ),
+        "search_fingerprint": _digest(evidence),
     }
 
 
