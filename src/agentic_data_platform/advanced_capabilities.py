@@ -984,35 +984,160 @@ def sql_playground(
     sqlite_database: str | None = None,
     max_rows: int = 500,
 ) -> dict[str, Any]:
+    from agentic_data_platform.sql.intelligence import review_sql
+    from agentic_data_platform.sql.safety import classify_mutation
+
     statement = str(sql).strip()
-    if not _READ_ONLY_SQL.search(statement):
-        return {"status": "BLOCKED_POLICY", "reason": "SQL playground is read-only"}
-    if ";" in statement.rstrip(";"):
-        return {"status": "BLOCKED_POLICY", "reason": "one statement per playground request"}
-    tables = sorted(set(_TABLE_REF.findall(statement)))
+    if not statement:
+        raise ValueError("SQL playground query is required")
+    statement_count = len(
+        [item for item in re.split(r";\s*", statement) if item.strip()]
+    )
+    mutation_class = classify_mutation(statement)
+    policy = {
+        "read_only": mutation_class == "read",
+        "mutation_class": mutation_class,
+        "single_statement": statement_count == 1,
+        "statement_count": statement_count,
+        "max_rows": max(1, min(int(max_rows), 10000)),
+    }
+    policy["policy_fingerprint"] = _digest(policy)
+    if not policy["read_only"]:
+        return {
+            "status": "BLOCKED_POLICY",
+            "reason": "SQL playground is read-only",
+            "policy": policy,
+        }
+    if not policy["single_statement"]:
+        return {
+            "status": "BLOCKED_POLICY",
+            "reason": "one statement per playground request",
+            "policy": policy,
+        }
+
+    review = review_sql(statement, dialect)
+    if not review.get("parseable", False):
+        return {
+            "status": "BLOCKED_PARSE",
+            "dialect": dialect,
+            "review": review,
+            "policy": policy,
+        }
+
+    tables = sorted(set(review.get("tables") or _TABLE_REF.findall(statement)))
+    select_star = bool(re.search(r"\bselect\s+(?:[A-Za-z0-9_]+\.)?\*", statement, re.I))
+    predicate_present = bool(re.search(r"\bwhere\b", statement, re.I))
+    limit_present = bool(re.search(r"\blimit\s+\d+\b", statement, re.I))
+    join_count = len(re.findall(r"\bjoin\b", statement, re.I))
+    cross_join_count = len(re.findall(r"\bcross\s+join\b", statement, re.I))
+    findings = list(review.get("findings") or [])
+    recommendations: list[str] = []
+    if select_star:
+        recommendations.append("Project only required columns to reduce scan and transfer.")
+    if tables and not predicate_present:
+        recommendations.append("Consider a selective predicate when full-table scanning is not required.")
+    if cross_join_count:
+        recommendations.append("Review CROSS JOIN cardinality and confirm it is intentional.")
+    if not limit_present:
+        recommendations.append("Use a LIMIT while exploring when the full result is unnecessary.")
+    for finding in findings:
+        recommendation = finding.get("recommendation")
+        if recommendation and recommendation not in recommendations:
+            recommendations.append(str(recommendation))
+
+    scan_risk_points = (
+        (2 if select_star else 0)
+        + (2 if tables and not predicate_present else 0)
+        + cross_join_count * 3
+        + max(0, join_count - 3)
+    )
+    scan_risk = "high" if scan_risk_points >= 5 else "medium" if scan_risk_points >= 2 else "low"
+    optimization = {
+        "review_status": review.get("status"),
+        "findings": findings,
+        "predicate_present": predicate_present,
+        "select_star": select_star,
+        "limit_present": limit_present,
+        "join_count": join_count,
+        "cross_join_count": cross_join_count,
+        "recommendations": recommendations,
+    }
+    optimization["optimization_fingerprint"] = _digest(optimization)
+    cost_evidence: dict[str, Any] = {
+        "engine": "not_executed",
+        "estimated_cost_usd": None,
+        "scan_risk": scan_risk,
+        "risk_points": scan_risk_points,
+        "basis": {
+            "table_count": len(tables),
+            "select_star": select_star,
+            "predicate_present": predicate_present,
+            "join_count": join_count,
+            "cross_join_count": cross_join_count,
+            "row_cap": policy["max_rows"],
+        },
+    }
+    cost_evidence["cost_fingerprint"] = _digest(cost_evidence)
     result: dict[str, Any] = {
         "status": "PASS",
         "dialect": dialect,
         "query_fingerprint": _text_digest(statement),
-        "lineage": {"tables": tables},
-        "policy": {"read_only": True, "max_rows": int(max_rows)},
-        "optimization": {"review_required": True, "predicate_present": bool(re.search(r"\bwhere\b", statement, re.I))},
+        "statement_type": review.get("statement_type"),
+        "lineage": {
+            "tables": tables,
+            "lineage_fingerprint": _digest(tables),
+        },
+        "policy": policy,
+        "optimization": optimization,
+        "cost_evidence": cost_evidence,
         "execution": "NOT_RUN_EXTERNAL",
+        "review": review,
     }
+
     if sqlite_database:
-        connection = sqlite3.connect(sqlite_database)
+        if sqlite_database == ":memory:":
+            connection = sqlite3.connect(":memory:")
+        else:
+            database_path = Path(sqlite_database).expanduser().resolve()
+            connection = sqlite3.connect(
+                f"file:{database_path.as_posix()}?mode=ro",
+                uri=True,
+            )
         try:
+            connection.execute("PRAGMA query_only = ON")
+            query_plan: list[dict[str, Any]] = []
+            try:
+                explain = connection.execute("EXPLAIN QUERY PLAN " + statement)
+                explain_names = [item[0] for item in explain.description or []]
+                query_plan = [
+                    dict(zip(explain_names, row))
+                    for row in explain.fetchall()
+                ]
+            except sqlite3.DatabaseError:
+                query_plan = []
+            started = time.perf_counter()
             cursor = connection.execute(statement)
             names = [item[0] for item in cursor.description or []]
-            rows = cursor.fetchmany(max(1, int(max_rows)))
+            rows = cursor.fetchmany(policy["max_rows"])
+            elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
             result_rows = [dict(zip(names, row)) for row in rows]
+            local_cost = {
+                "engine": "sqlite",
+                "estimated_cost_usd": 0.0,
+                "rows_materialized": len(result_rows),
+                "elapsed_ms": elapsed_ms,
+                "query_plan": query_plan,
+                "query_plan_fingerprint": _digest(query_plan),
+                "scan_risk": scan_risk,
+            }
+            local_cost["cost_fingerprint"] = _digest(local_cost)
             result.update(
                 {
                     "execution": "PASS",
                     "rows": result_rows,
                     "row_count_returned": len(result_rows),
                     "result_fingerprint": _digest(result_rows),
-                    "cost_evidence": {"engine": "sqlite", "rows_materialized": len(result_rows)},
+                    "cost_evidence": local_cost,
                 }
             )
         finally:
