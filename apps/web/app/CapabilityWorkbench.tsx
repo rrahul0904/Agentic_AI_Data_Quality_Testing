@@ -30,6 +30,7 @@ export default function CapabilityWorkbench({
   const [operation, setOperation] = useState("");
   const [argsText, setArgsText] = useState(JSON.stringify(defaultArgs, null, 2));
   const [actorMode, setActorMode] = useState("analyst");
+  const [interactionMode, setInteractionMode] = useState("agent");
   const [environment, setEnvironment] = useState("dev");
   const [approved, setApproved] = useState(false);
   const [dryRun, setDryRun] = useState(false);
@@ -72,6 +73,7 @@ export default function CapabilityWorkbench({
       const response = await postJson<unknown>("/api/v1/" + domain + "/" + operation, {
         args,
         actor_mode: actorMode,
+        interaction_mode: interactionMode,
         environment,
         dry_run: dryRun,
         approved,
@@ -123,9 +125,25 @@ export default function CapabilityWorkbench({
             Actor mode
             <select value={actorMode} onChange={(event) => setActorMode(event.target.value)}>
               <option value="analyst">Analyst</option>
+              <option value="ask">Ask</option>
               <option value="plan">Plan</option>
               <option value="builder">Builder</option>
               <option value="admin">Admin</option>
+            </select>
+          </label>
+
+          <label>
+            Interaction mode
+            <select value={interactionMode} onChange={(event) => {
+              setInteractionMode(event.target.value);
+              setApproved(false);
+              setResult(null);
+            }}>
+              <option value="agent">Agent</option>
+              <option value="plan">Plan</option>
+              <option value="ask">Ask</option>
+              <option value="edit">Edit</option>
+              <option value="code">Code</option>
             </select>
           </label>
 
@@ -170,6 +188,7 @@ export default function CapabilityWorkbench({
           </button>
           {mutating && !approved && <span>Mutation remains blocked until explicitly approved.</span>}
           {!mutating && <span>Read-only operation; no approval escalation is applied.</span>}
+          <span>Interaction policy: {interactionMode} · actor authorization: {actorMode}.</span>
         </div>
       </div>
 
