@@ -1,0 +1,151 @@
+name: competitive-certification
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/agentic_data_platform/**"
+      - "tests/test_competitive_gap_closure.py"
+      - "benchmarks/competitive/**"
+      - "apps/desktop/**"
+      - "pyproject.toml"
+      - ".github/workflows/competitive-certification.yml"
+  push:
+    branches:
+      - feature/ade-10x-competitive-certification
+    paths:
+      - "src/agentic_data_platform/**"
+      - "tests/test_competitive_gap_closure.py"
+      - "benchmarks/competitive/**"
+      - "apps/desktop/**"
+      - "pyproject.toml"
+      - ".github/workflows/competitive-certification.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-capability-certification:
+    name: Local competitive capability certification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install ADE
+        run: python -m pip install -e '.[dev,testbed]'
+      - name: Compile new competitive modules
+        run: >-
+          python -m compileall -q
+          src/agentic_data_platform/acp_server.py
+          src/agentic_data_platform/retrieval
+          src/agentic_data_platform/sdk
+          src/agentic_data_platform/compute
+          src/agentic_data_platform/knowledge
+          src/agentic_data_platform/remote_workspace.py
+      - name: Run gap-closure regression suite
+        run: pytest -q tests/test_competitive_gap_closure.py
+      - name: Verify public CLI plans
+        run: |
+          ade compute plan --backend docker --name certjob --image python:3.12-slim --command "python -V" --cpu 1 --memory-gib 1 > /tmp/compute.json
+          python - <<'PY'
+          import json
+          data=json.load(open('/tmp/compute.json'))
+          assert data['status']=='PLAN'
+          assert data['backend']=='docker'
+          assert len(data['fingerprint'])==64
+          PY
+      - name: Verify exact competitive API routes
+        run: |
+          python - <<'PY'
+          from agentic_data_platform.api import create_app
+          app=create_app()
+          paths={getattr(route,'path',None) for route in app.routes}
+          required={
+              '/api/v1/competitive/status',
+              '/api/v1/retrieval/search',
+              '/api/v1/compute/plan',
+              '/api/v1/document/snowflake-plan',
+              '/api/v1/certification/coco',
+              '/api/v1/agent/query',
+          }
+          missing=required-paths
+          assert not missing, missing
+          PY
+      - name: Ruff competitive modules
+        run: >-
+          ruff check
+          src/agentic_data_platform/acp_server.py
+          src/agentic_data_platform/retrieval
+          src/agentic_data_platform/sdk
+          src/agentic_data_platform/compute
+          src/agentic_data_platform/knowledge
+          src/agentic_data_platform/remote_workspace.py
+          src/agentic_data_platform/api/competitive.py
+          src/agentic_data_platform/cli_entry.py
+          tests/test_competitive_gap_closure.py
+          benchmarks/competitive/run.py
+
+  deterministic-benchmark:
+    name: 1077 SQL + 500 lineage deterministic benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install ADE benchmark dependencies
+        run: python -m pip install -e '.[dev]'
+      - name: Run same-scale internal deterministic benchmark
+        run: python benchmarks/competitive/run.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: competitive-deterministic-${{ github.event.pull_request.head.sha || github.sha }}
+          path: artifacts/competitive/deterministic-benchmark.json
+          if-no-files-found: error
+
+  desktop-package:
+    name: Desktop package (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/desktop/package.json
+      - name: Install desktop dependencies
+        working-directory: apps/desktop
+        run: npm install --no-audit --no-fund
+      - name: Validate desktop JavaScript
+        working-directory: apps/desktop
+        run: |
+          node --check main.js
+          node --check preload.js
+          node --check renderer.js
+      - name: Build unpacked native desktop bundle
+        working-directory: apps/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --dir --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ade-desktop-${{ runner.os }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: apps/desktop/dist/
+          if-no-files-found: error
+
+  competitive-local-gate:
+    name: Competitive local gate
+    needs: [local-capability-certification, deterministic-benchmark, desktop-package]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Local competitive capability, deterministic benchmark, and native desktop packaging are green."
