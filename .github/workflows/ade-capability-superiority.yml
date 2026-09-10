@@ -16,6 +16,7 @@ on:
       - 'src/agentic_data_platform/notebooks/**'
       - 'src/agentic_data_platform/browser/**'
       - 'src/agentic_data_platform/apps/**'
+      - 'src/agentic_data_platform/governance/permissions.py'
       - 'src/agentic_data_platform/ml/**'
       - 'src/agentic_data_platform/ai/**'
       - 'src/agentic_data_platform/ide/**'
@@ -66,6 +67,8 @@ on:
       - 'tests/test_workspace_files.py'
       - 'tests/test_agent_teams.py'
       - 'tests/test_hosted_workspace_isolation.py'
+      - 'tests/test_generic_app_workflow.py'
+      - 'tests/test_permissions_admin.py'
       - 'tests/test_snowflake_managed_dbt.py'
       - '.github/workflows/ade-capability-superiority.yml'
       - 'Makefile'
@@ -139,6 +142,7 @@ jobs:
           src/agentic_data_platform/notebooks
           src/agentic_data_platform/browser
           src/agentic_data_platform/apps
+          src/agentic_data_platform/governance/permissions.py
           src/agentic_data_platform/ml
           src/agentic_data_platform/ai
           src/agentic_data_platform/ide
@@ -184,6 +188,8 @@ jobs:
           tests/test_workspace_files.py
           tests/test_agent_teams.py
           tests/test_hosted_workspace_isolation.py
+          tests/test_generic_app_workflow.py
+          tests/test_permissions_admin.py
           scripts/live_advanced_capabilities.py
           scripts/run_hosted_runner.py
           tests/test_capability_superiority_ledger.py
