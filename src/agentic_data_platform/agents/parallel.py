@@ -26,6 +26,7 @@ class SubagentDefinition:
     actor_mode: ActorMode = ActorMode.ANALYST
     max_steps: int = 8
     timeout_seconds: int = 120
+    verification_contract: tuple[Any, ...] = ()
     source: str = "runtime"
 
     def public(self) -> dict[str, Any]:
@@ -38,6 +39,7 @@ class SubagentDefinition:
             "actor_mode": self.actor_mode.value,
             "max_steps": self.max_steps,
             "timeout_seconds": self.timeout_seconds,
+            "verification_contract": list(self.verification_contract),
             "source": self.source,
         }
 
@@ -58,6 +60,7 @@ class SubagentOutcome:
     session_id: str | None = None
     trace_id: str | None = None
     result: dict[str, Any] = field(default_factory=dict)
+    verification: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
 
     def public(self) -> dict[str, Any]:
@@ -69,6 +72,7 @@ class SubagentOutcome:
             "session_id": self.session_id,
             "trace_id": self.trace_id,
             "result": self.result,
+            "verification": self.verification,
             "error": self.error,
         }
 
@@ -108,6 +112,7 @@ def _frontmatter(path: Path) -> SubagentDefinition:
         actor_mode=actor,
         max_steps=max(1, min(int(metadata.get("max_steps", 8)), 50)),
         timeout_seconds=max(1, min(int(metadata.get("timeout_seconds", 120)), 3600)),
+        verification_contract=tuple(metadata.get("verification") or ()),
         source=str(path),
     )
 
@@ -144,6 +149,67 @@ class SubagentRegistry:
         return [self._definitions[name].public() for name in sorted(self._definitions)]
 
 
+def verify_subagent_result(
+    contract: Iterable[Any],
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    findings: list[dict[str, Any]] = []
+    for raw in contract:
+        if isinstance(raw, str):
+            value = result.get(raw)
+            findings.append(
+                {
+                    "rule": raw,
+                    "actual": value,
+                    "passed": bool(value),
+                }
+            )
+            continue
+        if not isinstance(raw, dict):
+            findings.append(
+                {
+                    "rule": raw,
+                    "actual": None,
+                    "passed": False,
+                    "reason": "verification rule must be a field name or mapping",
+                }
+            )
+            continue
+        rule = dict(raw)
+        field_name = str(rule.get("field") or "")
+        value = result.get(field_name) if field_name else None
+        if "equals" in rule:
+            passed = value == rule["equals"]
+        elif "in" in rule:
+            passed = value in list(rule["in"])
+        elif "min" in rule:
+            try:
+                passed = float(value) >= float(rule["min"])
+            except (TypeError, ValueError):
+                passed = False
+        else:
+            passed = bool(value)
+        findings.append(
+            {
+                "rule": rule,
+                "actual": value,
+                "passed": passed,
+            }
+        )
+    payload = {
+        "status": "PASS" if all(item["passed"] for item in findings) else "FAIL",
+        "findings": findings,
+    }
+    import hashlib
+    import json
+
+    payload["verification_fingerprint"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+
 class ParallelSubagentCoordinator:
     """Run independent subagents concurrently and return bounded summaries to the parent."""
 
@@ -162,6 +228,12 @@ class ParallelSubagentCoordinator:
             try:
                 result = dict(self.executor(task))
                 status = str(result.get("status") or "PASS")
+                verification = verify_subagent_result(
+                    task.definition.verification_contract,
+                    result,
+                )
+                if status == "PASS" and verification["status"] != "PASS":
+                    status = "FAIL_VERIFICATION"
                 summary = str(
                     result.get("summary")
                     or result.get("response")
@@ -176,6 +248,7 @@ class ParallelSubagentCoordinator:
                     session_id=result.get("session_id"),
                     trace_id=result.get("trace_id"),
                     result=result,
+                    verification=verification,
                 )
             except Exception as exc:
                 outcome = SubagentOutcome(
@@ -197,7 +270,11 @@ class ParallelSubagentCoordinator:
                 outcomes[index] = outcome
 
         ordered = [outcomes[index].public() for index in range(len(task_list))]
-        failed = [item for item in ordered if item["status"] in {"FAIL", "ERROR", "DENIED"}]
+        failed = [
+            item
+            for item in ordered
+            if item["status"] in {"FAIL", "ERROR", "DENIED", "FAIL_VERIFICATION"}
+        ]
         return {
             "status": "FAIL" if failed else "PASS",
             "task_count": len(task_list),
