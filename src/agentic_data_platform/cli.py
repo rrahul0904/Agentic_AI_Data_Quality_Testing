@@ -82,6 +82,16 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
     "app": {
         "plan": "app_build_plan", "validate": "app_build_validate",
         "apply": "app_build_apply", "deploy": "app_deploy",
+        "generic-scaffold-plan": "generic_app_scaffold_plan",
+        "generic-scaffold-apply": "generic_app_scaffold_apply",
+        "generic-validate": "generic_app_validate",
+        "generic-preview-plan": "generic_app_preview_plan",
+        "generic-preview-run": "generic_app_preview_run",
+        "generic-verify-url": "generic_app_verify_url",
+        "generic-deployment-plan": "generic_app_deployment_plan",
+        "generic-deployment-run": "generic_app_deployment_run",
+        "generic-rollback-plan": "generic_app_rollback_plan",
+        "generic-rollback-run": "generic_app_rollback_run",
     },
     "ml": {
         "models": "snowpark_model_list", "versions": "snowpark_model_versions",
