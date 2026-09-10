@@ -14,10 +14,14 @@ from pydantic import BaseModel, Field
 from agentic_data_platform.compute import ComputeJobSpec, PortableComputePlanner
 from agentic_data_platform.knowledge import DocumentIntelligencePipeline, snowflake_parse_document_sql
 from agentic_data_platform.retrieval import (
+    ADESearchEngine,
     ADESearchIndex,
     LocalProjectRetrievalBackend,
+    NumericBoost,
     RetrievalQuery,
+    ScoringProfile,
     SearchChunk,
+    TimeDecay,
 )
 
 
@@ -43,6 +47,32 @@ class SearchQueryInput(BaseModel):
     lexical_weight: float = Field(default=0.45, ge=0)
     vector_weight: float = Field(default=0.45, ge=0)
     rerank_weight: float = Field(default=0.10, ge=0)
+
+
+class NumericBoostInput(BaseModel):
+    field: str = Field(min_length=1, max_length=256)
+    weight: float = Field(default=1.0, ge=0, le=100)
+    minimum: float | None = None
+    maximum: float | None = None
+
+
+class TimeDecayInput(BaseModel):
+    field: str = Field(min_length=1, max_length=256)
+    half_life_seconds: float = Field(gt=0, le=31_536_000)
+    weight: float = Field(default=1.0, ge=0, le=100)
+
+
+class MultiSearchInput(BaseModel):
+    query: str = Field(min_length=1, max_length=20_000)
+    index_names: list[str] = Field(min_length=1, max_length=32)
+    limit: int = Field(default=10, ge=1, le=100)
+    filters: dict[str, Any] | None = None
+    index_boosts: dict[str, float] = Field(default_factory=dict)
+    numeric_boosts: list[NumericBoostInput] = Field(default_factory=list, max_length=16)
+    time_decays: list[TimeDecayInput] = Field(default_factory=list, max_length=16)
+    fusion_weight: float = Field(default=0.7, ge=0)
+    rerank_weight: float = Field(default=0.2, ge=0)
+    metadata_weight: float = Field(default=0.1, ge=0)
 
 
 class SearchSourceInput(BaseModel):
@@ -107,10 +137,31 @@ def attach_competitive_routes(application: FastAPI) -> FastAPI:
                 "embedded_agent_sdk": True,
                 "acp_stdio": True,
                 "ssh_remote_workspace": True,
-                "ade_search": ["sqlite_fts5", "pluggable_embeddings", "hybrid", "filters", "explain"],
+                "ade_search": [
+                    "sqlite_fts5",
+                    "pluggable_embeddings",
+                    "hybrid",
+                    "multi_index",
+                    "index_boosts",
+                    "numeric_boosts",
+                    "time_decay",
+                    "filters",
+                    "explain",
+                ],
                 "cortex_search_adapter": True,
                 "portable_compute": ["docker", "kubernetes", "snowflake_spcs"],
-                "document_intelligence": ["local", "ocr_provider", "provider", "snowflake_ai_parse_document"],
+                "document_intelligence": [
+                    "local",
+                    "pdf",
+                    "docx",
+                    "pptx",
+                    "xlsx",
+                    "html",
+                    "eml",
+                    "ocr_provider",
+                    "provider",
+                    "snowflake_ai_parse_document",
+                ],
             },
             "truthfulness": {
                 "default_vector_lane": "deterministic lexical hash projection, not a learned embedding model",
@@ -171,6 +222,48 @@ def attach_competitive_routes(application: FastAPI) -> FastAPI:
                 "results": [hit.as_dict() for hit in hits],
             }
         except (OSError, ValueError, RuntimeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @application.post("/api/v1/search/multi-query", tags=["search"])
+    def search_multi_query(payload: MultiSearchInput) -> dict[str, object]:
+        try:
+            names = tuple(dict.fromkeys(name.strip() for name in payload.index_names if name.strip()))
+            if not names:
+                raise ValueError("at least one non-empty index name is required")
+            indexes = {name: _search_index(name) for name in names}
+            profile = None
+            if payload.numeric_boosts or payload.time_decays:
+                profile = ScoringProfile(
+                    numeric_boosts=tuple(
+                        NumericBoost(
+                            field=item.field,
+                            weight=item.weight,
+                            minimum=item.minimum,
+                            maximum=item.maximum,
+                        )
+                        for item in payload.numeric_boosts
+                    ),
+                    time_decays=tuple(
+                        TimeDecay(
+                            field=item.field,
+                            half_life_seconds=item.half_life_seconds,
+                            weight=item.weight,
+                        )
+                        for item in payload.time_decays
+                    ),
+                )
+            engine = ADESearchEngine(indexes)
+            result = engine.search(
+                RetrievalQuery(payload.query, limit=payload.limit, filters=payload.filters),
+                index_names=names,
+                index_boosts=payload.index_boosts,
+                scoring_profile=profile,
+                fusion_weight=payload.fusion_weight,
+                rerank_weight=payload.rerank_weight,
+                metadata_weight=payload.metadata_weight,
+            )
+            return {"status": "PASS", "backend": "ade_search_multi_index", **result.as_dict()}
+        except (KeyError, OSError, ValueError, RuntimeError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @application.get("/api/v1/search/stats", tags=["search"])
