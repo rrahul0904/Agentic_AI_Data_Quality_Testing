@@ -53,8 +53,6 @@ def anti_pattern_corpus() -> list[tuple[str, bool, str]]:
     """Generate exactly 1,077 labeled target-rule examples across 19 rules."""
     fixtures = _fixtures()
     rows: list[tuple[str, bool, str]] = []
-    # 28 positive + 28 negative per rule = 1,064, then one extra positive for
-    # the first 13 rules = 1,077.
     for fixture in fixtures:
         for index in range(28):
             rows.append((fixture.rule, True, fixture.positive(index)))
@@ -152,7 +150,7 @@ def _lineage_case(index: int, category: int) -> tuple[str, set[tuple[str, str, s
         edges = {(target, source, col)}
     elif category == 9:
         sql = f"SELECT MAX({col}) OVER (PARTITION BY group_id) AS {target} FROM {source}"
-        edges = {(target, source, col)}
+        edges = {(target, source, col), (target, source, "group_id")}
     elif category == 10:
         sql = f"SELECT CAST({col} AS DOUBLE) AS {target} FROM {source}"
         edges = {(target, source, col)}
@@ -165,45 +163,53 @@ def _lineage_case(index: int, category: int) -> tuple[str, set[tuple[str, str, s
     return sql, edges
 
 
+def _normalized_edge(target: object, table: object, column: object) -> tuple[str, str, str]:
+    return (
+        str(target).strip('"`').casefold(),
+        str(table).strip('"`').casefold(),
+        str(column).strip('"`').casefold(),
+    )
+
+
 def _observed_edges(result: dict[str, object]) -> set[tuple[str, str, str]]:
     edges: set[tuple[str, str, str]] = set()
     for mapping in result.get("mappings", []):  # type: ignore[union-attr]
-        target = str(mapping.get("target_column"))
         for source in mapping.get("sources", []):
-            table = str(source.get("table")).strip('"`')
-            column = str(source.get("column")).strip('"`')
-            edges.add((target, table, column))
+            edges.add(_normalized_edge(mapping.get("target_column"), source.get("table"), source.get("column")))
     return edges
 
 
 def run_lineage() -> dict[str, object]:
     expected_total = observed_total = correct = 0
+    mismatch_count = 0
     failures: list[dict[str, object]] = []
     started = time.perf_counter()
     for index in range(500):
-        sql, expected = _lineage_case(index, index % 13)
+        sql, expected_raw = _lineage_case(index, index % 13)
+        expected = {_normalized_edge(*edge) for edge in expected_raw}
         result = column_lineage(sql, "snowflake")
         observed = _observed_edges(result)
         expected_total += len(expected)
         observed_total += len(observed)
         correct += len(expected & observed)
-        if observed != expected and len(failures) < 50:
-            failures.append(
-                {
-                    "case": index,
-                    "category": index % 13,
-                    "expected": sorted(expected),
-                    "observed": sorted(observed),
-                    "status": result.get("status"),
-                    "error": result.get("error"),
-                    "sql": sql,
-                }
-            )
+        if observed != expected:
+            mismatch_count += 1
+            if len(failures) < 50:
+                failures.append(
+                    {
+                        "case": index,
+                        "category": index % 13,
+                        "expected": sorted(expected),
+                        "observed": sorted(observed),
+                        "status": result.get("status"),
+                        "error": result.get("error"),
+                        "sql": sql,
+                    }
+                )
     elapsed = time.perf_counter() - started
     precision = correct / observed_total if observed_total else 0.0
     recall = correct / expected_total if expected_total else 0.0
     edge_f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
-    exact_cases = 500 - len(failures) if len(failures) < 50 else None
     return {
         "name": "ade_internal_column_lineage",
         "dataset_owner": "ADE",
@@ -216,11 +222,11 @@ def run_lineage() -> dict[str, object]:
         "precision": round(precision, 6),
         "recall": round(recall, 6),
         "edge_f1": round(edge_f1, 6),
-        "exact_case_count": exact_cases,
+        "exact_case_count": 500 - mismatch_count,
         "elapsed_seconds": round(elapsed, 6),
         "average_ms": round(elapsed * 1000 / 500, 6),
         "failures": failures,
-        "passed": precision == 1.0 and recall == 1.0 and not failures,
+        "passed": precision == 1.0 and recall == 1.0 and mismatch_count == 0,
     }
 
 
