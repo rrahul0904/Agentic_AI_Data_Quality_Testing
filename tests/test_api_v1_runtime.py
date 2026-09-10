@@ -44,7 +44,11 @@ def test_api_v1_runtime_resources_and_legacy_tool_compatibility(tmp_path, monkey
 
     patched = client.patch(
         f"/api/v1/sessions/todos/{todo_id}",
-        json={"status": "DONE"},
+        json={
+            "status": "DONE",
+            "verified": True,
+            "evidence": [{"source": "api-v1-runtime-test", "status": "PASS"}],
+        },
     )
     assert patched.status_code == 200
     assert patched.json()["status"] == "DONE"

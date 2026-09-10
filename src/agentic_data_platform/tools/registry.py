@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
-from agentic_data_platform.models import ActorMode, Capability, Platform, Risk, ToolRequest
+from agentic_data_platform.models import ActorMode, Capability, InteractionMode, Platform, Risk, ToolRequest
 from agentic_data_platform.policy import PolicyEngine
 
 ToolHandler = Callable[[dict[str, Any]], dict[str, Any]]
@@ -30,6 +30,7 @@ class ToolInvocation:
     approved: bool = False
     dry_run: bool = False
     actor_mode: ActorMode = ActorMode.BUILDER
+    interaction_mode: InteractionMode = InteractionMode.AGENT
 
 class ToolRegistry:
     """The only supported execution path for external tools and platform mutations."""
@@ -48,12 +49,83 @@ class ToolRegistry:
         except KeyError as exc:
             raise KeyError(f"unknown tool: {name}") from exc
 
+    @staticmethod
+    def allowed_in_interaction_mode(
+        definition: ToolDefinition,
+        mode: InteractionMode,
+    ) -> bool:
+        if mode in {InteractionMode.ASK, InteractionMode.PLAN}:
+            return definition.risk is Risk.READ_ONLY
+
+        name = definition.name.casefold()
+        if mode is InteractionMode.EDIT:
+            if definition.risk is Risk.READ_ONLY:
+                return not name.startswith(
+                    (
+                        "snowflake_mutation",
+                        "dbt_",
+                        "notebook_",
+                        "mcp_",
+                        "skill_",
+                        "automation_",
+                        "hosted_runner_",
+                    )
+                )
+            return name == "workspace_region_edit_apply"
+
+        if mode is InteractionMode.CODE:
+            denied_prefixes = (
+                "snowflake_",
+                "dbt_",
+                "notebook_",
+                "mcp_",
+                "skill_",
+                "automation_",
+                "hosted_runner_",
+                "cortex_",
+                "semantic_",
+                "app_deploy",
+                "account_",
+                "admin_",
+                "governance_grant",
+            )
+            if name.startswith(denied_prefixes):
+                return False
+            if definition.risk is Risk.READ_ONLY:
+                return True
+            coding_mutation_prefixes = (
+                "workspace_",
+                "shell_",
+                "sandbox_shell_",
+                "git_",
+                "job_",
+                "python_repl_",
+                "session_todo_",
+            )
+            return name.startswith(coding_mutation_prefixes)
+
+        return True
+
+    def definitions_for_mode(
+        self,
+        mode: InteractionMode,
+    ) -> tuple[ToolDefinition, ...]:
+        return tuple(
+            definition
+            for definition in self.definitions()
+            if definition.enabled and self.allowed_in_interaction_mode(definition, mode)
+        )
+
     def invoke(self, invocation: ToolInvocation) -> dict[str, Any]:
         definition = self.describe(invocation.request.tool)
         if not definition.enabled:
             raise PermissionError(f"tool {definition.name} is disabled")
         request = invocation.request
-        if invocation.actor_mode in {ActorMode.ANALYST, ActorMode.PLAN} and definition.risk is not Risk.READ_ONLY:
+        if not self.allowed_in_interaction_mode(definition, invocation.interaction_mode):
+            raise PermissionError(
+                f"{invocation.interaction_mode.value} interaction mode cannot invoke {definition.name}"
+            )
+        if invocation.actor_mode in {ActorMode.ANALYST, ActorMode.ASK, ActorMode.PLAN} and definition.risk is not Risk.READ_ONLY:
             raise PermissionError(f"{invocation.actor_mode.value} mode cannot invoke {definition.risk.value} tools")
         if request.risk is not definition.risk:
             raise PermissionError("request risk does not match registered tool risk")
@@ -74,6 +146,10 @@ class ToolRegistry:
         args = dict(request.args)
         args["_run_id"] = invocation.run_id
         args["_dry_run"] = invocation.dry_run
+        args["_approved"] = invocation.approved
+        args["_environment"] = request.environment.value
+        args["_actor_mode"] = invocation.actor_mode.value
+        args["_interaction_mode"] = invocation.interaction_mode.value
         return definition.handler(args)
 
     def definitions(self) -> tuple[ToolDefinition, ...]:

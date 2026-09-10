@@ -1,0 +1,58 @@
+name: coco-ledger-sync
+
+on:
+  push:
+    branches:
+      - feature/ade-coco-capability-superiority
+    paths:
+      - 'scripts/promote_coco_ledger.py'
+      - '.github/workflows/coco-ledger-sync.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: coco-ledger-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  synchronize:
+    # This release utility promotes only evidence proven on the exact triggering SHA.
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/ade-coco-capability-superiority
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install ADE
+        run: python -m pip install -e '.[dev]'
+      - name: Re-prove all eight golden scenarios on source head
+        env:
+          GITHUB_HEAD_SHA: ${{ github.sha }}
+        run: python scripts/run_coco_golden_scenarios.py
+      - name: Promote only exact-head golden-certified CoCo declarations
+        env:
+          GITHUB_HEAD_SHA: ${{ github.sha }}
+        run: python scripts/promote_coco_ledger.py
+      - name: Verify canonical ledger after promotion
+        run: |
+          python scripts/check_capability_superiority.py --json
+          git diff --check
+      - name: Commit synchronized ledger when changed
+        shell: bash
+        run: |
+          if git diff --quiet -- specs/ADE_REFERENCE_CAPABILITY_SUPERIORITY_LEDGER.json; then
+            echo 'Ledger already synchronized.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add specs/ADE_REFERENCE_CAPABILITY_SUPERIORITY_LEDGER.json
+          git commit -m 'certification: synchronize CoCo ledger from exact-head golden evidence'
+          git push origin HEAD:feature/ade-coco-capability-superiority

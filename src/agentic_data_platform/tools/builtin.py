@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import importlib.util
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import os
 from pathlib import Path
 from typing import Any, Callable
 
-from agentic_data_platform.models import ActorMode, Capability, Environment, Platform, Risk, ToolRequest
+from agentic_data_platform.models import ActorMode, Capability, Environment, InteractionMode, Platform, Risk, ToolRequest
 from agentic_data_platform.migration.shiftforge_adapter import ShiftForgeAdapter
 from agentic_data_platform.platform.airflow import AirflowProject
 from agentic_data_platform.airflow_compat import AirflowAdapter, AirflowControlPlane
@@ -107,9 +107,26 @@ from agentic_data_platform.sql.parity import (
     translate_sql as sql_translate_impl,
 )
 from agentic_data_platform.connectors.factory import ExternalConnectionUnavailable, connector_from_args
-from agentic_data_platform.snowflake import SnowflakePipelineTester, analyze_copy_command, failure_lab
+from agentic_data_platform.connectors.snowflake import SnowflakeConnector
+from agentic_data_platform.snowflake import GovernedSnowflakeMutationExecutor, ManagedDbtExecutor, SnowflakePipelineTester, analyze_copy_command, failure_lab, plan_managed_dbt, plan_snowflake_mutation, supported_managed_dbt_commands
 from agentic_data_platform.metadata.index import MetadataIndex
 from agentic_data_platform.metadata.service import MetadataService
+from agentic_data_platform.search import UnifiedSemanticIndex
+from agentic_data_platform.semantic import CortexAnalystAdapter, SemanticRegistry, SnowflakeSemanticAdapter, build_analyst_request, evaluate_batch, evaluate_candidate, ingest_dbt_semantic_project, ingest_lookml_project
+from agentic_data_platform.cortex import CortexAgentClient
+from agentic_data_platform.runners import HostedRunnerStore
+from agentic_data_platform.agents.parallel import RuntimeSubagentExecutor, SubagentTask
+from agentic_data_platform.agents.teams import TeamCoordinator, TeamStore
+from agentic_data_platform.runners import sandbox as sandbox_runner
+from agentic_data_platform.notebooks import NotebookAgent
+from agentic_data_platform.browser import AgentBrowser, plan_browser_actions
+from agentic_data_platform.apps import GenericAppWorkflow, SnowflakeAppBuilder
+from agentic_data_platform.ml import AgenticMLWorkflow, SnowflakeModelRegistryAdapter, agentic_ml_plan, plan_log_model, plan_model_lifecycle, plan_snowpark_ml_workflow
+from agentic_data_platform.ai import AIWorkflowCompiler, SnowflakeAIWorkflowRunner
+from agentic_data_platform.ide import IDEBridge
+from agentic_data_platform import advanced_capabilities as advanced_caps
+from agentic_data_platform import workspace_files as workspace_files
+from agentic_data_platform import coding_workspace as coding_workspace
 from agentic_data_platform.training import (
     TrainingStore,
     import_markdown as training_import_markdown,
@@ -126,10 +143,14 @@ from agentic_data_platform.session import (
     session_overflow,
 )
 from agentic_data_platform.memory import MemoryStore
+from agentic_data_platform.rules import RuleStore
 from agentic_data_platform.tracing import TraceStore
+from agentic_data_platform.runtime.agent import AgentRuntime
 from agentic_data_platform.runtime.replay import replay_session
 from agentic_data_platform.runtime.store import RuntimeStore
 from agentic_data_platform.jobs import BackgroundJobEngine
+from agentic_data_platform.automations import AutomationService
+from agentic_data_platform.plugins import PluginBundleService
 from agentic_data_platform.review import (
     change_impact as review_change_impact,
     deliver_github_review,
@@ -163,6 +184,8 @@ from agentic_data_platform.governance import (
     classify_metadata_columns,
     excessive_privileges as governance_excessive_privileges,
     object_access as governance_object_access,
+    permission_change_plan as governance_permission_change_plan,
+    execute_permission_change as governance_execute_permission_change,
     pii_exposure as governance_pii_exposure,
     pii_policy_check as governance_pii_policy_check,
     propagate_pii as governance_propagate_pii,
@@ -189,7 +212,7 @@ from agentic_data_platform.connections.driver_install import (
 from agentic_data_platform.connections.dbt_profiles import discover_dbt_profiles
 from agentic_data_platform.connections.ssh_tunnel import SSHTunnelManager, TunnelConfig
 from agentic_data_platform.onboarding import materialize_sample
-from agentic_data_platform.teammates import TeammateManager
+from agentic_data_platform.teammates import TeammateManager, TeammateStore
 from agentic_data_platform.tools.feedback import submit_feedback
 from agentic_data_platform.tools.parity_utils import (
     PostConnectSuggestions,
@@ -219,6 +242,16 @@ def _target(args: dict[str, Any]) -> Path:
     return Path(args.get("project") or args.get("project_path") or args.get("target_dir") or ".").expanduser().resolve()
 
 
+def _teammate_store(args: dict[str, Any]) -> TeammateStore:
+    path = args.get("teammate_database") or (_target(args) / ".ade" / "teammates.db")
+    return TeammateStore(path)
+
+
+def _team_store(args: dict[str, Any]) -> TeamStore:
+    path = args.get("team_database") or (_target(args) / ".ade" / "teammates.db")
+    return TeamStore(path)
+
+
 def _session_store(args: dict[str, Any]) -> SessionStore:
     path = args.get("session_database") or (_target(args) / ".ade" / "sessions.db")
     return SessionStore(path)
@@ -237,6 +270,13 @@ def _memory_store(args: dict[str, Any]) -> MemoryStore:
     return MemoryStore(path)
 
 
+
+def _rule_store(args: dict[str, Any]) -> RuleStore:
+    return RuleStore(
+        _target(args),
+        global_root=args.get("global_rules_root"),
+    )
+
 def _trace_store(args: dict[str, Any]) -> TraceStore:
     path = args.get("trace_database") or (_target(args) / ".ade" / "traces.db")
     return TraceStore(path)
@@ -254,6 +294,82 @@ def _job_engine(args: dict[str, Any]) -> BackgroundJobEngine:
         engine = BackgroundJobEngine(path, max_workers=int(args.get("max_workers", 4)))
         _JOB_ENGINES[path] = engine
     return engine
+
+
+def _automation_service(args: dict[str, Any]) -> AutomationService:
+    path = args.get("automation_database") or (_target(args) / ".ade" / "automations.db")
+    return AutomationService(path)
+
+
+def _plugin_bundle_service(args: dict[str, Any]) -> PluginBundleService:
+    return PluginBundleService(_target(args))
+
+
+def _semantic_registry(args: dict[str, Any]) -> SemanticRegistry:
+    path = args.get("semantic_database") or (_target(args) / ".ade" / "semantic.db")
+    return SemanticRegistry(path)
+
+
+def _snowflake_semantic_adapter(args: dict[str, Any]) -> SnowflakeSemanticAdapter:
+    connector = connector_from_args({**args, "platform": "snowflake"})
+    if not isinstance(connector, SnowflakeConnector):
+        raise TypeError("semantic Snowflake sync requires SnowflakeConnector")
+    return SnowflakeSemanticAdapter(connector)
+
+
+def _cortex_agent_client(args: dict[str, Any]) -> CortexAgentClient:
+    return CortexAgentClient(
+        account_url=args.get("account_url"),
+        token=args.get("token"),
+        role=args.get("role"),
+        timeout_seconds=int(args.get("timeout_seconds", 120)),
+    )
+
+
+def _hosted_runner_store(args: dict[str, Any]) -> HostedRunnerStore:
+    path = args.get("runner_database") or (_target(args) / ".ade" / "hosted-runner.db")
+    return HostedRunnerStore(path)
+
+
+def _notebook_agent(_: dict[str, Any]) -> NotebookAgent:
+    return NotebookAgent()
+
+
+def _app_builder(args: dict[str, Any]) -> SnowflakeAppBuilder:
+    return SnowflakeAppBuilder(_target(args))
+
+def _generic_app_workflow(args: dict[str, Any]) -> GenericAppWorkflow:
+    return GenericAppWorkflow(_target(args))
+
+
+
+def _ide_bridge(args: dict[str, Any]) -> IDEBridge:
+    return IDEBridge(_target(args))
+
+
+def _snowflake_model_adapter(args: dict[str, Any]) -> SnowflakeModelRegistryAdapter:
+    connector = connector_from_args({**args, "platform": "snowflake"})
+    if not isinstance(connector, SnowflakeConnector):
+        raise TypeError("Snowpark model registry requires SnowflakeConnector")
+    return SnowflakeModelRegistryAdapter(connector)
+
+
+def _ai_workflow_run(args: dict[str, Any]) -> dict[str, Any]:
+    compiled = AIWorkflowCompiler().compile(dict(args["workflow"]))
+    if bool(args.get("plan_only", False)):
+        return compiled.public()
+    try:
+        connector = connector_from_args({**args, "platform": "snowflake"})
+    except ExternalConnectionUnavailable as exc:
+        return {
+            **compiled.public(),
+            "status": "SKIP_EXTERNAL",
+            "platform": "snowflake",
+            "reason": str(exc),
+        }
+    if not isinstance(connector, SnowflakeConnector):
+        raise TypeError("Snowflake AI workflow execution requires SnowflakeConnector")
+    return SnowflakeAIWorkflowRunner(connector).run(dict(args["workflow"]))
 
 
 def _dbt(args: dict[str, Any]) -> DbtManifestGraph:
@@ -305,6 +421,93 @@ def _snowflake_pipeline_call(args: dict[str, Any], method: str, **kwargs: Any) -
         return {"status": "SKIP_EXTERNAL", "platform": "snowflake", "reason": str(exc)}
 
 
+def _snowflake_mutation_execute(args: dict[str, Any]) -> dict[str, Any]:
+    environment = str(args.get("_environment") or args.get("environment") or "dev")
+    if bool(args.get("_dry_run")):
+        plan = plan_snowflake_mutation(args["sql"], environment=environment)
+        if plan.get("status") != "PASS":
+            return plan
+        if not bool(args.get("_approved")):
+            return {**plan, "status": "BLOCKED_APPROVAL", "reason": "explicit ToolRegistry approval is required"}
+        if str(args.get("approval_fingerprint") or "") != plan["approval_fingerprint"]:
+            return {
+                **plan,
+                "status": "BLOCKED_APPROVAL",
+                "code": "APPROVAL_FINGERPRINT_MISMATCH",
+                "reason": "approval does not match the exact SQL/environment/target being executed",
+            }
+        if plan["destructive"] and not bool(args.get("confirm_destructive", False)):
+            return {
+                **plan,
+                "status": "BLOCKED_APPROVAL",
+                "code": "DESTRUCTIVE_CONFIRMATION_REQUIRED",
+                "reason": "destructive execution requires an additional explicit confirmation",
+            }
+        return {**plan, "status": "PASS", "mode": "DRY_RUN", "executed": False}
+
+    try:
+        connector = connector_from_args({**args, "platform": "snowflake"})
+    except ExternalConnectionUnavailable as exc:
+        return {"status": "SKIP_EXTERNAL", "platform": "snowflake", "reason": str(exc)}
+    if not isinstance(connector, SnowflakeConnector):
+        raise TypeError("Snowflake mutation execution requires SnowflakeConnector")
+    return GovernedSnowflakeMutationExecutor(connector).execute(
+        args["sql"],
+        environment=environment,
+        approval_fingerprint=str(args.get("approval_fingerprint") or ""),
+        approved=bool(args.get("_approved")),
+        confirm_destructive=bool(args.get("confirm_destructive", False)),
+        dry_run=False,
+    )
+
+
+def _managed_dbt_kwargs(args: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "project_name": args.get("project_name"),
+        "workspace_name": args.get("workspace_name"),
+        "command": str(args.get("command", "run")),
+        "flags": tuple(args.get("flags") or ()),
+        "dbt_version": args.get("dbt_version"),
+        "dbt_environment": args.get("dbt_environment"),
+        "env_vars": dict(args.get("env_vars") or {}),
+        "external_access_integrations": tuple(args.get("external_access_integrations") or ()),
+        "project_root": args.get("project_root"),
+        "if_exists": bool(args.get("if_exists", False)),
+    }
+
+
+def _managed_dbt_execute(args: dict[str, Any]) -> dict[str, Any]:
+    environment = str(args.get("_environment") or "dev")
+    kwargs = _managed_dbt_kwargs(args)
+    plan = plan_managed_dbt(ade_environment=environment, **kwargs)
+    if plan.get("status") != "PASS":
+        return plan
+    if not bool(args.get("_approved")):
+        return {**plan, "status": "BLOCKED_APPROVAL", "reason": "explicit ToolRegistry approval is required"}
+    if str(args.get("approval_fingerprint") or "") != plan["approval_fingerprint"]:
+        return {
+            **plan,
+            "status": "BLOCKED_APPROVAL",
+            "code": "APPROVAL_FINGERPRINT_MISMATCH",
+            "reason": "approval does not match the exact managed dbt execution statement",
+        }
+    if bool(args.get("_dry_run")):
+        return {**plan, "status": "PASS", "mode": "DRY_RUN", "executed": False}
+    try:
+        connector = connector_from_args({**args, "platform": "snowflake"})
+    except ExternalConnectionUnavailable as exc:
+        return {"status": "SKIP_EXTERNAL", "platform": "snowflake", "reason": str(exc)}
+    if not isinstance(connector, SnowflakeConnector):
+        raise TypeError("Snowflake-managed dbt execution requires SnowflakeConnector")
+    return ManagedDbtExecutor(connector).execute(
+        approval_fingerprint=str(args["approval_fingerprint"]),
+        approved=True,
+        ade_environment=environment,
+        dry_run=False,
+        **kwargs,
+    )
+
+
 def _connection_store(args: dict[str, Any]) -> ConnectionStore:
     path = args.get("connection_database") or (_target(args) / ".ade" / "connections.db")
     return ConnectionStore(path)
@@ -313,6 +516,11 @@ def _connection_store(args: dict[str, Any]) -> ConnectionStore:
 def _metadata_service(args: dict[str, Any]) -> MetadataService:
     path = args.get("metadata_database") or (_target(args) / ".ade" / "metadata.db")
     return MetadataService(path)
+
+
+def _semantic_search_index(args: dict[str, Any]) -> UnifiedSemanticIndex:
+    path = args.get("search_database") or (_target(args) / ".ade" / "semantic-search.db")
+    return UnifiedSemanticIndex(path)
 
 
 def _connector_profile(args: dict[str, Any], side: str):
@@ -432,6 +640,79 @@ def build_tool_registry() -> ToolRegistry:
         }
 
     add("sample_setup", Capability.GENERATE, lambda a: materialize_sample(home=a.get("home"), preferred_target_name=a.get("preferred_target_name", "agentic-data-sample-dbt"), allow_in_place_upgrade=bool(a.get("allow_in_place_upgrade", False)), install_alongside=bool(a.get("install_alongside", False))), "Materialize or safely reuse the shipped dbt + DuckDB starter sample.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    def team_set_members_handler(a: dict[str, Any]) -> dict[str, Any]:
+        teammates = _teammate_store(a)
+        member_ids = [str(item) for item in a.get("teammate_ids") or []]
+        for teammate_id in member_ids:
+            teammates.get(teammate_id)
+        return _team_store(a).set_members(str(a["team_id"]), member_ids)
+
+    def team_plan_handler(a: dict[str, Any]) -> dict[str, Any]:
+        coordinator = TeamCoordinator(
+            _team_store(a),
+            _teammate_store(a),
+            lambda _: {"status": "UNUSED"},
+        )
+        return coordinator.plan(str(a["team_id"]), list(a.get("tasks") or []))
+
+    def team_run_handler(a: dict[str, Any]) -> dict[str, Any]:
+        provider_name = str(a.get("provider") or "").strip()
+        default_model = str(a.get("model") or "").strip()
+        if not provider_name or not default_model:
+            raise ValueError("team execution requires configured provider and model")
+        runtime = AgentRuntime(
+            registry,
+            RuntimeStore(
+                a.get("runtime_database")
+                or (_target(a) / ".ade" / "runtime.db")
+            ),
+            _trace_store(a),
+        )
+        providers = ProviderRegistry()
+        base_executor = RuntimeSubagentExecutor(
+            runtime,
+            lambda _: providers.create(provider_name),
+            parent_session_id=a.get("parent_session_id"),
+            project_root=_target(a),
+            environment=Environment(
+                str(a.get("_environment") or a.get("environment") or "dev")
+            ),
+            approved_tools={str(item) for item in a.get("approved_tools") or []},
+        )
+
+        def execute_team_task(task: SubagentTask) -> dict[str, Any]:
+            definition = task.definition
+            if definition.model in {"inherit", "auto", ""}:
+                definition = replace(definition, model=default_model)
+            return base_executor(
+                SubagentTask(
+                    definition,
+                    task.prompt,
+                    metadata=dict(task.metadata),
+                )
+            )
+
+        coordinator = TeamCoordinator(
+            _team_store(a),
+            _teammate_store(a),
+            execute_team_task,
+        )
+        return coordinator.run(
+            dict(a["plan"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+        )
+
+    add("team_list", Capability.DISCOVER, lambda a: {"teams": _team_store(a).list()}, "List persistent agent teams and member fingerprints.", platforms=frozenset({Platform.LOCAL}))
+    add("team_show", Capability.DISCOVER, lambda a: _team_store(a).get(str(a["team_id"])), "Inspect one persistent agent team and ordered membership.", platforms=frozenset({Platform.LOCAL}))
+    add("team_create", Capability.GENERATE, lambda a: _team_store(a).create(str(a["name"]), description=a.get("description"), supervisor_prompt=str(a.get("supervisor_prompt") or ""), max_parallel=int(a.get("max_parallel", 4))), "Create a persistent agent team.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("team_edit", Capability.GENERATE, lambda a: _team_store(a).edit(str(a["team_id"]), name=a.get("name"), description=a.get("description"), supervisor_prompt=a.get("supervisor_prompt"), max_parallel=a.get("max_parallel")), "Edit a persistent team supervisor contract.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("team_set_members", Capability.GENERATE, team_set_members_handler, "Set ordered team membership after validating teammate identities.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("team_delete", Capability.GENERATE, lambda a: _team_store(a).delete(str(a["team_id"])), "Delete one persistent team definition.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("team_plan", Capability.PLAN, team_plan_handler, "Build a fingerprint-bound dependency DAG from persistent teammate policies.", platforms=frozenset({Platform.LOCAL}))
+    add("team_run", Capability.EXECUTE, team_run_handler, "Execute an approved team DAG through real scoped AgentRuntime subagents using a configured provider/model.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING, requires_approval=True)
+    add("team_runs", Capability.DISCOVER, lambda a: {"runs": _team_store(a).runs(str(a["team_id"]), limit=int(a.get("limit", 100)))}, "List durable team run evidence.", platforms=frozenset({Platform.LOCAL}))
+    add("team_run_show", Capability.DISCOVER, lambda a: _team_store(a).run(str(a["run_id"])), "Inspect one durable team run and evidence fingerprint.", platforms=frozenset({Platform.LOCAL}))
+
     add("datamate_manager", Capability.EXECUTE, lambda a: TeammateManager(_target(a), database=a.get("teammate_database"), global_root=a.get("teammate_global_root")).execute(a["operation"], a), "Manage local AI teammates and their MCP integrations using the Datamate lifecycle operations.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
     add("feedback_submit", Capability.EXECUTE, lambda a: submit_feedback(title=a["title"], category=a["category"], description=a["description"], include_context=bool(a.get("include_context", False)), repository=a.get("repository", "rrahul0904/Agentic_AI_Data_Quality_Testing"), session_id=a.get("session_id")), "Submit user feedback as a GitHub issue when gh is installed and authenticated.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
 
@@ -555,9 +836,22 @@ def build_tool_registry() -> ToolRegistry:
     add("session_messages", Capability.DISCOVER, lambda a: {"messages": _session_store(a).messages(a["session_id"], limit=a.get("limit"))}, "List ordered messages for a session.", platforms=frozenset({Platform.LOCAL}))
     add("session_status", Capability.DISCOVER, lambda a: _session_store(a).get(a["session_id"]), "Read governed session status.", platforms=frozenset({Platform.LOCAL}))
     add("session_status_set", Capability.GENERATE, lambda a: _session_store(a).set_status(a["session_id"], a["status"]), "Update governed session status.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
-    add("session_todo_add", Capability.GENERATE, lambda a: _session_store(a).add_todo(a["session_id"], a["text"], priority=int(a.get("priority", 0))), "Add a persistent session todo.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
-    add("session_todo_update", Capability.GENERATE, lambda a: _session_store(a).update_todo(a["todo_id"], a["status"]), "Update persistent session todo state.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
-    add("session_todos", Capability.DISCOVER, lambda a: {"todos": _session_store(a).todos(a["session_id"])}, "List session todos.", platforms=frozenset({Platform.LOCAL}))
+    add("session_history", Capability.DISCOVER, lambda a: _session_store(a).history(a["session_id"], limit=a.get("limit")), "Read durable session history with a stable fingerprint.", platforms=frozenset({Platform.LOCAL}))
+    add("session_checkpoint_create", Capability.GENERATE, lambda a: _session_store(a).create_checkpoint(a["session_id"], label=a.get("label"), metadata=a.get("metadata")), "Capture an immutable durable checkpoint of messages, todos, reminders and state.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("session_checkpoint_list", Capability.DISCOVER, lambda a: {"checkpoints": _session_store(a).checkpoints(a["session_id"], limit=int(a.get("limit", 100)))}, "List durable session checkpoints.", platforms=frozenset({Platform.LOCAL}))
+    add("session_checkpoint_show", Capability.DISCOVER, lambda a: _session_store(a).checkpoint(a["checkpoint_id"]), "Inspect one immutable session checkpoint.", platforms=frozenset({Platform.LOCAL}))
+    add("session_checkpoint_diff", Capability.DISCOVER, lambda a: _session_store(a).checkpoint_diff(a["from_checkpoint_id"], a["to_checkpoint_id"]), "Diff two same-session checkpoints across messages, todos, state and status.", platforms=frozenset({Platform.LOCAL}))
+    add("session_checkpoint_review", Capability.DISCOVER, lambda a: _session_store(a).checkpoint_review(a["session_id"]), "Review latest session history/checkpoint evidence and the most recent diff.", platforms=frozenset({Platform.LOCAL}))
+    add("session_checkpoint_delete", Capability.GENERATE, lambda a: _session_store(a).delete_checkpoint(a["checkpoint_id"]), "Delete one durable session checkpoint explicitly.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("session_todo_add", Capability.GENERATE, lambda a: _session_store(a).add_todo(a["session_id"], a["text"], priority=int(a.get("priority", 0)), position=a.get("position"), dependencies=list(a.get("dependencies") or ()), plan_fingerprint=a.get("plan_fingerprint"), subagent_id=a.get("subagent_id")), "Add a persistent session todo with optional plan/dependency/subagent linkage.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("session_todo_update", Capability.GENERATE, lambda a: _session_store(a).update_todo(a["todo_id"], a["status"], progress=a.get("progress"), evidence=a.get("evidence"), verified=a.get("verified")), "Update todo progress/state; DONE requires verified evidence.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("session_todo_complete", Capability.VERIFY, lambda a: _session_store(a).complete_todo(a["todo_id"], evidence=list(a.get("evidence") or ()), verification=a.get("verification")), "Complete a todo only after verification evidence passes.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("session_todo_reopen", Capability.GENERATE, lambda a: _session_store(a).reopen_todo(a["todo_id"]), "Reopen a completed or blocked todo and clear verification state.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("session_todo_remove", Capability.GENERATE, lambda a: _session_store(a).remove_todo(a["todo_id"]), "Remove a todo only when no dependent task references it.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("session_todo_reorder", Capability.GENERATE, lambda a: _session_store(a).reorder_todo(a["todo_id"], int(a["position"])), "Reorder one persistent todo.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("session_todo_dependencies", Capability.GENERATE, lambda a: _session_store(a).set_todo_dependencies(a["todo_id"], list(a.get("dependencies") or ())), "Set explicit same-session todo dependencies.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("session_todos_from_plan", Capability.GENERATE, lambda a: {"todos": _session_store(a).todos_from_plan(a["session_id"], a["plan"])}, "Materialize an immutable approved plan into ordered dependent todos.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("session_todos", Capability.DISCOVER, lambda a: {"todos": _session_store(a).todos(a["session_id"])}, "List session todos with progress, dependencies, verification and evidence.", platforms=frozenset({Platform.LOCAL}))
     add("session_reminder_add", Capability.GENERATE, lambda a: _session_store(a).add_reminder(a["session_id"], a["text"], a.get("trigger") or {}), "Add a persistent session reminder.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
     add("session_reminders", Capability.DISCOVER, lambda a: {"reminders": _session_store(a).reminders(a["session_id"], undelivered_only=bool(a.get("undelivered_only", False)))}, "List session reminders.", platforms=frozenset({Platform.LOCAL}))
     add("session_reminder_deliver", Capability.GENERATE, lambda a: _session_store(a).mark_reminder_delivered(a["reminder_id"]), "Mark a session reminder delivered.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
@@ -572,9 +866,21 @@ def build_tool_registry() -> ToolRegistry:
     add("session_tool_result_cap", Capability.VERIFY, lambda a: session_cap_tool_result(a.get("value"), max_chars=int(a.get("max_chars", 20000))), "Cap oversized tool results while preserving head/tail evidence.", platforms=frozenset({Platform.LOCAL}))
     add("session_overflow", Capability.VERIFY, lambda a: session_overflow(session_model(a), a.get("messages") or (), requested_output_tokens=a.get("requested_output_tokens")), "Detect context-window overflow against normalized model limits.", platforms=frozenset({Platform.LOCAL}))
 
-    add("memory_save", Capability.GENERATE, lambda a: {"memory_id": _memory_store(a).save_memory(a["content"], scope=a.get("scope", "project"), project_id=a.get("project_id"), tags=list(a.get("tags") or ()), citations=list(a.get("citations") or ()), expires_at=a.get("expires_at"))}, "Persist explicit project/global memory with provenance.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("rule_list", Capability.DISCOVER, lambda a: {"rules": _rule_store(a).list(include_static=bool(a.get("include_static", True)))}, "List managed and legacy instruction rules with scope and fingerprints.", platforms=frozenset({Platform.LOCAL}))
+    add("rule_resolve", Capability.DISCOVER, lambda a: _rule_store(a).resolve(target_path=a.get("target_path")), "Resolve global/project/path-scoped rules by deterministic precedence.", platforms=frozenset({Platform.LOCAL}))
+    add("rule_show", Capability.DISCOVER, lambda a: _rule_store(a).inspect(a["name"], scope=a.get("scope")), "Inspect one rule and its immutable content fingerprint.", platforms=frozenset({Platform.LOCAL}))
+    add("rule_save", Capability.GENERATE, lambda a: _rule_store(a).save(a["name"], a["content"], scope=a.get("scope", "project"), priority=int(a.get("priority", 0)), apply_paths=list(a.get("apply_paths") or []), enabled=bool(a.get("enabled", True))), "Create or update a governed global/project instruction rule.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("rule_enable", Capability.GENERATE, lambda a: _rule_store(a).set_enabled(a["name"], bool(a.get("enabled", True)), scope=a.get("scope", "project")), "Enable or disable one managed instruction rule.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("rule_remove", Capability.GENERATE, lambda a: _rule_store(a).remove(a["name"], scope=a.get("scope", "project")), "Remove one managed instruction rule explicitly.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+
+    add("memory_save", Capability.GENERATE, lambda a: {"memory_id": _memory_store(a).save_memory(a["content"], scope=a.get("scope", "project"), project_id=a.get("project_id"), tags=list(a.get("tags") or ()), citations=list(a.get("citations") or ()), expires_at=a.get("expires_at"), kind=a.get("kind", "durable"))}, "Persist explicit durable project/global memory with provenance, disable controls and secret protection.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
     add("memory_list", Capability.DISCOVER, lambda a: {"memories": _memory_store(a).list_memories(scope=a.get("scope"), project_id=a.get("project_id"), limit=int(a.get("limit", 200)))}, "List bounded non-expired memories.", platforms=frozenset({Platform.LOCAL}))
     add("memory_search", Capability.DISCOVER, lambda a: {"memories": _memory_store(a).search(a.get("query", ""), project_id=a.get("project_id"), limit=int(a.get("limit", 50)))}, "Search project/global memory deterministically.", platforms=frozenset({Platform.LOCAL}))
+    add("memory_settings", Capability.DISCOVER, lambda a: _memory_store(a).memory_settings(scope=a.get("scope", "project"), project_id=a.get("project_id")), "Inspect memory enablement and personalization settings for one scope.", platforms=frozenset({Platform.LOCAL}))
+    add("memory_personalization", Capability.DISCOVER, lambda a: _memory_store(a).personalization(project_id=a.get("project_id")), "Resolve effective global plus project instructions, tool preferences and runtime preferences.", platforms=frozenset({Platform.LOCAL}))
+    add("memory_configure", Capability.GENERATE, lambda a: _memory_store(a).configure_memory(scope=a.get("scope", "project"), project_id=a.get("project_id"), enabled=a.get("enabled"), instructions=a.get("instructions"), tool_preferences=a.get("tool_preferences"), runtime_preferences=a.get("runtime_preferences")), "Configure enablement and inspectable personalization without persisting secrets.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("memory_update", Capability.GENERATE, lambda a: _memory_store(a).update_memory(a["memory_id"], content=a.get("content"), tags=a.get("tags"), citations=a.get("citations"), expires_at=a.get("expires_at")), "Update one persisted durable memory with secret filtering.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+    add("memory_reset", Capability.GENERATE, lambda a: _memory_store(a).reset_memories(scope=a["scope"], project_id=a.get("project_id")), "Reset memories within one explicit global or project scope.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
     add("memory_remove", Capability.GENERATE, lambda a: {"removed": _memory_store(a).remove_memory(a["memory_id"])}, "Remove one persisted memory.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
 
     add("trace_list", Capability.DISCOVER, lambda a: {"traces": _trace_store(a).traces(limit=int(a.get("limit", 100)))}, "List trace summaries with generation/tool/error counts.", platforms=frozenset({Platform.LOCAL}))
@@ -623,6 +929,1136 @@ def build_tool_registry() -> ToolRegistry:
     add("job_list", Capability.DISCOVER, lambda a: {"jobs": _job_engine(a).list(limit=int(a.get("limit", 100)))}, "List persistent background jobs.", platforms=frozenset({Platform.LOCAL}))
     add("job_show", Capability.DISCOVER, lambda a: _job_engine(a).get(a["job_id"]), "Show one background job.", platforms=frozenset({Platform.LOCAL}))
     add("job_cancel", Capability.GENERATE, lambda a: {"job_id": a["job_id"], "cancelled": _job_engine(a).cancel(a["job_id"])}, "Cancel a queued background job when cancellation is still possible.", platforms=frozenset({Platform.LOCAL}), risk=Risk.MUTATING)
+
+    def automation_create_handler(a: dict[str, Any]) -> dict[str, Any]:
+        return _automation_service(a).create(
+            name=str(a.get("name") or a["tool_name"]),
+            tool_name=str(a["tool_name"]),
+            args=dict(a.get("args") or {}),
+            schedule=dict(a["schedule"]),
+            actor_mode=ActorMode(str(a.get("_actor_mode") or "analyst")),
+            interaction_mode=InteractionMode(
+                str(a.get("_interaction_mode") or a.get("interaction_mode") or "agent")
+            ),
+            environment=Environment(str(a.get("_environment") or "dev")),
+            approved=False,
+            enabled=bool(a.get("enabled", True)),
+            execution_backend=str(a.get("execution_backend") or "local"),
+            workspace_policy=dict(a.get("workspace_policy") or {}),
+        )
+
+    def automation_run_due_handler(a: dict[str, Any]) -> dict[str, Any]:
+        return _automation_service(a).run_due(
+            registry,
+            limit=int(a.get("limit", 100)),
+        )
+
+    def automation_queue_hosted_handler(a: dict[str, Any]) -> dict[str, Any]:
+        return _automation_service(a).queue_due_hosted(
+            _hosted_runner_store(a),
+            limit=int(a.get("limit", 100)),
+        )
+
+    add(
+        "automation_create",
+        Capability.GENERATE,
+        automation_create_handler,
+        "Create a persistent unattended ADE automation. Future mutating execution is not approved by schedule creation.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "automation_list",
+        Capability.DISCOVER,
+        lambda a: {"automations": _automation_service(a).list(limit=int(a.get("limit", 100)), enabled=a.get("enabled"))},
+        "List persistent ADE automations and their run evidence.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "automation_show",
+        Capability.DISCOVER,
+        lambda a: _automation_service(a).get(a["automation_id"]),
+        "Show one persistent ADE automation.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "automation_enable",
+        Capability.GENERATE,
+        lambda a: _automation_service(a).set_enabled(a["automation_id"], bool(a.get("enabled", True))),
+        "Enable or disable a persistent ADE automation.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "automation_approve",
+        Capability.EXECUTE,
+        lambda a: _automation_service(a).set_approved(a["automation_id"], bool(a.get("approved", True))),
+        "Explicitly approve or revoke unattended execution authority for an automation.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "automation_run_due",
+        Capability.EXECUTE,
+        automation_run_due_handler,
+        "Run all due automations once through normal ADE ToolRegistry policy and persist run evidence.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "automation_queue_hosted",
+        Capability.EXECUTE,
+        automation_queue_hosted_handler,
+        "Dispatch due hosted automations into the durable isolated runner queue; no scheduled tool executes in the scheduler process.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "automation_delete",
+        Capability.GENERATE,
+        lambda a: {"automation_id": a["automation_id"], "deleted": _automation_service(a).delete(a["automation_id"])},
+        "Delete one persistent ADE automation definition.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+
+    add(
+        "plugin_bundle_validate",
+        Capability.VERIFY,
+        lambda a: _plugin_bundle_service(a).validate(a["source"]),
+        "Validate an ADE plugin bundle manifest, contribution paths, hook rules and checksums without installing it.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "plugin_bundle_install",
+        Capability.GENERATE,
+        lambda a: _plugin_bundle_service(a).install(a["source"], overwrite=bool(a.get("overwrite", False))),
+        "Install a validated project-scoped ADE plugin bundle without executing installer code.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "plugin_bundle_list",
+        Capability.DISCOVER,
+        lambda a: {"plugins": _plugin_bundle_service(a).list()},
+        "List project-scoped ADE plugin bundles and activation state.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "plugin_bundle_show",
+        Capability.DISCOVER,
+        lambda a: _plugin_bundle_service(a).inspect(a["name"]),
+        "Inspect one installed ADE plugin bundle.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "plugin_bundle_activate",
+        Capability.GENERATE,
+        lambda a: _plugin_bundle_service(a).activate(a["name"], overwrite=bool(a.get("overwrite", False))),
+        "Activate a plugin bundle and materialize skills, agents, commands and MCP declarations for the project.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "plugin_bundle_remove",
+        Capability.GENERATE,
+        lambda a: _plugin_bundle_service(a).remove(a["name"]),
+        "Remove an installed ADE plugin bundle package.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+
+    add(
+        "semantic_ingest_yaml",
+        Capability.GENERATE,
+        lambda a: _semantic_registry(a).ingest_yaml(a["source"], provider=str(a.get("provider") or "snowflake-semantic-yaml")),
+        "Ingest a semantic-model/view YAML specification into the provider-neutral ADE semantic registry.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "semantic_ingest_dbt",
+        Capability.GENERATE,
+        lambda a: ingest_dbt_semantic_project(
+            _semantic_registry(a),
+            a.get("project_root") or _target(a),
+            resource_name=a.get("resource_name"),
+        ),
+        "Ingest dbt Semantic Layer / MetricFlow semantic models, metrics and saved queries into ADE.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "semantic_ingest_lookml",
+        Capability.GENERATE,
+        lambda a: ingest_lookml_project(
+            _semantic_registry(a),
+            a.get("project_root") or _target(a),
+            resource_name=a.get("resource_name"),
+        ),
+        "Ingest LookML views, fields, explores and joins into the provider-neutral ADE semantic registry.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "semantic_list",
+        Capability.DISCOVER,
+        lambda a: {"resources": _semantic_registry(a).list()},
+        "List semantic resources across providers.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "semantic_show",
+        Capability.DISCOVER,
+        lambda a: _semantic_registry(a).show(a["resource"]),
+        "Inspect a semantic resource with dimensions, facts, metrics, relationships and verified queries.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "semantic_registry_search",
+        Capability.DISCOVER,
+        lambda a: {"results": _semantic_registry(a).search(str(a["query"]), limit=int(a.get("limit", 25)))},
+        "Search business semantic concepts across providers.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "semantic_verified_search",
+        Capability.DISCOVER,
+        lambda a: {"results": _semantic_registry(a).find_verified(str(a["question"]), limit=int(a.get("limit", 10)))},
+        "Find verified-query ground truth related to a business question.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "semantic_evaluate",
+        Capability.VERIFY,
+        lambda a: evaluate_candidate(
+            _semantic_registry(a),
+            question=str(a["question"]),
+            candidate_sql=str(a["sql"]),
+            dialect=str(a.get("dialect") or "snowflake"),
+        ),
+        "Evaluate generated SQL against verified-query semantic ground truth.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "semantic_evaluate_batch",
+        Capability.VERIFY,
+        lambda a: evaluate_batch(
+            _semantic_registry(a),
+            list(a.get("cases") or []),
+            dialect=str(a.get("dialect") or "snowflake"),
+        ),
+        "Evaluate a batch of generated SQL cases against verified-query ground truth.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+
+    def semantic_snowflake_sync(a: dict[str, Any]) -> dict[str, Any]:
+        try:
+            adapter = _snowflake_semantic_adapter(a)
+        except ExternalConnectionUnavailable as exc:
+            return {"status": "SKIP_EXTERNAL", "platform": "snowflake", "reason": str(exc)}
+        return adapter.sync(
+            _semantic_registry(a),
+            database=a.get("database"),
+            schema=a.get("schema"),
+            account=bool(a.get("account", False)),
+        )
+
+    add(
+        "semantic_snowflake_sync",
+        Capability.DISCOVER,
+        semantic_snowflake_sync,
+        "Discover Snowflake semantic views, DESCRIBE each view, and synchronize their semantic metadata into ADE.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "cortex_analyst_plan",
+        Capability.PLAN,
+        lambda a: {
+            "status": "PASS",
+            "request": build_analyst_request(
+                str(a["question"]),
+                [str(item) for item in a.get("semantic_views") or []],
+                conversation=list(a.get("conversation") or []),
+            ),
+        },
+        "Build a Cortex Analyst request over one or more Snowflake semantic views without sending it.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "cortex_analyst_run",
+        Capability.EXECUTE,
+        lambda a: CortexAnalystAdapter(
+            account_url=a.get("account_url"),
+            token=a.get("token"),
+            role=a.get("role"),
+            timeout_seconds=int(a.get("timeout_seconds", 120)),
+        ).run(
+            str(a["question"]),
+            [str(item) for item in a.get("semantic_views") or []],
+            conversation=list(a.get("conversation") or []),
+        ),
+        "Run a live Cortex Analyst request when Snowflake REST credentials are configured.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+    )
+
+    add(
+        "cortex_agent_create_plan",
+        Capability.PLAN,
+        lambda a: _cortex_agent_client(a).plan_create(
+            str(a["database"]),
+            str(a["schema"]),
+            dict(a["specification"]),
+            create_mode=str(a.get("create_mode") or "errorIfExists"),
+        ),
+        "Plan creation of a Snowflake Cortex Agent object without sending the request.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "cortex_agent_create",
+        Capability.EXECUTE,
+        lambda a: _cortex_agent_client(a).create(
+            str(a["database"]), str(a["schema"]), dict(a["specification"]),
+            create_mode=str(a.get("create_mode") or "errorIfExists"),
+        ),
+        "Create a Snowflake Cortex Agent object through the current REST API.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "cortex_agent_list",
+        Capability.DISCOVER,
+        lambda a: _cortex_agent_client(a).list(
+            str(a["database"]), str(a["schema"]),
+            like=a.get("like"), limit=a.get("limit"),
+        ),
+        "List Cortex Agent objects in a Snowflake database/schema.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+    )
+    add(
+        "cortex_agent_show",
+        Capability.DISCOVER,
+        lambda a: _cortex_agent_client(a).describe(str(a["database"]), str(a["schema"]), str(a["name"])),
+        "Describe a Snowflake Cortex Agent object.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+    )
+    add(
+        "cortex_agent_update",
+        Capability.EXECUTE,
+        lambda a: _cortex_agent_client(a).update(
+            str(a["database"]), str(a["schema"]), str(a["name"]), dict(a["specification"]),
+        ),
+        "Update a Snowflake Cortex Agent object.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "cortex_agent_delete",
+        Capability.EXECUTE,
+        lambda a: _cortex_agent_client(a).delete(
+            str(a["database"]), str(a["schema"]), str(a["name"]),
+            if_exists=bool(a.get("if_exists", True)),
+        ),
+        "Delete a Snowflake Cortex Agent object.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+        risk=Risk.DESTRUCTIVE,
+        requires_approval=True,
+    )
+    add(
+        "cortex_thread_create",
+        Capability.EXECUTE,
+        lambda a: _cortex_agent_client(a).create_thread(origin_application=str(a.get("origin_application") or "ade")),
+        "Create a Cortex Agent conversation thread.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "cortex_thread_list",
+        Capability.DISCOVER,
+        lambda a: _cortex_agent_client(a).list_threads(page_size=int(a.get("page_size", 50))),
+        "List Cortex Agent threads for the Snowflake user.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+    )
+    add(
+        "cortex_thread_show",
+        Capability.DISCOVER,
+        lambda a: _cortex_agent_client(a).describe_thread(
+            a["thread_id"],
+            page_size=int(a.get("page_size", 50)),
+            last_message_id=a.get("last_message_id"),
+            message_type=a.get("message_type"),
+        ),
+        "Describe a Cortex Agent thread and messages.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+    )
+    add(
+        "cortex_thread_update",
+        Capability.EXECUTE,
+        lambda a: _cortex_agent_client(a).update_thread(a["thread_id"], thread_name=str(a["thread_name"])),
+        "Rename a Cortex Agent thread.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "cortex_thread_delete",
+        Capability.EXECUTE,
+        lambda a: _cortex_agent_client(a).delete_thread(a["thread_id"]),
+        "Delete a Cortex Agent thread and its messages.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+        risk=Risk.DESTRUCTIVE,
+        requires_approval=True,
+    )
+    add(
+        "cortex_agent_run_plan",
+        Capability.PLAN,
+        lambda a: {
+            "status": "PASS",
+            "request": CortexAgentClient.build_run_request(
+                str(a["question"]),
+                thread_id=a.get("thread_id"),
+                parent_message_id=a.get("parent_message_id", 0),
+                tool_names=[str(item) for item in a.get("tool_names") or []],
+                background=bool(a.get("background", False)),
+                stream=bool(a.get("stream", False)),
+            ),
+        },
+        "Build a Cortex Agent run request without invoking the remote agent.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "cortex_agent_run",
+        Capability.EXECUTE,
+        lambda a: _cortex_agent_client(a).run(
+            str(a["database"]), str(a["schema"]), str(a["name"]), str(a["question"]),
+            thread_id=a.get("thread_id"),
+            parent_message_id=a.get("parent_message_id", 0),
+            tool_names=[str(item) for item in a.get("tool_names") or []],
+            background=bool(a.get("background", False)),
+            stream=bool(a.get("stream", False)),
+        ),
+        "Run an approved Cortex Agent request; background runs require a thread.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "cortex_agent_feedback",
+        Capability.EXECUTE,
+        lambda a: _cortex_agent_client(a).feedback(
+            str(a["database"]), str(a["schema"]), str(a["name"]), dict(a["feedback"]),
+        ),
+        "Submit end-user feedback for a Cortex Agent response.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+
+    add(
+        "hosted_runner_submit",
+        Capability.GENERATE,
+        lambda a: _hosted_runner_store(a).submit(
+            tool_name=str(a["tool_name"]),
+            args=dict(a.get("args") or {}),
+            actor_mode=ActorMode(str(a.get("actor_mode") or a.get("_actor_mode") or "analyst")),
+            interaction_mode=InteractionMode(str(a.get("interaction_mode") or a.get("_interaction_mode") or "agent")),
+            environment=Environment(str(a.get("environment") or a.get("_environment") or "dev")),
+            approved=bool(a.get("approved", False)),
+            delay_seconds=int(a.get("delay_seconds", 0)),
+            max_attempts=int(a.get("max_attempts", 3)),
+            workspace_policy=dict(a.get("workspace_policy") or {}),
+        ),
+        "Submit a durable hosted ADE job with actor/interaction policy and explicit workspace isolation contract.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "hosted_runner_jobs",
+        Capability.DISCOVER,
+        lambda a: {"jobs": _hosted_runner_store(a).jobs(limit=int(a.get("limit", 100)), status=a.get("status"))},
+        "List durable hosted ADE runner jobs.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "hosted_runner_job",
+        Capability.DISCOVER,
+        lambda a: _hosted_runner_store(a).job(str(a["job_id"])),
+        "Inspect one hosted ADE runner job and evidence.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "hosted_runner_workspace_readiness",
+        Capability.DISCOVER,
+        lambda a: _hosted_runner_store(a).workspace_readiness(
+            str(a["job_id"]),
+            runner_id=a.get("runner_id"),
+        ),
+        "Check whether registered runners satisfy one job's workspace isolation and capability contract.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "hosted_runner_cancel",
+        Capability.GENERATE,
+        lambda a: _hosted_runner_store(a).cancel(str(a["job_id"])),
+        "Cancel a queued or leased hosted ADE runner job.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "hosted_runner_register",
+        Capability.GENERATE,
+        lambda a: _hosted_runner_store(a).register_runner(
+            name=str(a.get("name") or "ade-runner"),
+            capabilities=[str(item) for item in a.get("capabilities") or ["*"]],
+            metadata=dict(a.get("metadata") or {}),
+            runner_id=a.get("runner_id"),
+        ),
+        "Register or refresh a hostable ADE runner worker.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "hosted_runner_runners",
+        Capability.DISCOVER,
+        lambda a: {"runners": _hosted_runner_store(a).runners()},
+        "List registered ADE runner workers and heartbeats.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "hosted_runner_heartbeat",
+        Capability.GENERATE,
+        lambda a: _hosted_runner_store(a).heartbeat(str(a["runner_id"]), metadata=dict(a.get("metadata") or {})),
+        "Heartbeat a registered ADE runner worker.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "hosted_runner_run_once",
+        Capability.EXECUTE,
+        lambda a: _hosted_runner_store(a).run_once(
+            registry,
+            str(a["runner_id"]),
+            lease_seconds=int(a.get("lease_seconds", 120)),
+        ),
+        "Lease and execute one hosted ADE job through the normal ToolRegistry policy boundary.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+
+    add(
+        "notebook_inspect",
+        Capability.DISCOVER,
+        lambda a: _notebook_agent(a).inspect(a["path"]),
+        "Inspect notebook cells, languages, execution state and content fingerprint.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "notebook_create_plan",
+        Capability.PLAN,
+        lambda a: {
+            key: value for key, value in _notebook_agent(a).plan_create(
+                a["path"],
+                list(a.get("cells") or []),
+                kernel_name=str(a.get("kernel_name") or "python3"),
+                display_name=str(a.get("display_name") or "Python 3"),
+                language=str(a.get("language") or "python"),
+            ).items()
+            if key != "notebook"
+        },
+        "Plan a new Jupyter notebook with exact content and approval fingerprints.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "notebook_create_apply",
+        Capability.EXECUTE,
+        lambda a: _notebook_agent(a).apply_create(
+            a["path"],
+            list(a.get("cells") or []),
+            approval_fingerprint=str(a.get("approval_fingerprint") or ""),
+            overwrite=bool(a.get("overwrite", False)),
+            kernel_name=str(a.get("kernel_name") or "python3"),
+            display_name=str(a.get("display_name") or "Python 3"),
+            language=str(a.get("language") or "python"),
+        ),
+        "Create an approved notebook and verify the exact resulting file hash.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "notebook_local_run",
+        Capability.EXECUTE,
+        lambda a: NotebookAgent.run_local(
+            a["path"],
+            timeout_seconds=int(a.get("timeout_seconds", 900)),
+        ),
+        "Execute an approved local Jupyter notebook in place with bounded timeout and output fingerprint.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "notebook_patch_plan",
+        Capability.PLAN,
+        lambda a: {
+            key: value for key, value in _notebook_agent(a).plan_patch(a["path"], list(a.get("operations") or [])).items()
+            if key != "notebook"
+        },
+        "Plan deterministic notebook cell edits and bind them to source/result fingerprints.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "notebook_patch_apply",
+        Capability.EXECUTE,
+        lambda a: _notebook_agent(a).apply_patch(
+            a["path"],
+            list(a.get("operations") or []),
+            approval_fingerprint=str(a.get("approval_fingerprint") or ""),
+        ),
+        "Apply an approved hash-bound notebook patch and verify the resulting notebook.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "notebook_snowflake_plan",
+        Capability.PLAN,
+        lambda a: {
+            "status": "PASS",
+            "command": NotebookAgent.snowflake_command(
+                str(a["action"]),
+                identifier=str(a["identifier"]),
+                project_definition=a.get("project_definition"),
+                connection=a.get("connection"),
+            ),
+        },
+        "Build the current Snowflake CLI notebook deploy/execute command without running it.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "notebook_snowflake_run",
+        Capability.EXECUTE,
+        lambda a: NotebookAgent.run_snowflake(
+            str(a["action"]),
+            identifier=str(a["identifier"]),
+            cwd=a.get("cwd") or _target(a),
+            project_definition=a.get("project_definition"),
+            connection=a.get("connection"),
+            timeout_seconds=int(a.get("timeout_seconds", 900)),
+        ),
+        "Run an approved Snowflake notebook deploy or headless execute command.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+
+    add(
+        "browser_plan",
+        Capability.PLAN,
+        lambda a: plan_browser_actions(
+            list(a.get("actions") or []),
+            session=str(a.get("session") or "ade"),
+        ).public(),
+        "Validate and normalize a typed browser action plan without browsing.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "browser_read",
+        Capability.DISCOVER,
+        lambda a: AgentBrowser().execute(
+            list(a.get("actions") or []),
+            session=str(a.get("session") or "ade"),
+            allow_interactive=False,
+        ),
+        "Execute read-only browser navigation, snapshots, waits, extraction and screenshots.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "browser_act",
+        Capability.EXECUTE,
+        lambda a: AgentBrowser().execute(
+            list(a.get("actions") or []),
+            session=str(a.get("session") or "ade"),
+            allow_interactive=True,
+        ),
+        "Execute approved interactive browser actions through the typed agent-browser adapter.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+
+    def app_plan_handler(a: dict[str, Any]) -> dict[str, Any]:
+        return _app_builder(a).plan(
+            kind=str(a["kind"]),
+            app_name=str(a["app_name"]),
+            directory=str(a["directory"]),
+            database=str(a["database"]),
+            schema=str(a["schema"]),
+            query_warehouse=str(a["query_warehouse"]),
+            title=a.get("title"),
+            compute_pool=a.get("compute_pool"),
+            streamlit_runtime=str(a.get("streamlit_runtime") or "container"),
+        )
+
+    add(
+        "app_build_plan",
+        Capability.PLAN,
+        app_plan_handler,
+        "Generate an exact Streamlit or Snowflake App Runtime project plan with content fingerprint.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "app_build_validate",
+        Capability.VERIFY,
+        lambda a: SnowflakeAppBuilder.validate(dict(a["plan"])),
+        "Validate a generated Streamlit/App Runtime project manifest.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "app_build_apply",
+        Capability.EXECUTE,
+        lambda a: _app_builder(a).apply(
+            dict(a["plan"]),
+            approval_fingerprint=str(a.get("approval_fingerprint") or ""),
+            overwrite=bool(a.get("overwrite", False)),
+        ),
+        "Materialize an approved exact app project plan into the ADE project.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "app_deploy",
+        Capability.EXECUTE,
+        lambda a: SnowflakeAppBuilder.deploy(
+            dict(a["plan"]),
+            connection=a.get("connection"),
+            target=a.get("deploy_target"),
+            open_app=bool(a.get("open_app", False)),
+            timeout_seconds=int(a.get("timeout_seconds", 1800)),
+        ),
+        "Deploy an approved Streamlit or Snowflake App Runtime project with Snowflake CLI.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+
+    add(
+        "generic_app_scaffold_plan",
+        Capability.PLAN,
+        lambda a: _generic_app_workflow(a).scaffold_plan(
+            app_name=str(a["app_name"]),
+            directory=str(a["directory"]),
+            framework=str(a.get("framework") or "python-http"),
+            title=a.get("title"),
+            port=int(a.get("port", 8080)),
+        ),
+        "Plan a provider-neutral runnable app scaffold with exact content fingerprint.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "generic_app_scaffold_apply",
+        Capability.EXECUTE,
+        lambda a: _generic_app_workflow(a).scaffold_apply(
+            dict(a["plan"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+            overwrite=bool(a.get("overwrite", False)),
+        ),
+        "Materialize an approved provider-neutral app scaffold exactly.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "generic_app_validate",
+        Capability.VERIFY,
+        lambda a: _generic_app_workflow(a).validate(dict(a["plan"])),
+        "Validate generic app scaffold and health/run contracts.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "generic_app_preview_plan",
+        Capability.PLAN,
+        lambda a: _generic_app_workflow(a).preview_plan(
+            dict(a["plan"]),
+            host_port=a.get("host_port"),
+            memory_mb=int(a.get("memory_mb", 512)),
+            cpus=float(a.get("cpus", 1.0)),
+        ),
+        "Plan an isolated local container preview with loopback-only published port.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "generic_app_preview_run",
+        Capability.EXECUTE,
+        lambda a: GenericAppWorkflow.preview_run(
+            dict(a["preview_plan"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+        ),
+        "Run an approved isolated Docker preview; fail closed when Docker is unavailable.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "generic_app_verify_url",
+        Capability.VERIFY,
+        lambda a: GenericAppWorkflow.verify_url(
+            str(a["url"]),
+            timeout_seconds=int(a.get("timeout_seconds", 5)),
+        ),
+        "Verify a preview/deployment health URL and record response fingerprint.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "generic_app_deployment_plan",
+        Capability.PLAN,
+        lambda a: _generic_app_workflow(a).deployment_plan(
+            dict(a["plan"]),
+            backend=str(a["backend"]),
+            image=a.get("image"),
+            namespace=str(a.get("namespace") or "default"),
+            replicas=int(a.get("replicas", 1)),
+            host_port=a.get("host_port"),
+        ),
+        "Plan provider-neutral Docker or Kubernetes deployment with security contract.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "generic_app_deployment_run",
+        Capability.EXECUTE,
+        lambda a: GenericAppWorkflow.deployment_run(
+            dict(a["deployment_plan"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+            timeout_seconds=int(a.get("timeout_seconds", 120)),
+        ),
+        "Execute an approved Docker/Kubernetes deployment step and fail closed when runtime tooling is unavailable.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "generic_app_rollback_plan",
+        Capability.PLAN,
+        lambda a: GenericAppWorkflow.rollback_plan(dict(a["deployment_plan"])),
+        "Plan exact rollback for a generic Docker/Kubernetes deployment.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "generic_app_rollback_run",
+        Capability.EXECUTE,
+        lambda a: GenericAppWorkflow.rollback_run(
+            dict(a["rollback_plan"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+        ),
+        "Execute an approved generic deployment rollback.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+
+    add(
+        "agentic_ml_plan",
+        Capability.PLAN,
+        lambda a: agentic_ml_plan(
+            task=str(a["task"]),
+            source_id=str(a["source_id"]),
+            feature_columns=[str(item) for item in a.get("feature_columns") or []],
+            label_column=str(a["label_column"]),
+            model_name=str(a["model_name"]),
+            version=str(a["version"]),
+            train_fraction=float(a.get("train_fraction", 0.8)),
+            seed=int(a.get("seed", 42)),
+            candidates=[str(item) for item in a.get("candidates") or []] or None,
+            max_rows=int(a.get("max_rows", 100000)),
+        ),
+        "Plan a portable multi-candidate ML workflow with explicit objective, lineage and registry target.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "agentic_ml_run",
+        Capability.EXECUTE,
+        lambda a: AgenticMLWorkflow(_target(a)).run(
+            dict(a["plan"]),
+            list(a.get("records") or []),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+        ),
+        "Execute an approved portable ML workflow: prepare, train, compare, select, register, and verify inference.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "agentic_ml_predict",
+        Capability.VERIFY,
+        lambda a: AgenticMLWorkflow(_target(a)).predict(
+            str(a["model_name"]),
+            str(a["version"]),
+            dict(a["record"]),
+        ),
+        "Run verified inference from a fingerprinted local ADE model artifact.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "agentic_ml_artifacts",
+        Capability.DISCOVER,
+        lambda a: {"artifacts": AgenticMLWorkflow(_target(a)).list_artifacts()},
+        "List versioned portable ADE model artifacts and metrics.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+
+    def model_inventory(a: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return {
+                "status": "PASS",
+                "models": _snowflake_model_adapter(a).models(
+                    database=a.get("database"),
+                    schema=a.get("schema"),
+                ),
+            }
+        except ExternalConnectionUnavailable as exc:
+            return {"status": "SKIP_EXTERNAL", "platform": "snowflake", "reason": str(exc)}
+
+    def model_versions(a: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return {
+                "status": "PASS",
+                "versions": _snowflake_model_adapter(a).versions(str(a["model_name"])),
+            }
+        except ExternalConnectionUnavailable as exc:
+            return {"status": "SKIP_EXTERNAL", "platform": "snowflake", "reason": str(exc)}
+
+    add(
+        "snowpark_model_list",
+        Capability.DISCOVER,
+        model_inventory,
+        "List Snowflake Model Registry models.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "snowpark_model_versions",
+        Capability.DISCOVER,
+        model_versions,
+        "List versions in a Snowflake Model Registry model.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "snowpark_model_log_plan",
+        Capability.PLAN,
+        lambda a: plan_log_model(
+            model_name=str(a["model_name"]),
+            version_name=str(a["version_name"]),
+            comment=a.get("comment"),
+            metrics=dict(a.get("metrics") or {}),
+            conda_dependencies=[str(item) for item in a.get("conda_dependencies") or []],
+            pip_requirements=[str(item) for item in a.get("pip_requirements") or []],
+            python_version=a.get("python_version"),
+        ),
+        "Plan a Snowpark Registry.log_model call with exact parameter fingerprint and executable Python.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "snowpark_ml_workflow_plan",
+        Capability.PLAN,
+        lambda a: plan_snowpark_ml_workflow(
+            task=str(a["task"]),
+            training_table=str(a["training_table"]),
+            input_cols=[str(item) for item in a.get("input_cols") or []],
+            label_col=str(a["label_col"]),
+            output_col=str(a["output_col"]),
+            registry_database=str(a["registry_database"]),
+            registry_schema=str(a["registry_schema"]),
+            model_name=str(a["model_name"]),
+            version_name=str(a["version_name"]),
+            train_fraction=float(a.get("train_fraction", 0.8)),
+            seed=int(a.get("seed", 42)),
+            model_params=dict(a.get("model_params") or {}),
+            comment=a.get("comment"),
+        ),
+        "Plan a Snowpark ML train, evaluate, and Model Registry registration workflow with exact approval fingerprint.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "snowpark_model_lifecycle_plan",
+        Capability.PLAN,
+        lambda a: plan_model_lifecycle(
+            action=str(a["action"]),
+            model_name=str(a["model_name"]),
+            version_name=a.get("version_name"),
+            environment=str(a.get("_environment") or a.get("environment") or "dev"),
+        ),
+        "Plan set-default, drop-version or drop-model Model Registry lifecycle SQL.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+
+    def model_lifecycle_execute(a: dict[str, Any]) -> dict[str, Any]:
+        plan = plan_model_lifecycle(
+            action=str(a["action"]),
+            model_name=str(a["model_name"]),
+            version_name=a.get("version_name"),
+            environment=str(a.get("_environment") or a.get("environment") or "dev"),
+        )
+        if plan.get("status") != "PASS":
+            return plan
+        if str(a.get("approval_fingerprint") or "") != plan["approval_fingerprint"]:
+            return {
+                **plan,
+                "status": "BLOCKED_APPROVAL",
+                "code": "APPROVAL_FINGERPRINT_MISMATCH",
+            }
+        if bool(a.get("_dry_run")):
+            if plan["destructive"] and not bool(a.get("confirm_destructive", False)):
+                return {
+                    **plan,
+                    "status": "BLOCKED_APPROVAL",
+                    "code": "DESTRUCTIVE_CONFIRMATION_REQUIRED",
+                }
+            return {**plan, "status": "PASS", "mode": "DRY_RUN", "executed": False}
+        try:
+            connector = connector_from_args({**a, "platform": "snowflake"})
+        except ExternalConnectionUnavailable as exc:
+            return {"status": "SKIP_EXTERNAL", "platform": "snowflake", "reason": str(exc)}
+        if not isinstance(connector, SnowflakeConnector):
+            raise TypeError("model lifecycle execution requires SnowflakeConnector")
+        return GovernedSnowflakeMutationExecutor(connector).execute(
+            plan["sql"],
+            environment=str(a.get("_environment") or "dev"),
+            approval_fingerprint=plan["approval_fingerprint"],
+            approved=bool(a.get("_approved")),
+            confirm_destructive=bool(a.get("confirm_destructive", False)),
+            dry_run=False,
+        )
+
+    add(
+        "snowpark_model_lifecycle_execute",
+        Capability.EXECUTE,
+        model_lifecycle_execute,
+        "Execute an approved Snowflake Model Registry lifecycle operation with post-change verification.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        supports_dry_run=True,
+        requires_approval=True,
+    )
+
+    add(
+        "ai_workflow_plan",
+        Capability.PLAN,
+        lambda a: AIWorkflowCompiler().compile(dict(a["workflow"])).public(),
+        "Compile a declarative read-only Snowflake Cortex AI-function workflow to deterministic SQL.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "ai_workflow_run",
+        Capability.EXECUTE,
+        _ai_workflow_run,
+        "Execute a compiled read-only Snowflake AI-function workflow and return query evidence.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+
+    add(
+        "ide_workspace_plan",
+        Capability.PLAN,
+        lambda a: _ide_bridge(a).plan_workspace(
+            console_url=str(a.get("console_url") or "http://localhost:3000"),
+            extension_directory=str(a.get("extension_directory") or ".ade/vscode-extension"),
+        ),
+        "Generate a project-scoped ADE VS Code workspace/extension bundle with exact content fingerprint.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "ide_workspace_apply",
+        Capability.EXECUTE,
+        lambda a: _ide_bridge(a).apply_workspace(
+            dict(a["plan"]),
+            approval_fingerprint=str(a.get("approval_fingerprint") or ""),
+            overwrite=bool(a.get("overwrite", False)),
+        ),
+        "Apply an approved ADE IDE workspace bundle.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "ide_context",
+        Capability.DISCOVER,
+        lambda a: _ide_bridge(a).context(
+            str(a["path"]),
+            line=int(a.get("line", 1)),
+            radius=int(a.get("radius", 30)),
+            max_bytes=int(a.get("max_bytes", 100000)),
+        ),
+        "Read bounded project file context with source fingerprint for IDE/desktop agents.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "ide_open",
+        Capability.DISCOVER,
+        lambda a: _ide_bridge(a).open_target(
+            str(a["path"]),
+            line=int(a.get("line", 1)),
+            column=int(a.get("column", 1)),
+        ),
+        "Generate VS Code and file deep links to an exact project location.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "ide_edit_plan",
+        Capability.PLAN,
+        lambda a: {
+            key: value
+            for key, value in _ide_bridge(a).plan_edit(
+                str(a["path"]), list(a.get("replacements") or [])
+            ).items()
+            if key != "result"
+        },
+        "Plan line-range file edits bound to source/result fingerprints.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "ide_edit_apply",
+        Capability.EXECUTE,
+        lambda a: _ide_bridge(a).apply_edit(
+            str(a["path"]),
+            list(a.get("replacements") or []),
+            approval_fingerprint=str(a.get("approval_fingerprint") or ""),
+        ),
+        "Apply approved hash-bound IDE file edits and verify the result.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "ide_server_register",
+        Capability.GENERATE,
+        lambda a: _ide_bridge(a).register_server(
+            name=str(a["name"]),
+            url=str(a["url"]),
+            pid=int(a["pid"]) if a.get("pid") is not None else None,
+            metadata=dict(a.get("metadata") or {}),
+        ),
+        "Register a local/web development server for desktop preview and browser verification.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "ide_server_list",
+        Capability.DISCOVER,
+        lambda a: _ide_bridge(a).list_servers(),
+        "List registered IDE development servers.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "ide_server_remove",
+        Capability.GENERATE,
+        lambda a: _ide_bridge(a).remove_server(str(a["name"])),
+        "Remove a registered IDE development server.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
 
     def training_store(a: dict[str, Any]) -> TrainingStore:
         return TrainingStore(
@@ -1382,6 +2818,72 @@ def build_tool_registry() -> ToolRegistry:
     add("pii_exposure", Capability.VERIFY, pii_exposure_handler, "Find downstream dbt assets exposed to PII.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
     add("pii_policy_check", Capability.VERIFY, pii_policy_handler, "Block SQL that references disallowed PII categories.", platforms=frozenset({Platform.LOCAL}))
     add("pii_downstream_assets", Capability.DISCOVER, pii_exposure_handler, "Return downstream assets carrying propagated PII.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
+    def permission_execute_handler(a: dict[str, Any]) -> dict[str, Any]:
+        try:
+            if a.get("connection"):
+                profile = _connection_store(a).resolve_config(str(a["connection"]))
+                connector = connector_from_args(
+                    {
+                        "platform": profile["platform"],
+                        "config": profile["config"],
+                    }
+                )
+            else:
+                connector = connector_from_args(a)
+        except ExternalConnectionUnavailable as exc:
+            return {
+                "status": "SKIP_EXTERNAL",
+                "platform": str(a.get("platform") or ""),
+                "reason": str(exc),
+            }
+        return governance_execute_permission_change(
+            connector,
+            dict(a["plan"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+            actor_mode=str(a.get("_actor_mode") or a.get("actor_mode") or "builder"),
+        )
+
+    add(
+        "permission_plan",
+        Capability.PLAN,
+        lambda a: governance_permission_change_plan(
+            platform=str(a["platform"]),
+            action=str(a["action"]),
+            principal=str(a["principal"]),
+            principal_kind=str(a.get("principal_kind") or "role"),
+            privilege=a.get("privilege"),
+            object_type=a.get("object_type"),
+            object_name=a.get("object_name"),
+            role=a.get("role"),
+            environment=str(a.get("_environment") or a.get("environment") or "dev"),
+            reason=a.get("reason"),
+            observed_graph=a.get("observed_graph"),
+        ),
+        "Plan least-privilege permission/RBAC changes with blast-radius and independent verification evidence.",
+        platforms=frozenset({
+            Platform.LOCAL,
+            Platform.SNOWFLAKE,
+            Platform.DATABRICKS,
+            Platform.REDSHIFT,
+            Platform.POSTGRES,
+        }),
+    )
+    add(
+        "permission_execute",
+        Capability.EXECUTE,
+        permission_execute_handler,
+        "Execute an approved permission plan only through a connector that explicitly exposes governed mutation, then independently verify access.",
+        platforms=frozenset({
+            Platform.LOCAL,
+            Platform.SNOWFLAKE,
+            Platform.DATABRICKS,
+            Platform.REDSHIFT,
+            Platform.POSTGRES,
+        }),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+
     add("rbac_audit", Capability.VERIFY, rbac_inventory_handler, "Build warehouse user-role-object access graph.", platforms=frozenset({Platform.LOCAL}))
     add("rbac_object_access", Capability.DISCOVER, lambda a: governance_object_access(rbac_inventory_handler(a)["graph"], a["object"]), "List principals with access to a warehouse object.", platforms=frozenset({Platform.LOCAL}))
     add("rbac_risk", Capability.VERIFY, lambda a: governance_excessive_privileges(rbac_inventory_handler(a)["graph"], observed_objects_by_principal=a.get("observed_objects_by_principal"), minimum_grants=int(a.get("minimum_grants", 20)), unused_ratio_threshold=float(a.get("unused_ratio_threshold", 0.8))), "Detect excessive role/user grants using observed-access evidence.", platforms=frozenset({Platform.LOCAL}))
@@ -1587,6 +3089,994 @@ def build_tool_registry() -> ToolRegistry:
     add("data_diff_cascade", Capability.VERIFY, lambda a: production_diff(a, "CASCADE"), "Run profile then bounded hash/detail cascade diff.", platforms=frozenset({Platform.LOCAL}))
 
     add("data_diff_duckdb_demo", Capability.VERIFY, lambda a: duckdb_demo_diff(), "Run a real in-memory DuckDB source-target data-diff fixture.", platforms=frozenset({Platform.LOCAL, Platform.DUCKDB}))
+
+    # Governed advanced capability extensions: modes, workspace edits, shell, context,
+    # custom agents, object search, SQL playground, visualization, ML baselines and docs.
+    add(
+        "mode_contract",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.mode_contract(str(a["mode"]), budget_usd=a.get("budget_usd")),
+        "Return the enforceable ADE actor/tool/model contract for agent, plan, ask, edit or code mode.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "immutable_plan",
+        Capability.PLAN,
+        lambda a: advanced_caps.immutable_plan(
+            list(a.get("steps") or []),
+            environment=str(a.get("environment") or a.get("_environment") or "dev"),
+            constraints=dict(a.get("constraints") or {}),
+            verification=list(a.get("verification") or []),
+        ),
+        "Create a hash-bound immutable execution plan whose material changes require re-approval.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "immutable_plan_verify",
+        Capability.VERIFY,
+        lambda a: advanced_caps.verify_immutable_plan(dict(a["plan"])),
+        "Verify that an immutable ADE plan still matches its approval fingerprint.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "workspace_edit_plan",
+        Capability.PLAN,
+        lambda a: advanced_caps.plan_file_edit(
+            a.get("workspace") or str(_target(a)),
+            str(a["path"]),
+            str(a["content"]),
+            expected_source_hash=a.get("expected_source_hash"),
+            verification_command=a.get("verification_command"),
+        ),
+        "Plan a workspace edit bound to source/result hashes and an optional verification command.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "workspace_edit_apply",
+        Capability.EXECUTE,
+        lambda a: advanced_caps.apply_file_edit(
+            a.get("workspace") or str(_target(a)),
+            str(a["path"]),
+            str(a["content"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+            expected_source_hash=a.get("expected_source_hash"),
+            verification_command=a.get("verification_command"),
+        ),
+        "Apply an approved hash-bound workspace edit, verify it and roll back automatically on verification failure.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "code_index",
+        Capability.DISCOVER,
+        lambda a: coding_workspace.code_index(
+            a.get("workspace") or str(_target(a)),
+            patterns=list(a.get("patterns") or ["**/*"]),
+            max_file_bytes=int(a.get("max_file_bytes", 1_000_000)),
+            limit=int(a.get("limit", 5000)),
+        ),
+        "Build a fingerprinted code index with language-aware symbols.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "code_search",
+        Capability.DISCOVER,
+        lambda a: coding_workspace.code_search(
+            a.get("workspace") or str(_target(a)),
+            str(a["query"]),
+            mode=str(a.get("mode") or "semantic"),
+            patterns=list(a.get("patterns") or ["**/*"]),
+            limit=int(a.get("limit", 20)),
+        ),
+        "Search code deterministically or with explainable local structural-semantic ranking.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "semantic_code_search",
+        Capability.DISCOVER,
+        lambda a: coding_workspace.semantic_code_search(
+            a.get("workspace") or str(_target(a)),
+            str(a["query"]),
+            patterns=list(a.get("patterns") or ["**/*"]),
+            limit=int(a.get("limit", 20)),
+        ),
+        "Run explainable structural-semantic code search with symbol/path/doc scoring evidence.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "python_repl_plan",
+        Capability.PLAN,
+        lambda a: coding_workspace.python_repl_plan(
+            a.get("workspace") or str(_target(a)),
+            str(a["code"]),
+            session_id=str(a.get("session_id") or "default"),
+            backend=str(a.get("backend") or "container"),
+            image=str(a.get("image") or "python:3.12-slim"),
+            timeout_seconds=int(a.get("timeout_seconds", 60)),
+            memory_mb=int(a.get("memory_mb", 512)),
+            network_enabled=bool(a.get("network_enabled", False)),
+        ),
+        "Plan a stateful Python REPL cell with exact code hash and explicit execution class.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "python_repl_run",
+        Capability.EXECUTE,
+        lambda a: coding_workspace.python_repl_run(
+            a.get("workspace") or str(_target(a)),
+            str(a["code"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+            session_id=str(a.get("session_id") or "default"),
+            backend=str(a.get("backend") or "container"),
+            image=str(a.get("image") or "python:3.12-slim"),
+            timeout_seconds=int(a.get("timeout_seconds", 60)),
+            memory_mb=int(a.get("memory_mb", 512)),
+            network_enabled=bool(a.get("network_enabled", False)),
+        ),
+        "Execute an approved stateful Python REPL cell in a container sandbox or labeled constrained fallback.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "python_repl_state",
+        Capability.DISCOVER,
+        lambda a: coding_workspace.python_repl_state(
+            a.get("workspace") or str(_target(a)),
+            str(a.get("session_id") or "default"),
+        ),
+        "Inspect persisted JSON-safe Python REPL state and history fingerprints.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "python_repl_reset",
+        Capability.EXECUTE,
+        lambda a: coding_workspace.python_repl_reset(
+            a.get("workspace") or str(_target(a)),
+            str(a.get("session_id") or "default"),
+        ),
+        "Reset one persisted Python REPL namespace and history.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+
+    add(
+        "workspace_file_read",
+        Capability.DISCOVER,
+        lambda a: workspace_files.workspace_file_read(
+            a.get("workspace") or str(_target(a)),
+            str(a["path"]),
+            max_bytes=int(a.get("max_bytes", 1_000_000)),
+        ),
+        "Read one governed workspace file with full-file fingerprint and bounded content.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "workspace_file_glob",
+        Capability.DISCOVER,
+        lambda a: workspace_files.workspace_file_glob(
+            a.get("workspace") or str(_target(a)),
+            str(a.get("pattern") or "**/*"),
+            limit=int(a.get("limit", 1000)),
+            include_internal=bool(a.get("include_internal", False)),
+        ),
+        "Glob workspace files with stable hashes while excluding internal state by default.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "workspace_file_find",
+        Capability.DISCOVER,
+        lambda a: workspace_files.workspace_file_find(
+            a.get("workspace") or str(_target(a)),
+            str(a.get("query") or ""),
+            limit=int(a.get("limit", 200)),
+        ),
+        "Find workspace files by path/name with evidence fingerprints.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "workspace_file_grep",
+        Capability.DISCOVER,
+        lambda a: workspace_files.workspace_file_grep(
+            a.get("workspace") or str(_target(a)),
+            str(a["pattern"]),
+            file_glob=str(a.get("file_glob") or "**/*"),
+            regex=bool(a.get("regex", False)),
+            case_sensitive=bool(a.get("case_sensitive", False)),
+            max_matches=int(a.get("max_matches", 500)),
+        ),
+        "Search workspace file contents and return line/column/file-hash evidence.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "workspace_file_diff",
+        Capability.DISCOVER,
+        lambda a: workspace_files.workspace_file_diff(
+            a.get("workspace") or str(_target(a)),
+            str(a["path"]),
+            proposed_content=str(a.get("proposed_content") or ""),
+        ),
+        "Generate a unified workspace diff bound to source and result hashes.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "workspace_file_plan",
+        Capability.PLAN,
+        lambda a: workspace_files.workspace_file_plan(
+            a.get("workspace") or str(_target(a)),
+            str(a["operation"]),
+            str(a["path"]),
+            content=a.get("content"),
+            destination=a.get("destination"),
+            old_text=a.get("old_text"),
+            new_text=a.get("new_text"),
+            expected_source_hash=a.get("expected_source_hash"),
+            verification_command=a.get("verification_command"),
+        ),
+        "Plan create/write/patch/delete/move/rename as an immutable hash-bound workspace mutation.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "workspace_file_apply",
+        Capability.EXECUTE,
+        lambda a: workspace_files.workspace_file_apply(
+            a.get("workspace") or str(_target(a)),
+            str(a["operation"]),
+            str(a["path"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+            content=a.get("content"),
+            destination=a.get("destination"),
+            old_text=a.get("old_text"),
+            new_text=a.get("new_text"),
+            expected_source_hash=a.get("expected_source_hash"),
+            verification_command=a.get("verification_command"),
+        ),
+        "Apply an approved workspace mutation with verification and automatic rollback.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "workspace_file_undo",
+        Capability.EXECUTE,
+        lambda a: workspace_files.workspace_file_undo(
+            a.get("workspace") or str(_target(a)),
+            str(a["approval_fingerprint"]),
+        ),
+        "Undo one previously applied governed workspace mutation from its rollback snapshot.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+
+    add(
+        "workspace_region_edit_plan",
+        Capability.PLAN,
+        lambda a: advanced_caps.plan_region_edit(
+            a.get("workspace") or str(_target(a)),
+            str(a["path"]),
+            int(a["start_line"]),
+            int(a["end_line"]),
+            str(a["replacement"]),
+            expected_source_hash=a.get("expected_source_hash"),
+            expected_selected_hash=a.get("expected_selected_hash"),
+            verification_command=a.get("verification_command"),
+        ),
+        "Plan a selected-region edit bound to file, selection, replacement and verification hashes.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "workspace_region_edit_apply",
+        Capability.EXECUTE,
+        lambda a: advanced_caps.apply_region_edit(
+            a.get("workspace") or str(_target(a)),
+            str(a["path"]),
+            int(a["start_line"]),
+            int(a["end_line"]),
+            str(a["replacement"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+            expected_source_hash=a.get("expected_source_hash"),
+            expected_selected_hash=a.get("expected_selected_hash"),
+            verification_command=a.get("verification_command"),
+        ),
+        "Apply an approved selected-region edit and roll back automatically when verification fails.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "shell_plan",
+        Capability.PLAN,
+        lambda a: advanced_caps.command_plan(
+            a.get("workspace") or str(_target(a)),
+            a["command"],
+            cwd=str(a.get("cwd") or "."),
+            timeout_seconds=int(a.get("timeout_seconds", 120)),
+            max_output_bytes=int(a.get("max_output_bytes", 131072)),
+            background=bool(a.get("background", False)),
+        ),
+        "Plan a bounded argv-only foreground/background command without shell-string bypass.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "shell_run",
+        Capability.EXECUTE,
+        lambda a: advanced_caps.run_command(
+            a.get("workspace") or str(_target(a)),
+            a["command"],
+            cwd=str(a.get("cwd") or "."),
+            timeout_seconds=int(a.get("timeout_seconds", 120)),
+            max_output_bytes=int(a.get("max_output_bytes", 131072)),
+            background=bool(a.get("background", False)),
+            approval_fingerprint=a.get("approval_fingerprint"),
+        ),
+        "Run an approved bounded argv-only command with timeout/output budgets and durable background evidence.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "shell_status",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.shell_job_status(
+            a.get("workspace") or str(_target(a)),
+            str(a["job_id"]),
+        ),
+        "Inspect a durable background shell job and bounded log evidence.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "shell_kill",
+        Capability.EXECUTE,
+        lambda a: advanced_caps.shell_job_kill(
+            a.get("workspace") or str(_target(a)),
+            str(a["job_id"]),
+        ),
+        "Terminate an approved background ADE shell job by its recorded process group.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "sandbox_shell_plan",
+        Capability.PLAN,
+        lambda a: sandbox_runner.sandbox_shell_plan(
+            a.get("workspace") or str(_target(a)),
+            a["command"],
+            cwd=str(a.get("cwd") or "."),
+            image=str(a.get("image") or "python:3.12-slim"),
+            network_enabled=bool(a.get("network_enabled", False)),
+            workspace_write=bool(a.get("workspace_write", True)),
+            timeout_seconds=int(a.get("timeout_seconds", 120)),
+            max_output_bytes=int(a.get("max_output_bytes", 131072)),
+            memory_mb=int(a.get("memory_mb", 512)),
+            cpus=float(a.get("cpus", 1.0)),
+            pids_limit=int(a.get("pids_limit", 256)),
+            background=bool(a.get("background", False)),
+            docker_executable=str(a.get("docker_executable") or "docker"),
+        ),
+        "Plan a strong Docker-backed shell sandbox with network/resource/workspace policy.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "sandbox_shell_run",
+        Capability.EXECUTE,
+        lambda a: sandbox_runner.sandbox_shell_run(
+            a.get("workspace") or str(_target(a)),
+            a["command"],
+            approval_fingerprint=str(a["approval_fingerprint"]),
+            cwd=str(a.get("cwd") or "."),
+            image=str(a.get("image") or "python:3.12-slim"),
+            network_enabled=bool(a.get("network_enabled", False)),
+            workspace_write=bool(a.get("workspace_write", True)),
+            timeout_seconds=int(a.get("timeout_seconds", 120)),
+            max_output_bytes=int(a.get("max_output_bytes", 131072)),
+            memory_mb=int(a.get("memory_mb", 512)),
+            cpus=float(a.get("cpus", 1.0)),
+            pids_limit=int(a.get("pids_limit", 256)),
+            background=bool(a.get("background", False)),
+            docker_executable=str(a.get("docker_executable") or "docker"),
+        ),
+        "Run an approved Docker-backed sandbox; fail closed rather than downgrade when Docker is unavailable.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "sandbox_shell_status",
+        Capability.DISCOVER,
+        lambda a: sandbox_runner.sandbox_shell_status(
+            a.get("workspace") or str(_target(a)),
+            str(a["job_id"]),
+            docker_executable=a.get("docker_executable"),
+        ),
+        "Inspect a background container sandbox job.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "sandbox_shell_logs",
+        Capability.DISCOVER,
+        lambda a: sandbox_runner.sandbox_shell_logs(
+            a.get("workspace") or str(_target(a)),
+            str(a["job_id"]),
+            docker_executable=a.get("docker_executable"),
+        ),
+        "Read bounded logs for a background container sandbox job.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "sandbox_shell_kill",
+        Capability.EXECUTE,
+        lambda a: sandbox_runner.sandbox_shell_kill(
+            a.get("workspace") or str(_target(a)),
+            str(a["job_id"]),
+            docker_executable=a.get("docker_executable"),
+        ),
+        "Terminate and remove an approved background container sandbox job.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+
+    add(
+        "context_select",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.select_context(
+            list(a.get("items") or []),
+            budget_tokens=int(a.get("budget_tokens", 4000)),
+            provider=str(a.get("provider") or "generic"),
+            provider_limit_tokens=a.get("provider_limit_tokens"),
+            pinned_ids=list(a.get("pinned_ids") or []),
+            excluded_ids=list(a.get("excluded_ids") or []),
+        ),
+        "Select evidence-ranked context with explicit pin/exclude constraints and provider-aware budgets.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "context_compact",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.compact_context(
+            list(a.get("items") or []),
+            budget_tokens=int(a.get("budget_tokens", 4000)),
+            provider=str(a.get("provider") or "generic"),
+            provider_limit_tokens=a.get("provider_limit_tokens"),
+            pinned_ids=list(a.get("pinned_ids") or []),
+            excluded_ids=list(a.get("excluded_ids") or []),
+            summary_chars=int(a.get("summary_chars", 800)),
+        ),
+        "Deterministically compact overflow context while preserving pinned evidence and recording boundaries.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "custom_agent_validate",
+        Capability.VERIFY,
+        lambda a: advanced_caps.validate_agent_definition(dict(a["definition"])),
+        "Validate a custom agent's allowed tools, scopes, model, budgets and verification contract.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "custom_agent_save",
+        Capability.EXECUTE,
+        lambda a: advanced_caps.save_agent_definition(
+            a.get("workspace") or str(_target(a)),
+            dict(a["definition"]),
+        ),
+        "Persist an approved project-scoped custom agent definition with inherited ToolRegistry policy.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "custom_agent_list",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.list_agent_definitions(a.get("workspace") or str(_target(a))),
+        "List project-scoped custom agent definitions.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    def warehouse_object_search_handler(a: dict[str, Any]) -> dict[str, Any]:
+        supplied = a.get("objects")
+        source = "supplied_objects"
+        if supplied is not None:
+            objects = [dict(item) for item in supplied]
+        else:
+            source = "metadata_service"
+            service = _metadata_service(a)
+            assets = service.search_assets(
+                "",
+                connection_name=a.get("connection"),
+                limit=int(a.get("candidate_limit", 5000)),
+            )
+            lineage = dict(a.get("lineage_by_object") or {})
+            objects = []
+            for asset in assets:
+                detail = service.inspect(
+                    str(asset["connection_name"]),
+                    str(asset["schema_name"]),
+                    str(asset["object_name"]),
+                )
+                qualified = ".".join(
+                    part
+                    for part in (
+                        detail.get("catalog"),
+                        detail.get("schema_name"),
+                        detail.get("object_name"),
+                    )
+                    if part
+                )
+                hints = dict(
+                    lineage.get(detail["object_id"])
+                    or lineage.get(qualified)
+                    or {}
+                )
+                objects.append(
+                    {
+                        "object_id": detail["object_id"],
+                        "connection_name": detail["connection_name"],
+                        "platform": detail["warehouse"],
+                        "database": detail.get("catalog"),
+                        "schema": detail["schema_name"],
+                        "name": detail["object_name"],
+                        "qualified_name": qualified,
+                        "object_type": detail.get("object_type"),
+                        "description": detail.get("comment"),
+                        "columns": [
+                            column["column_name"]
+                            for column in detail.get("columns") or []
+                        ],
+                        "upstream": list(hints.get("upstream") or []),
+                        "downstream": list(hints.get("downstream") or []),
+                        "recent_evidence": detail.get("refreshed_at"),
+                    }
+                )
+        result = advanced_caps.search_warehouse_objects(
+            str(a["query"]),
+            objects,
+            limit=int(a.get("limit", 20)),
+        )
+        result["inventory_source"] = source
+        result["inventory_fingerprint"] = advanced_caps._digest(
+            [
+                (
+                    item.get("platform"),
+                    item.get("connection_name"),
+                    item.get("qualified_name"),
+                    item.get("recent_evidence"),
+                )
+                for item in objects
+            ]
+        )
+        return result
+
+    add(
+        "warehouse_object_search",
+        Capability.DISCOVER,
+        warehouse_object_search_handler,
+        "Rank real indexed Snowflake and cross-warehouse metadata by intent, columns, lineage and recent evidence.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE, Platform.REDSHIFT, Platform.POSTGRES, Platform.BIGQUERY, Platform.DATABRICKS}),
+    )
+    add(
+        "sql_playground",
+        Capability.EXECUTE,
+        lambda a: advanced_caps.sql_playground(
+            str(a["sql"]),
+            dialect=str(a.get("dialect") or "ansi"),
+            sqlite_database=a.get("sqlite_database"),
+            max_rows=int(a.get("max_rows", 500)),
+        ),
+        "Execute a read-only SQL playground request with query/result fingerprints, lineage, policy and cost evidence.",
+        platforms=frozenset({Platform.LOCAL, Platform.SQLITE, Platform.SNOWFLAKE, Platform.REDSHIFT, Platform.POSTGRES, Platform.BIGQUERY, Platform.DATABRICKS}),
+    )
+    add(
+        "chart_build",
+        Capability.GENERATE,
+        lambda a: advanced_caps.build_chart_spec(
+            list(a.get("rows") or []),
+            kind=str(a["kind"]),
+            x=str(a["x"]),
+            y=str(a["y"]),
+            source_query=str(a["source_query"]),
+            warehouse=str(a.get("warehouse") or "unknown"),
+            title=a.get("title"),
+        ),
+        "Build an inline chart/KPI spec that preserves source query, result fingerprint and replay metadata.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "forecast_series",
+        Capability.GENERATE,
+        lambda a: advanced_caps.forecast_series(
+            [float(item) for item in a.get("values") or []],
+            horizon=int(a.get("horizon", 5)),
+        ),
+        "Compare deterministic forecasting baselines and retain evaluation evidence for the selected forecast.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "anomaly_compare",
+        Capability.VERIFY,
+        lambda a: advanced_caps.anomaly_compare(
+            [float(item) for item in a.get("values") or []],
+            z_threshold=float(a.get("z_threshold", 3.0)),
+            mad_threshold=float(a.get("mad_threshold", 3.5)),
+        ),
+        "Compare independent z-score and robust MAD anomaly detectors and record consensus evidence.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "document_extract",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.document_extract(
+            a.get("workspace") or str(_target(a)),
+            str(a["path"]),
+            fields=dict(a.get("fields") or {}),
+            chunk_chars=int(a.get("chunk_chars", 2000)),
+        ),
+        "Extract local document text, fields and fingerprinted chunks with zero-provider-cost evidence.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+
+    add(
+        "git_status",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.git_status(a.get("workspace") or str(_target(a))),
+        "Inspect project Git branch, HEAD and working-tree state without mutation.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "git_diff",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.git_diff(
+            a.get("workspace") or str(_target(a)),
+            staged=bool(a.get("staged", False)),
+            ref=a.get("ref"),
+            paths=list(a.get("paths") or []),
+        ),
+        "Inspect fingerprinted working-tree or staged Git diffs.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "git_log",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.git_log(
+            a.get("workspace") or str(_target(a)),
+            limit=int(a.get("limit", 20)),
+        ),
+        "Read bounded structured Git history.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "git_remotes",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.git_remotes(a.get("workspace") or str(_target(a))),
+        "Inspect configured Git remotes without mutation.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "git_review_evidence",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.git_review_evidence(
+            a.get("workspace") or str(_target(a)),
+            commit=str(a.get("commit") or "HEAD"),
+        ),
+        "Produce commit/change/test-ready review evidence with stable fingerprint.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "git_change_plan",
+        Capability.PLAN,
+        lambda a: advanced_caps.git_change_plan(
+            a.get("workspace") or str(_target(a)),
+            str(a["operation"]),
+            branch=a.get("branch"),
+            message=a.get("message"),
+            paths=list(a.get("paths") or []),
+            commit=a.get("commit"),
+            remote=a.get("remote"),
+            verification_command=a.get("verification_command"),
+        ),
+        "Plan branch/switch/commit/restore/revert/fetch/pull/push with exact HEAD binding; history rewriting stays blocked.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "git_change_apply",
+        Capability.EXECUTE,
+        lambda a: advanced_caps.git_change_apply(
+            a.get("workspace") or str(_target(a)),
+            str(a["operation"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+            branch=a.get("branch"),
+            message=a.get("message"),
+            paths=list(a.get("paths") or []),
+            commit=a.get("commit"),
+            remote=a.get("remote"),
+            verification_command=a.get("verification_command"),
+        ),
+        "Apply an approved Git change/sync operation and return review evidence; force-push and history rewriting remain blocked.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "web_fetch_audited",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.audited_web_fetch(
+            str(a["url"]),
+            max_bytes=int(a.get("max_bytes", 262144)),
+            timeout_seconds=int(a.get("timeout_seconds", 15)),
+        ),
+        "Fetch a public HTTP(S) source while recording final URL, retrieval time, content type and content fingerprint.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "web_search_audited",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.audited_web_search(
+            str(a["query"]),
+            endpoint_template=a.get("endpoint_template"),
+        ),
+        "Run configurable public-web search with source URL and content-fingerprint evidence; unconfigured search stays SKIP_EXTERNAL.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "retrieval_search",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.retrieval_search(
+            str(a["query"]),
+            documents=list(a.get("documents") or []),
+            backend=str(a.get("backend") or "local"),
+            limit=int(a.get("limit", 10)),
+            account_url=a.get("account_url"),
+            token=a.get("token"),
+            service=a.get("service"),
+            columns=list(a.get("columns") or []),
+        ),
+        "Search local project evidence or a configured Snowflake Cortex Search service under one provider-neutral result contract.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "embedded_agent_sdk_contract",
+        Capability.DISCOVER,
+        lambda a: advanced_caps.sdk_contract(),
+        "Describe the embeddable ADE session SDK and its inherited ToolRegistry/per-tool approval boundary.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "account_admin_plan",
+        Capability.PLAN,
+        lambda a: advanced_caps.account_admin_plan(
+            str(a["sql"]),
+            environment=str(a.get("environment") or a.get("_environment") or "dev"),
+        ),
+        "Plan a governed Snowflake account/security/cost administration statement with exact approval binding and independent verification.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "gpu_job_plan",
+        Capability.PLAN,
+        lambda a: advanced_caps.gpu_job_plan(
+            backend=str(a["backend"]),
+            image=str(a["image"]),
+            command=a["command"],
+            gpu_count=int(a.get("gpu_count", 1)),
+            max_runtime_seconds=int(a.get("max_runtime_seconds", 3600)),
+            hourly_cost_usd=float(a.get("hourly_cost_usd", 0.0)),
+            max_cost_usd=float(a.get("max_cost_usd", 25.0)),
+            compute_pool=a.get("compute_pool"),
+            job_name=a.get("job_name"),
+            connection=a.get("connection"),
+            namespace=str(a.get("namespace") or "default"),
+            replicas=int(a.get("replicas", 1)),
+        ),
+        "Plan a portable Snowflake/Kubernetes/local-CUDA GPU job with runtime, GPU-count, replica and maximum-cost guardrails.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "gpu_job_run",
+        Capability.EXECUTE,
+        lambda a: advanced_caps.gpu_job_run(
+            a.get("workspace") or str(_target(a)),
+            dict(a["plan"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+        ),
+        "Execute an approved local-CUDA GPU job through bounded command execution; external backends remain NOT_RUN_EXTERNAL until configured.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+
+    add(
+        "agent_recovery_plan",
+        Capability.PLAN,
+        lambda a: advanced_caps.agent_recovery_plan(
+            a.get("workspace") or str(_target(a)),
+            scenario_id=str(a.get("scenario_id") or "watermark_defect"),
+        ),
+        "Run an evidence-grounded multi-agent investigation through first divergence, RCA, impact and a bounded recovery proposal without external mutation.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "agent_recovery_execute",
+        Capability.EXECUTE,
+        lambda a: advanced_caps.agent_recovery_execute(
+            a.get("workspace") or str(_target(a)),
+            str(a["incident_id"]),
+            approved=bool(a.get("_approved", False)),
+            approved_by=str(a.get("approved_by") or "ade-toolregistry"),
+        ),
+        "Execute an explicitly approved selective recovery in the local proving ground, independently verify it, and re-certify affected assets.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+
+    add(
+        "model_route",
+        Capability.PLAN,
+        lambda a: advanced_caps.route_model_for_mode(
+            str(a["mode"]),
+            list(a.get("candidates") or []),
+            required_capabilities=list(a.get("required_capabilities") or []),
+            budget_usd=float(a["budget_usd"]) if a.get("budget_usd") is not None else None,
+        ),
+        "Choose the lowest-cost capable model for code mode, or highest-quality eligible model for other modes, under an optional budget.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "document_snowflake_extract_plan",
+        Capability.PLAN,
+        lambda a: advanced_caps.snowflake_document_extract_plan(
+            str(a["stage"]),
+            str(a["document_path"]),
+            a.get("response_format") or {},
+            scores=bool(a.get("scores", True)),
+        ),
+        "Plan current Snowflake AI_EXTRACT document extraction with scores using a stage FILE object; execution stays read-only and externally certifiable.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "document_snowflake_parse_plan",
+        Capability.PLAN,
+        lambda a: advanced_caps.snowflake_document_parse_plan(
+            str(a["stage"]),
+            str(a["document_path"]),
+            mode=str(a.get("mode") or "LAYOUT"),
+            page_split=bool(a.get("page_split", True)),
+            extract_images=bool(a.get("extract_images", False)),
+        ),
+        "Plan current Snowflake AI_PARSE_DOCUMENT OCR/layout extraction with explicit error details.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "document_compare",
+        Capability.VERIFY,
+        lambda a: advanced_caps.compare_document_extractions(
+            dict(a["local_result"]),
+            dict(a["provider_result"]),
+            expected_fields=dict(a["expected_fields"]) if a.get("expected_fields") is not None else None,
+            provider_cost_usd=float(a["provider_cost_usd"]) if a.get("provider_cost_usd") is not None else None,
+        ),
+        "Compare local and provider document extraction field agreement, ground-truth accuracy and cost evidence.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+
+    # Local-first semantic search spans code, dbt, Airflow, docs and warehouse metadata.
+    add(
+        "semantic_index_project",
+        Capability.GENERATE,
+        lambda a: _semantic_search_index(a).index_project(
+            a.get("project") or str(_target(a)),
+            max_file_bytes=int(a.get("max_file_bytes", 1_000_000)),
+            max_files=int(a.get("max_files", 10_000)),
+        ),
+        "Index project code, dbt, Airflow, configuration and documentation into ADE's private hybrid semantic index.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "semantic_index_metadata",
+        Capability.GENERATE,
+        lambda a: _semantic_search_index(a).index_metadata(
+            _metadata_service(a),
+            connection_name=a.get("connection_name"),
+            limit=int(a.get("limit", 5000)),
+        ),
+        "Index ADE warehouse catalog objects and columns into the same cross-system semantic index.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "semantic_search",
+        Capability.DISCOVER,
+        lambda a: _semantic_search_index(a).search(
+            a["query"],
+            mode=str(a.get("mode", "hybrid")),
+            kinds=a.get("kinds", ()),
+            limit=int(a.get("limit", 20)),
+            candidate_limit=int(a.get("candidate_limit", 2000)),
+        ),
+        "Search code, dbt, Airflow, docs and warehouse objects through one hybrid semantic retrieval contract.",
+        platforms=frozenset({Platform.LOCAL}),
+        schema={
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+                "mode": {"type": "string"},
+                "kinds": {"type": "array"},
+                "limit": {"type": "integer"},
+            },
+        },
+    )
+
+
+    # Governed Snowflake platform mutation. Plan first; execute only through ToolRegistry.
+    add(
+        "snowflake_mutation_plan",
+        Capability.PLAN,
+        lambda a: plan_snowflake_mutation(
+            a["sql"],
+            environment=str(a.get("environment") or a.get("_environment") or "dev"),
+        ),
+        "Plan one Snowflake DDL/DML statement with deterministic risk, exact-statement approval fingerprint, policy controls and post-change verification.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+        schema={
+            "type": "object",
+            "required": ["sql"],
+            "properties": {
+                "sql": {"type": "string"},
+                "environment": {"type": "string"},
+            },
+        },
+    )
+    add(
+        "snowflake_mutation_execute",
+        Capability.EXECUTE,
+        _snowflake_mutation_execute,
+        "Execute one planned Snowflake mutation after ToolRegistry approval, fingerprint binding, destructive confirmation when required, and post-change verification.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        supports_dry_run=True,
+        requires_approval=True,
+        schema={
+            "type": "object",
+            "required": ["sql", "approval_fingerprint"],
+            "properties": {
+                "sql": {"type": "string"},
+                "approval_fingerprint": {"type": "string"},
+                "confirm_destructive": {"type": "boolean"},
+            },
+        },
+    )
+
+    add(
+        "snowflake_managed_dbt_commands",
+        Capability.DISCOVER,
+        lambda a: supported_managed_dbt_commands(),
+        "List Snowflake-managed dbt commands and flags ADE intentionally blocks as unsupported.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "snowflake_managed_dbt_plan",
+        Capability.PLAN,
+        lambda a: plan_managed_dbt(
+            ade_environment=str(a.get("_environment") or "dev"),
+            **_managed_dbt_kwargs(a),
+        ),
+        "Render and govern one Snowflake-managed dbt project/workspace execution without running it.",
+        platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+    )
+    add(
+        "snowflake_managed_dbt_execute",
+        Capability.EXECUTE,
+        _managed_dbt_execute,
+        "Execute an approved Snowflake-managed dbt project/workspace command and verify its Snowflake query status.",
+        platforms=frozenset({Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        supports_dry_run=True,
+        requires_approval=True,
+    )
 
     # Snowflake ingestion-pipeline verification. These tools are read-only.
     add("snowflake_copy_analyze", Capability.VERIFY, lambda a: analyze_copy_command(a["sql"]), "Statically analyze a Snowflake COPY INTO command for testability and load-risk options.", platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}))

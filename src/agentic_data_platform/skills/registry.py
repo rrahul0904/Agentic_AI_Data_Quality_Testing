@@ -58,6 +58,7 @@ class SkillRegistry:
     ) -> tuple[Path, ...]:
         root = Path(project_root).expanduser().resolve()
         paths = [
+            root / ".ade" / "skills",
             root / ".opencode" / "skills",
             root / ".altimate-code" / "skill",
             root / ".altimate-code" / "skills",

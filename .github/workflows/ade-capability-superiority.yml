@@ -1,0 +1,259 @@
+name: ade-capability-superiority
+
+on:
+  pull_request:
+    paths:
+      - 'src/agentic_data_platform/snowflake/**'
+      - 'src/agentic_data_platform/search/**'
+      - 'src/agentic_data_platform/agents/parallel.py'
+      - 'src/agentic_data_platform/agents/teams.py'
+      - 'src/agentic_data_platform/teammates/**'
+      - 'src/agentic_data_platform/automations/**'
+      - 'src/agentic_data_platform/plugins/**'
+      - 'src/agentic_data_platform/semantic/**'
+      - 'src/agentic_data_platform/cortex/**'
+      - 'src/agentic_data_platform/runners/**'
+      - 'src/agentic_data_platform/notebooks/**'
+      - 'src/agentic_data_platform/browser/**'
+      - 'src/agentic_data_platform/apps/**'
+      - 'src/agentic_data_platform/governance/permissions.py'
+      - 'src/agentic_data_platform/ml/**'
+      - 'src/agentic_data_platform/ai/**'
+      - 'src/agentic_data_platform/ide/**'
+      - 'src/agentic_data_platform/certification/**'
+      - 'scripts/run_hosted_runner.py'
+      - 'scripts/live_advanced_capabilities.py'
+      - 'deploy/hosted-runner/**'
+      - '.github/workflows/ade-advanced-live-certification.yml'
+      - 'src/agentic_data_platform/runtime/agent.py'
+      - 'src/agentic_data_platform/connectors/snowflake.py'
+      - 'src/agentic_data_platform/tools/**'
+      - 'src/agentic_data_platform/advanced_capabilities.py'
+      - 'src/agentic_data_platform/coding_workspace.py'
+      - 'src/agentic_data_platform/rules.py'
+      - 'src/agentic_data_platform/session/store.py'
+      - 'src/agentic_data_platform/session/runtime.py'
+      - 'src/agentic_data_platform/workspace_files.py'
+      - 'src/agentic_data_platform/cli.py'
+      - 'src/agentic_data_platform/api/app.py'
+      - 'apps/web/app/CapabilityWorkbench.tsx'
+      - 'apps/web/app/CertificationConsole.tsx'
+      - 'apps/web/app/certification/**'
+      - 'apps/web/app/page.tsx'
+      - 'specs/ADE_REFERENCE_CAPABILITY_SUPERIORITY_LEDGER.json'
+      - 'specs/COCO_GOLDEN_SCENARIOS.json'
+      - 'scripts/run_coco_golden_scenarios.py'
+      - 'scripts/build_coco_certification_report.py'
+      - 'scripts/check_capability_superiority.py'
+      - 'tests/test_capability_superiority_ledger.py'
+      - 'tests/test_snowflake_governed_mutation.py'
+      - 'tests/test_unified_semantic_search.py'
+      - 'tests/test_parallel_subagents.py'
+      - 'tests/test_enforceable_plugin_hooks.py'
+      - 'tests/test_automation_scheduler.py'
+      - 'tests/test_plugin_bundles.py'
+      - 'tests/test_semantic_layer.py'
+      - 'tests/test_semantic_adapters.py'
+      - 'tests/test_cortex_agents.py'
+      - 'tests/test_hosted_runner.py'
+      - 'tests/test_hosted_runner_deployment.py'
+      - 'tests/test_notebook_agent.py'
+      - 'tests/test_agentic_browser.py'
+      - 'tests/test_snowflake_app_builder.py'
+      - 'tests/test_snowpark_model_registry.py'
+      - 'tests/test_snowpark_ml_workflow.py'
+      - 'tests/test_ai_workflows.py'
+      - 'tests/test_ide_bridge.py'
+      - 'tests/test_advanced_live_capabilities.py'
+      - 'tests/test_advanced_capability_extensions.py'
+      - 'tests/test_shell_sandbox.py'
+      - 'tests/test_memory_personalization.py'
+      - 'tests/test_todo_management.py'
+      - 'tests/test_coco_modes.py'
+      - 'tests/test_workspace_files.py'
+      - 'tests/test_agent_teams.py'
+      - 'tests/test_hosted_workspace_isolation.py'
+      - 'tests/test_generic_app_workflow.py'
+      - 'tests/test_permissions_admin.py'
+      - 'tests/test_agentic_ml_workflow.py'
+      - 'tests/test_hosted_automations.py'
+      - 'tests/test_cross_warehouse_search_playground.py'
+      - 'tests/test_coco_golden_scenarios.py'
+      - 'tests/test_operator_console_parity.py'
+      - 'tests/test_coco_certification_status.py'
+      - 'tests/test_snowflake_managed_dbt.py'
+      - '.github/workflows/ade-capability-superiority.yml'
+      - 'Makefile'
+  workflow_dispatch:
+
+concurrency:
+  group: ade-capability-superiority-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  targeted-certification:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+      - name: Validate exhaustive capability ledger
+        run: make capability-superiority-check
+      - name: Governed Snowflake mutation tests
+        run: make snowflake-governed-mutation-test
+      - name: P1 capability superiority tests
+        run: make capability-superiority-p1-check
+      - name: Execute eight CoCo golden scenarios
+        env:
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: make coco-golden-scenarios
+      - name: Build truthful CoCo certification report
+        env:
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python scripts/build_coco_certification_report.py
+      - name: Upload CoCo certification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: coco-certification-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            reports/certification/coco_golden_scenarios.json
+            reports/certification/coco_certification_report.json
+          if-no-files-found: error
+      - name: Offline CREATE plan smoke
+        run: |
+          ade snowflake-admin plan --environment dev --args '{"sql":"CREATE TABLE HOTEL.RAW.CI_MUTATION_TEST(ID NUMBER)"}'
+      - name: Offline approved dry-run smoke
+        shell: bash
+        run: |
+          FINGERPRINT="$(python - <<'PY'
+          from agentic_data_platform.snowflake import plan_snowflake_mutation
+          print(plan_snowflake_mutation(
+              "CREATE TABLE HOTEL.RAW.CI_MUTATION_TEST(ID NUMBER)",
+              environment="dev",
+          )["approval_fingerprint"])
+          PY
+          )"
+          ade snowflake-admin execute \
+            --environment dev \
+            --builder \
+            --approved \
+            --dry-run \
+            --args "{\"sql\":\"CREATE TABLE HOTEL.RAW.CI_MUTATION_TEST(ID NUMBER)\",\"approval_fingerprint\":\"$FINGERPRINT\"}"
+      - name: Production destructive policy smoke
+        run: |
+          python - <<'PY'
+          from agentic_data_platform.snowflake import plan_snowflake_mutation
+          result = plan_snowflake_mutation(
+              "DROP TABLE HOTEL.RAW.CI_MUTATION_TEST",
+              environment="prod",
+          )
+          assert result["status"] == "BLOCKED_POLICY", result
+          print(result["status"])
+          PY
+      - name: Ruff targeted files
+        run: >-
+          ruff check
+          src/agentic_data_platform/snowflake
+          src/agentic_data_platform/search
+          src/agentic_data_platform/agents/parallel.py
+          src/agentic_data_platform/agents/teams.py
+          src/agentic_data_platform/teammates/service.py
+          src/agentic_data_platform/automations
+          src/agentic_data_platform/plugins
+          src/agentic_data_platform/semantic
+          src/agentic_data_platform/cortex
+          src/agentic_data_platform/runners
+          src/agentic_data_platform/notebooks
+          src/agentic_data_platform/browser
+          src/agentic_data_platform/apps
+          src/agentic_data_platform/governance/permissions.py
+          src/agentic_data_platform/ml
+          src/agentic_data_platform/ai
+          src/agentic_data_platform/ide
+          src/agentic_data_platform/certification
+          src/agentic_data_platform/runtime/agent.py
+          src/agentic_data_platform/connectors/snowflake.py
+          src/agentic_data_platform/tools/builtin.py
+          src/agentic_data_platform/api/app.py
+          src/agentic_data_platform/advanced_capabilities.py
+          src/agentic_data_platform/workspace_files.py
+          tests/test_snowflake_governed_mutation.py
+          tests/test_snowflake_managed_dbt.py
+          tests/test_unified_semantic_search.py
+          tests/test_parallel_subagents.py
+          tests/test_enforceable_plugin_hooks.py
+          tests/test_automation_scheduler.py
+          tests/test_plugin_bundles.py
+          tests/test_semantic_layer.py
+          tests/test_semantic_adapters.py
+          tests/test_cortex_agents.py
+          tests/test_hosted_runner.py
+          tests/test_hosted_runner_deployment.py
+          tests/test_notebook_agent.py
+          tests/test_agentic_browser.py
+          tests/test_snowflake_app_builder.py
+          tests/test_snowpark_model_registry.py
+          tests/test_snowpark_ml_workflow.py
+          tests/test_ai_workflows.py
+          tests/test_ide_bridge.py
+          tests/test_advanced_live_capabilities.py
+          tests/test_advanced_capability_extensions.py
+          tests/test_rules_instructions.py
+          tests/test_context_controls.py
+          tests/test_session_checkpoints.py
+          tests/test_coding_workspace.py
+          src/agentic_data_platform/session/runtime.py
+          src/agentic_data_platform/session/store.py
+          src/agentic_data_platform/rules.py
+          src/agentic_data_platform/coding_workspace.py
+          tests/test_shell_sandbox.py
+          tests/test_memory_personalization.py
+          tests/test_todo_management.py
+          tests/test_coco_modes.py
+          tests/test_workspace_files.py
+          tests/test_agent_teams.py
+          tests/test_hosted_workspace_isolation.py
+          tests/test_generic_app_workflow.py
+          tests/test_permissions_admin.py
+          tests/test_agentic_ml_workflow.py
+          tests/test_hosted_automations.py
+          tests/test_cross_warehouse_search_playground.py
+          tests/test_coco_golden_scenarios.py
+          tests/test_operator_console_parity.py
+          tests/test_coco_certification_status.py
+          scripts/live_advanced_capabilities.py
+          scripts/run_hosted_runner.py
+          tests/test_capability_superiority_ledger.py
+          scripts/check_capability_superiority.py
+          scripts/build_coco_certification_report.py
+
+  full-regression:
+    needs: targeted-certification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install Python projects
+        run: |
+          python -m pip install -e '.[dev]'
+          python -m pip install -e './shiftforge[dev]'
+          python -m pip install -e './hospitality-snowflake-data-platform[dev]'
+      - name: Install operator console
+        run: npm ci
+        working-directory: apps/web
+      - name: Parse dbt artifacts
+        run: python scripts/parse_dbt.py
+      - name: Full repository verification
+        run: make verify

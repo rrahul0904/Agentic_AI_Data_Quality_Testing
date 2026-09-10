@@ -50,9 +50,20 @@ class ActorMode(str, Enum):
     """Operator boundary used by every deterministic tool invocation."""
 
     ANALYST = "analyst"
+    ASK = "ask"
     PLAN = "plan"
     BUILDER = "builder"
     ADMIN = "admin"
+
+
+class InteractionMode(str, Enum):
+    """End-user CoCo-style interaction mode, independent of actor authorization."""
+
+    AGENT = "agent"
+    PLAN = "plan"
+    ASK = "ask"
+    EDIT = "edit"
+    CODE = "code"
 
 
 class Capability(str, Enum):

@@ -1,0 +1,1426 @@
+{
+  "benchmark": "CoCo public capability reference",
+  "verified_on": "2026-09-09",
+  "policy": {
+    "score_0": "GAP: reference behavior not implemented",
+    "score_1": "PARITY: reference behavior is implemented and certified",
+    "score_2": "SUPERIOR: parity plus at least two independently testable ADE advantages",
+    "target_score": 2,
+    "public_product_docs": "Do not frame ADE public documentation as a competitor clone; this benchmark is internal engineering evidence.",
+    "classifications": {
+      "COCO_CORE": "Direct CoCo user-facing capability; required for parity closure.",
+      "COCO_WORKFLOW": "CoCo end-user workflow; ADE must provide equivalent outcome without cloning every backing Snowflake service.",
+      "ADE_EXTENSION": "Additional ADE Snowflake/Cortex capability; valuable but non-blocking for CoCo parity."
+    }
+  },
+  "sources": [
+    "https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code",
+    "https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code-desktop",
+    "https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code-desktop/agent-mode-and-plan-mode",
+    "https://docs.snowflake.com/en/user-guide/cortex-code/tools",
+    "https://docs.snowflake.com/en/user-guide/cortex-code/extensibility",
+    "https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code-desktop/agents",
+    "https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code-desktop/automations",
+    "https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code-automations",
+    "https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code-desktop/hooks",
+    "https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code-plugins",
+    "https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code-desktop/skills",
+    "https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code-desktop/agentic-browser",
+    "https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code-desktop/building-apps",
+    "https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code-desktop/dbt-integration",
+    "https://docs.snowflake.com/en/sql-reference/sql/execute-dbt-project",
+    "https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-agents",
+    "https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-agents-coding-agent",
+    "https://docs.snowflake.com/en/user-guide/cortex-code/bundled-skills",
+    "https://docs.snowflake.com/en/user-guide/views-semantic/overview",
+    "https://docs.snowflake.com/en/user-guide/views-semantic/verified-query-repository",
+    "https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-analyst/rest-api",
+    "https://docs.snowflake.com/en/developer-guide/snowflake-app-runtime/app-yml",
+    "https://docs.snowflake.com/en/developer-guide/snowflake-cli/streamlit/commands/deploy",
+    "https://docs.snowflake.com/en/developer-guide/snowflake-cli/notebook/commands/deploy",
+    "https://docs.snowflake.com/en/developer-guide/snowpark-ml/model-registry/overview",
+    "https://docs.snowflake.com/en/user-guide/snowflake-cortex/aisql"
+  ],
+  "capabilities": [
+    {
+      "id": "surfaces.snowsight",
+      "reference": "Web/Snowsight agent surface",
+      "ade_current": "implemented_on_branch",
+      "phase": "P2",
+      "target_score": 2,
+      "superiority_advantages": [
+        "cross-platform web console",
+        "same governed tools as CLI/API"
+      ],
+      "acceptance": "Web surface can perform the same certified workflows as CLI without Snowflake-only coupling.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "surfaces.desktop_ide",
+      "reference": "Native desktop IDE with editor/terminal/agent",
+      "ade_current": "implemented_on_branch",
+      "phase": "P2",
+      "target_score": 2,
+      "superiority_advantages": [
+        "desktop-optional architecture",
+        "local + cloud execution backends"
+      ],
+      "acceptance": "Desktop shell supports agent/editor/terminal/browser/notebook workflows with shared ADE sessions.",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_RUN_EXTERNAL",
+        "tests": [
+          "tests/test_ide_bridge.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/ide/bridge.py",
+          "apps/web/app/CapabilityWorkbench.tsx"
+        ]
+      },
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "surfaces.cli",
+      "reference": "Agentic CLI",
+      "ade_current": "implemented",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "22-provider control plane",
+        "cross-warehouse tools"
+      ],
+      "acceptance": "CLI retains all ADE capabilities and gains mode/automation/plugin parity.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "modes.agent",
+      "reference": "Autonomous implementation/agent mode",
+      "ade_current": "implemented_on_branch",
+      "phase": "P0",
+      "target_score": 2,
+      "superiority_advantages": [
+        "deterministic tool evidence",
+        "cross-system execution"
+      ],
+      "acceptance": "Agent can plan, execute, verify and recover Snowflake+Airflow+dbt work.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "modes.plan",
+      "reference": "Read-only plan mode",
+      "ade_current": "implemented_on_branch",
+      "phase": "P0",
+      "target_score": 2,
+      "superiority_advantages": [
+        "risk-aware plans",
+        "approval-bound execution fingerprints"
+      ],
+      "acceptance": "Plan is immutable/auditable and executable only after matching approval.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "modes.ask",
+      "reference": "Read-only ask/explain mode",
+      "ade_current": "implemented_on_branch",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "project context",
+        "evidence citations"
+      ],
+      "acceptance": "Ask mode never mutates and grounds responses in runtime/project evidence.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_REQUIRED",
+        "tests": [
+          "tests/test_advanced_capability_extensions.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/advanced_capabilities.py",
+          "src/agentic_data_platform/models.py",
+          "src/agentic_data_platform/tools/registry.py",
+          "src/agentic_data_platform/tools/builtin.py",
+          "src/agentic_data_platform/runtime/agent.py",
+          "src/agentic_data_platform/api/app.py"
+        ],
+        "evidence": [
+          "GitHub Actions ade-capability-superiority run 34412344854 targeted-certification PASS",
+          "Certified implementation head dda2ea163eceb1b9700534d25842658004044aac"
+        ]
+      }
+    },
+    {
+      "id": "modes.edit",
+      "reference": "Scoped edit/refactor mode",
+      "ade_current": "implemented_on_branch",
+      "phase": "P2",
+      "target_score": 2,
+      "superiority_advantages": [
+        "policy-scoped filesystem edits",
+        "test-before-apply"
+      ],
+      "acceptance": "Selected-region edits support review, tests and rollback.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_REQUIRED",
+        "tests": [
+          "tests/test_advanced_capability_extensions.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/advanced_capabilities.py",
+          "src/agentic_data_platform/models.py",
+          "src/agentic_data_platform/tools/registry.py",
+          "src/agentic_data_platform/tools/builtin.py",
+          "src/agentic_data_platform/runtime/agent.py",
+          "src/agentic_data_platform/api/app.py"
+        ],
+        "evidence": [
+          "GitHub Actions ade-capability-superiority run 34412344854 targeted-certification PASS",
+          "Certified implementation head dda2ea163eceb1b9700534d25842658004044aac"
+        ]
+      }
+    },
+    {
+      "id": "modes.code",
+      "reference": "Low-cost code-only mode",
+      "ade_current": "implemented_on_branch",
+      "phase": "P2",
+      "target_score": 2,
+      "superiority_advantages": [
+        "provider routing",
+        "cost budgets"
+      ],
+      "acceptance": "Code mode disables data mutations and chooses low-cost models automatically.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "tools.files",
+      "reference": "Read/create/edit local files",
+      "ade_current": "implemented_on_branch",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "workspace policy",
+        "diff+rollback evidence"
+      ],
+      "acceptance": "Agent can edit workspace files with scoped policy and post-edit verification.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "tools.shell",
+      "reference": "Run foreground/background shell commands",
+      "ade_current": "implemented_on_branch",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "sandbox policy",
+        "resource/time budgets"
+      ],
+      "acceptance": "Shell runs are sandboxed, killable, logged, and approval-gated by risk.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_RUN_EXTERNAL",
+        "tests": [
+          "tests/test_shell_sandbox.py",
+          "tests/test_advanced_capability_extensions.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/runners/sandbox.py",
+          "src/agentic_data_platform/advanced_capabilities.py",
+          "src/agentic_data_platform/tools/builtin.py",
+          "src/agentic_data_platform/tools/registry.py",
+          "src/agentic_data_platform/api/app.py"
+        ],
+        "evidence": [
+          "GitHub Actions ade-capability-superiority run 34412635650 targeted-certification PASS",
+          "Certified implementation head a8e9bcd2f59bd099be801b5944902765cafdf0e3"
+        ],
+        "known_limitation": "The CONTAINER_SANDBOX implementation is deterministic-certified; a real Docker daemon execution is intentionally not claimed by credential/runtime-free CI."
+      }
+    },
+    {
+      "id": "tools.sql_read",
+      "reference": "Read-only SQL execution",
+      "ade_current": "implemented",
+      "phase": "P0",
+      "target_score": 2,
+      "superiority_advantages": [
+        "13 warehouse connectors",
+        "deterministic SQL safety"
+      ],
+      "acceptance": "Same read workflow works across supported warehouses.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "tools.sql_mutation",
+      "reference": "DDL/DML execution",
+      "ade_current": "implemented_on_branch",
+      "phase": "P0",
+      "target_score": 2,
+      "superiority_advantages": [
+        "exact approval fingerprint",
+        "post-change verification"
+      ],
+      "acceptance": "CREATE/ALTER/DML/DROP is governed, verified and prod-safe.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "tools.notebook",
+      "reference": "Create/edit/run Jupyter/Snowflake notebooks",
+      "ade_current": "implemented_on_branch",
+      "phase": "P2",
+      "target_score": 2,
+      "superiority_advantages": [
+        "evidence notebooks",
+        "multi-warehouse kernels"
+      ],
+      "acceptance": "Notebook investigations become replayable ADE evidence.",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_RUN_EXTERNAL",
+        "tests": [
+          "tests/test_notebook_agent.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/notebooks/agent.py",
+          "scripts/live_advanced_capabilities.py"
+        ]
+      },
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "tools.browser",
+      "reference": "Agentic browser/app verification",
+      "ade_current": "implemented_on_branch",
+      "phase": "P2",
+      "target_score": 2,
+      "superiority_advantages": [
+        "deployment verification",
+        "cross-provider web testing"
+      ],
+      "acceptance": "Browser can verify ADE-built apps and capture evidence.",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_RUN_EXTERNAL",
+        "tests": [
+          "tests/test_agentic_browser.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/browser/agent.py"
+        ]
+      },
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "tools.web_search",
+      "reference": "Public web search/fetch",
+      "ade_current": "implemented_on_branch",
+      "phase": "P2",
+      "target_score": 2,
+      "superiority_advantages": [
+        "source policy",
+        "citation capture"
+      ],
+      "acceptance": "Research is source-audited and separable from deterministic platform facts.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "tools.git",
+      "reference": "Git changes/commits",
+      "ade_current": "implemented_on_branch",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "GitHub+GitLab review",
+        "policy-controlled commits"
+      ],
+      "acceptance": "Agent can branch/edit/test/commit with review evidence and no force-push by default.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "tools.todos",
+      "reference": "Task/todo tracking",
+      "ade_current": "implemented_on_branch",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "session persistence",
+        "run-state linkage"
+      ],
+      "acceptance": "Todos link directly to runs, evidence and approvals.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_REQUIRED",
+        "tests": [
+          "tests/test_todo_management.py",
+          "tests/test_session_runtime.py"
+        ],
+        "evidence": [
+          "GitHub Actions ade-capability-superiority run 34413136293 targeted-certification PASS",
+          "Certified implementation head 41471d33cf666dd2e0abb4cfbc90f45c9dd3748d"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/session/store.py",
+          "src/agentic_data_platform/tools/builtin.py",
+          "src/agentic_data_platform/api/app.py"
+        ]
+      }
+    },
+    {
+      "id": "memory.persistent",
+      "reference": "Persistent agent memory",
+      "ade_current": "implemented_on_branch",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "scope/expiry controls",
+        "trace linkage"
+      ],
+      "acceptance": "Memory is governed by project scope, expiry and provenance.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_REQUIRED",
+        "tests": [
+          "tests/test_memory_personalization.py"
+        ],
+        "evidence": [
+          "GitHub Actions ade-capability-superiority run 34413136293 targeted-certification PASS",
+          "Certified implementation head 41471d33cf666dd2e0abb4cfbc90f45c9dd3748d"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/memory/store.py",
+          "src/agentic_data_platform/tools/builtin.py",
+          "src/agentic_data_platform/api/app.py"
+        ]
+      }
+    },
+    {
+      "id": "context.management",
+      "reference": "Context accounting/compaction",
+      "ade_current": "implemented_on_branch",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "bounded evidence hierarchy",
+        "cost budgets"
+      ],
+      "acceptance": "Context selection is evidence-ranked, bounded and provider-aware.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "agents.parallel",
+      "reference": "Parallel independent subagents",
+      "ade_current": "implemented_on_branch",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "data-domain specialist roster",
+        "evidence synthesis"
+      ],
+      "acceptance": "Supervisor dynamically delegates parallel Snowflake/Airflow/dbt/files/business investigations.",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_REQUIRED_FOR_LOCAL_CONTRACT",
+        "tests": [
+          "tests/test_parallel_subagents.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/agents/parallel.py"
+        ]
+      },
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "agents.custom",
+      "reference": "Custom agent definitions/tools/models/prompts",
+      "ade_current": "implemented_on_branch",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "policy inheritance",
+        "capability contracts"
+      ],
+      "acceptance": "Custom agents declare allowed tools, budgets, scopes and verification contracts.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "agents.review",
+      "reference": "Specialized review agent",
+      "ade_current": "implemented",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "GitHub+GitLab",
+        "deterministic review tools"
+      ],
+      "acceptance": "Review agent can independently certify changes before merge.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "automations.desktop",
+      "reference": "Local scheduled agent automations",
+      "ade_current": "implemented_on_branch",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "condition watches",
+        "evidence retention"
+      ],
+      "acceptance": "Local scheduler supports hourly/daily/custom runs with conditional notification.",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_REQUIRED_FOR_LOCAL_CONTRACT",
+        "tests": [
+          "tests/test_automation_scheduler.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/automations"
+        ]
+      },
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "automations.hosted",
+      "reference": "Hosted unattended automations",
+      "ade_current": "implemented_on_branch",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "vendor-neutral runners",
+        "multi-system monitoring"
+      ],
+      "acceptance": "Hosted ADE automation can run without a desktop and inspect multiple data platforms.",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_RUN_EXTERNAL",
+        "tests": [
+          "tests/test_hosted_runner.py",
+          "tests/test_automation_scheduler.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/runners/hosted.py",
+          "scripts/run_hosted_runner.py"
+        ]
+      },
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "extensibility.skills",
+      "reference": "Reusable agent skills",
+      "ade_current": "implemented",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "32+ data-engineering skills",
+        "cross-provider portability"
+      ],
+      "acceptance": "Skills are portable across ADE agents/providers and certifiable.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "extensibility.mcp",
+      "reference": "MCP servers/tools/resources/OAuth",
+      "ade_current": "implemented",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "governed boundary",
+        "replayable tool evidence"
+      ],
+      "acceptance": "MCP calls inherit ADE risk policy, redaction and traces.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "extensibility.plugins",
+      "reference": "Bundle skills/subagents/commands/hooks/MCP",
+      "ade_current": "implemented_on_branch",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "signed manifests",
+        "policy+version validation"
+      ],
+      "acceptance": "Plugin package installs atomically and validates every contributed capability.",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_REQUIRED_FOR_LOCAL_CONTRACT",
+        "tests": [
+          "tests/test_plugin_bundles.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/plugins"
+        ]
+      },
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "extensibility.hooks",
+      "reference": "Pre/post/permission/session hooks",
+      "ade_current": "implemented_on_branch",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "deterministic blocking policy",
+        "audit trail"
+      ],
+      "acceptance": "Hooks can inspect/modify/block tool calls with recorded decisions.",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_REQUIRED_FOR_LOCAL_CONTRACT",
+        "tests": [
+          "tests/test_enforceable_plugin_hooks.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/runtime/agent.py"
+        ]
+      },
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "search.semantic_code",
+      "reference": "Natural-language semantic code search",
+      "ade_current": "implemented_on_branch",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "cross-code+data search",
+        "local/private retrieval"
+      ],
+      "acceptance": "One query searches code, dbt, Airflow, SQL, docs and catalog objects.",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_REQUIRED_FOR_LOCAL_CONTRACT",
+        "tests": [
+          "tests/test_unified_semantic_search.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/search"
+        ]
+      },
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "search.snowflake_objects",
+      "reference": "Semantic Snowflake object discovery",
+      "ade_current": "implemented_on_branch",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "cross-warehouse catalog",
+        "lineage-aware ranking"
+      ],
+      "acceptance": "Intent search spans Snowflake plus all supported warehouses and ranks by lineage/recent evidence.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "sql.playground",
+      "reference": "Interactive SQL playground",
+      "ade_current": "implemented_on_branch",
+      "phase": "P2",
+      "target_score": 2,
+      "superiority_advantages": [
+        "multi-dialect",
+        "review+lineage+cost"
+      ],
+      "acceptance": "Playground supports execution, lineage, optimization, policy and cost evidence.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "visualization.inline",
+      "reference": "Inline charts/KPIs from data",
+      "ade_current": "implemented_on_branch",
+      "phase": "P2",
+      "target_score": 2,
+      "superiority_advantages": [
+        "chart provenance",
+        "cross-warehouse"
+      ],
+      "acceptance": "Every chart stores source query, result fingerprint and replay metadata.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "dbt.local",
+      "reference": "Local dbt build/test/docs/compiled SQL",
+      "ade_current": "implemented",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "impact analysis",
+        "test generation"
+      ],
+      "acceptance": "Local dbt workspace combines execution with ADE lineage, quality and RCA.",
+      "classification": "COCO_WORKFLOW",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "dbt.snowflake_managed",
+      "reference": "EXECUTE DBT PROJECT FROM WORKSPACE",
+      "ade_current": "implemented_on_branch",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "local/managed failover",
+        "post-run certification"
+      ],
+      "acceptance": "ADE can sync/run/download artifacts and certify results in Snowflake-managed mode.",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_RUN_EXTERNAL",
+        "tests": [
+          "tests/test_snowflake_managed_dbt.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/snowflake/managed_dbt.py"
+        ]
+      },
+      "classification": "COCO_WORKFLOW",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "apps.streamlit",
+      "reference": "Scaffold/preview/deploy Streamlit",
+      "ade_current": "implemented_on_branch",
+      "phase": "P2",
+      "target_score": 2,
+      "superiority_advantages": [
+        "browser verification",
+        "governed data access"
+      ],
+      "acceptance": "Generated app is tested, visually verified and deployed with RBAC checks.",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_RUN_EXTERNAL",
+        "tests": [
+          "tests/test_snowflake_app_builder.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/apps/builder.py",
+          "scripts/live_advanced_capabilities.py"
+        ]
+      },
+      "classification": "COCO_WORKFLOW",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "apps.app_runtime",
+      "reference": "Scaffold/deploy Snowflake App Runtime",
+      "ade_current": "implemented_on_branch",
+      "phase": "P2",
+      "target_score": 2,
+      "superiority_advantages": [
+        "deployment evidence",
+        "rollback verification"
+      ],
+      "acceptance": "ADE builds, deploys, probes health and validates rollback.",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_RUN_EXTERNAL",
+        "tests": [
+          "tests/test_snowflake_app_builder.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/apps/builder.py",
+          "scripts/live_advanced_capabilities.py"
+        ]
+      },
+      "classification": "COCO_WORKFLOW",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "semantic.cortex_analyst",
+      "reference": "Cortex Analyst semantic models",
+      "ade_current": "implemented_on_branch",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "semantic-layer abstraction",
+        "physical-to-dashboard lineage"
+      ],
+      "acceptance": "ADE supports Analyst plus dbt/MetricFlow/LookML-style semantic definitions behind one interface.",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_RUN_EXTERNAL",
+        "tests": [
+          "tests/test_semantic_layer.py",
+          "tests/test_semantic_adapters.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/semantic/cortex.py",
+          "src/agentic_data_platform/semantic/snowflake.py",
+          "src/agentic_data_platform/semantic/dbt_adapter.py",
+          "src/agentic_data_platform/semantic/lookml_adapter.py"
+        ]
+      },
+      "classification": "ADE_EXTENSION",
+      "release_blocking": false,
+      "certification_track": "SNOWFLAKE_EXTENSION_CERTIFICATION"
+    },
+    {
+      "id": "semantic.verified_queries",
+      "reference": "Verified Query Retrieval/semantic views",
+      "ade_current": "implemented_on_branch",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "cross-semantic registry",
+        "query evidence scoring"
+      ],
+      "acceptance": "Verified queries have ownership, tests, provenance and regression certification.",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_RUN_EXTERNAL",
+        "tests": [
+          "tests/test_semantic_layer.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/semantic/registry.py",
+          "src/agentic_data_platform/semantic/evaluation.py"
+        ]
+      },
+      "classification": "ADE_EXTENSION",
+      "release_blocking": false,
+      "certification_track": "SNOWFLAKE_EXTENSION_CERTIFICATION"
+    },
+    {
+      "id": "search.cortex_search",
+      "reference": "Cortex Search/unstructured retrieval",
+      "ade_current": "gap",
+      "phase": "P2",
+      "target_score": 2,
+      "superiority_advantages": [
+        "provider-neutral retrieval",
+        "project evidence hierarchy"
+      ],
+      "acceptance": "ADE can use Cortex Search or local/other retrieval backends under the same evidence contract.",
+      "classification": "ADE_EXTENSION",
+      "release_blocking": false,
+      "certification_track": "SNOWFLAKE_EXTENSION_CERTIFICATION"
+    },
+    {
+      "id": "agents.cortex_admin",
+      "reference": "Create/evaluate/publish Cortex Agents",
+      "ade_current": "implemented_on_branch",
+      "phase": "P2",
+      "target_score": 2,
+      "superiority_advantages": [
+        "agent portability",
+        "cross-provider eval"
+      ],
+      "acceptance": "ADE can administer Cortex Agents while comparing against ADE-native agents on the same eval set.",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_RUN_EXTERNAL",
+        "tests": [
+          "tests/test_cortex_agents.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/cortex/agents.py",
+          "scripts/live_advanced_capabilities.py"
+        ]
+      },
+      "classification": "ADE_EXTENSION",
+      "release_blocking": false,
+      "certification_track": "SNOWFLAKE_EXTENSION_CERTIFICATION"
+    },
+    {
+      "id": "sdk.coding_agent",
+      "reference": "Embeddable managed coding-agent SDK",
+      "ade_current": "gap",
+      "phase": "P2",
+      "target_score": 2,
+      "superiority_advantages": [
+        "self-hosted/cloud backends",
+        "policy SDK"
+      ],
+      "acceptance": "Applications can embed ADE agent sessions with granular per-tool approval callbacks.",
+      "classification": "ADE_EXTENSION",
+      "release_blocking": false,
+      "certification_track": "SNOWFLAKE_EXTENSION_CERTIFICATION"
+    },
+    {
+      "id": "admin.account",
+      "reference": "Natural-language Snowflake account/security/cost administration",
+      "ade_current": "implemented_on_branch",
+      "phase": "P1",
+      "target_score": 2,
+      "superiority_advantages": [
+        "cross-cloud warehouse admin",
+        "blast-radius verification"
+      ],
+      "acceptance": "ADE can plan/administer governed platform changes with independent verification.",
+      "classification": "COCO_WORKFLOW",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "ml.snowpark",
+      "reference": "Snowpark ML development",
+      "ade_current": "implemented_on_branch",
+      "phase": "P2",
+      "target_score": 2,
+      "superiority_advantages": [
+        "platform-neutral ML orchestration",
+        "lineage/evidence"
+      ],
+      "acceptance": "ADE can build/test/register Snowpark ML while tracking data/model lineage.",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_RUN_EXTERNAL",
+        "tests": [
+          "tests/test_snowpark_ml_workflow.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/ml/workflow.py"
+        ]
+      },
+      "classification": "ADE_EXTENSION",
+      "release_blocking": false,
+      "certification_track": "SNOWFLAKE_EXTENSION_CERTIFICATION"
+    },
+    {
+      "id": "ml.registry",
+      "reference": "Model registry operations",
+      "ade_current": "implemented_on_branch",
+      "phase": "P2",
+      "target_score": 2,
+      "superiority_advantages": [
+        "multi-registry abstraction",
+        "deployment verification"
+      ],
+      "acceptance": "Model registration/deployment works with Snowflake plus other supported registries.",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_RUN_EXTERNAL",
+        "tests": [
+          "tests/test_snowpark_model_registry.py",
+          "tests/test_snowpark_ml_workflow.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/ml/registry.py",
+          "src/agentic_data_platform/ml/workflow.py"
+        ]
+      },
+      "classification": "ADE_EXTENSION",
+      "release_blocking": false,
+      "certification_track": "SNOWFLAKE_EXTENSION_CERTIFICATION"
+    },
+    {
+      "id": "ml.forecasting_anomaly",
+      "reference": "Forecasting/anomaly workflows",
+      "ade_current": "implemented_on_branch",
+      "phase": "P2",
+      "target_score": 2,
+      "superiority_advantages": [
+        "deterministic baselines",
+        "cross-platform signals"
+      ],
+      "acceptance": "ADE compares statistical and model-based detectors with stored evaluation evidence.",
+      "classification": "COCO_WORKFLOW",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "ml.gpu_jobs",
+      "reference": "Snowflake GPU/container jobs",
+      "ade_current": "gap",
+      "phase": "P2",
+      "target_score": 2,
+      "superiority_advantages": [
+        "portable compute plans",
+        "cost guardrails"
+      ],
+      "acceptance": "Agent can plan/run GPU work with quota/cost controls and alternate backends.",
+      "classification": "ADE_EXTENSION",
+      "release_blocking": false,
+      "certification_track": "SNOWFLAKE_EXTENSION_CERTIFICATION"
+    },
+    {
+      "id": "ai.functions",
+      "reference": "Snowflake AI functions/pipelines",
+      "ade_current": "implemented_on_branch",
+      "phase": "P2",
+      "target_score": 2,
+      "superiority_advantages": [
+        "provider abstraction",
+        "cost/quality eval"
+      ],
+      "acceptance": "ADE can generate/evaluate Snowflake AI functions against alternative providers.",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_RUN_EXTERNAL",
+        "tests": [
+          "tests/test_ai_workflows.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/ai/workflows.py",
+          "scripts/live_advanced_capabilities.py"
+        ]
+      },
+      "classification": "ADE_EXTENSION",
+      "release_blocking": false,
+      "certification_track": "SNOWFLAKE_EXTENSION_CERTIFICATION"
+    },
+    {
+      "id": "ai.document_intelligence",
+      "reference": "Document intelligence workflows",
+      "ade_current": "partial",
+      "phase": "P2",
+      "target_score": 2,
+      "superiority_advantages": [
+        "local document ingestion",
+        "cross-provider extraction"
+      ],
+      "acceptance": "Documents can be processed locally or via Snowflake with accuracy/cost comparisons.",
+      "classification": "ADE_EXTENSION",
+      "release_blocking": false,
+      "certification_track": "SNOWFLAKE_EXTENSION_CERTIFICATION"
+    },
+    {
+      "id": "governance.rbac",
+      "reference": "RBAC-aware operations",
+      "ade_current": "implemented",
+      "phase": "P0",
+      "target_score": 2,
+      "superiority_advantages": [
+        "ADE policy overlay",
+        "environment-aware approvals"
+      ],
+      "acceptance": "Warehouse RBAC and ADE policy must both authorize mutations.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "observability.traces",
+      "reference": "Agent/tool execution traces",
+      "ade_current": "implemented",
+      "phase": "P0",
+      "target_score": 2,
+      "superiority_advantages": [
+        "recorded replay",
+        "redaction"
+      ],
+      "acceptance": "Every agent execution is replayable without re-running mutations.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "providers.multi_model",
+      "reference": "Model/provider selection",
+      "ade_current": "implemented",
+      "phase": "P0",
+      "target_score": 2,
+      "superiority_advantages": [
+        "22-provider control plane",
+        "cost budgets"
+      ],
+      "acceptance": "ADE can choose/fail over providers while retaining identical governed tools.",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION"
+    },
+    {
+      "id": "personalization.settings",
+      "reference": "Global/project instructions, tool preferences, runtime preferences and memory enablement",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "implemented_on_branch",
+      "target_score": 2,
+      "superiority_advantages": [
+        "Project settings overlay global settings deterministically while remaining inspectable.",
+        "Secret-like content is rejected and disabled memory refuses persistence."
+      ],
+      "acceptance": "Global and project instructions/preferences compose predictably, memory can be disabled, and secrets are not persisted.",
+      "certification": {
+        "local": "PASS",
+        "live": "NOT_REQUIRED",
+        "tests": [
+          "tests/test_memory_personalization.py"
+        ],
+        "implementation_files": [
+          "src/agentic_data_platform/memory/store.py",
+          "src/agentic_data_platform/tools/builtin.py",
+          "src/agentic_data_platform/api/app.py"
+        ],
+        "evidence": [
+          "GitHub Actions ade-capability-superiority run 34413136293 targeted-certification PASS",
+          "Certified implementation head 41471d33cf666dd2e0abb4cfbc90f45c9dd3748d"
+        ]
+      }
+    },
+    {
+      "id": "tools.python_repl",
+      "reference": "Stateful governed Python REPL for coding and data exploration",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "implemented_on_branch",
+      "target_score": 2,
+      "superiority_advantages": [
+        "container-sandbox execution class with network/resource controls",
+        "persistent JSON-safe namespace with auditable cell history"
+      ],
+      "acceptance": "Python cells execute through an approval-bound REPL, preserve supported state across cells, expose history/state evidence, and never mislabel constrained execution as sandboxed.",
+      "known_limitation": null
+    },
+    {
+      "id": "search.code_deterministic",
+      "reference": "Deterministic code/text/symbol search across the governed workspace",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "implemented_on_branch",
+      "target_score": 2,
+      "superiority_advantages": [
+        "line/column/file-hash evidence",
+        "language-aware symbol index with reproducible fingerprint"
+      ],
+      "acceptance": "Exact code search returns bounded path/line/column evidence tied to immutable file hashes and a reproducible index fingerprint.",
+      "known_limitation": null
+    },
+    {
+      "id": "sessions.history",
+      "reference": "Durable resumable session history",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "implemented_on_branch",
+      "target_score": 2,
+      "superiority_advantages": [
+        "durable provider-independent history",
+        "stable history fingerprints for review and replay"
+      ],
+      "acceptance": "Sessions persist ordered user/assistant/tool history across process restarts and expose an auditable history fingerprint.",
+      "known_limitation": null
+    },
+    {
+      "id": "sessions.checkpoints",
+      "reference": "Durable session checkpoints",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "implemented_on_branch",
+      "target_score": 2,
+      "superiority_advantages": [
+        "messages+todos+reminders+state captured together",
+        "immutable snapshot fingerprints"
+      ],
+      "acceptance": "Users/agents can create, list and inspect durable checkpoints that snapshot session messages, verified todos, reminders and state.",
+      "known_limitation": null
+    },
+    {
+      "id": "sessions.diff_review",
+      "reference": "Checkpoint/session change review",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "implemented_on_branch",
+      "target_score": 2,
+      "superiority_advantages": [
+        "message/todo/state/status diff in one review",
+        "fingerprinted review evidence"
+      ],
+      "acceptance": "ADE can compare two checkpoints and review added/removed/changed messages, todos, state and session status with stable evidence.",
+      "known_limitation": null
+    },
+    {
+      "id": "agents.background",
+      "reference": "Durable background agent jobs",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "implemented_on_branch",
+      "target_score": 2,
+      "superiority_advantages": [
+        "durable job state independent of interactive session",
+        "cancel/status/result evidence across local and hosted runners"
+      ],
+      "acceptance": "Long-running agent work can run in the background, be inspected/cancelled, and return durable evidence without blocking an interactive session."
+    },
+    {
+      "id": "agents.subagents",
+      "reference": "Scoped specialist subagents",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "implemented_on_branch",
+      "target_score": 2,
+      "superiority_advantages": [
+        "tool/scope/budget contracts inherited by each specialist",
+        "parent-child evidence synthesis"
+      ],
+      "acceptance": "A parent agent can spawn scoped specialist subagents with explicit tools, budgets, context and verification contracts, then synthesize their evidence."
+    },
+    {
+      "id": "agents.teams",
+      "reference": "Persistent multi-agent team orchestration",
+      "phase": "P2",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "implemented_on_branch",
+      "target_score": 2,
+      "superiority_advantages": [
+        "named teammate roles with persistent configuration",
+        "parallel/dependency-aware work with review evidence"
+      ],
+      "acceptance": "ADE supports named agent teams whose members have persistent roles/tool scopes and can coordinate parallel/dependent work under a supervisor."
+    },
+    {
+      "id": "rules.instructions",
+      "reference": "Project/global rules and instruction hierarchy",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "implemented_on_branch",
+      "target_score": 2,
+      "superiority_advantages": [
+        "inspectable project/global precedence",
+        "path-scoped instructions combined with policy-enforced tools"
+      ],
+      "acceptance": "Project/global instructions and rules are discoverable, composable by deterministic precedence/path scope, inspectable, and cannot bypass tool policy."
+    },
+    {
+      "id": "context.pin_exclude",
+      "reference": "Explicit context pin and exclude controls",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "implemented_on_branch",
+      "target_score": 2,
+      "superiority_advantages": [
+        "user-visible pinned/blocked evidence set",
+        "provider-independent context selection constraints"
+      ],
+      "acceptance": "Users/agents can pin required context items and exclude unwanted items, and those constraints are honored by evidence-ranked context selection."
+    },
+    {
+      "id": "context.compaction",
+      "reference": "Context compaction and overflow recovery",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "implemented_on_branch",
+      "target_score": 2,
+      "superiority_advantages": [
+        "deterministic summaries with preserved recent evidence",
+        "model-window-aware overflow detection and retry strategy"
+      ],
+      "acceptance": "ADE detects model context overflow, compacts deterministically while preserving pinned/recent evidence, and records compaction boundaries."
+    },
+    {
+      "id": "hosted.workspace_isolation",
+      "reference": "Isolated hosted/cloud workspaces for ADE jobs and automations",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "implemented_on_branch",
+      "target_score": 2,
+      "superiority_advantages": [
+        "workspace isolation independent of Snowflake runtime",
+        "durable job/automation evidence with explicit resource/network policy"
+      ],
+      "acceptance": "Hosted agent/automation work executes in an isolated workspace with explicit filesystem, network, resource and credential boundaries."
+    },
+    {
+      "id": "surfaces.operator_console",
+      "reference": "Rich governed operator console parity with CLI",
+      "phase": "P1",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "implemented_on_branch",
+      "target_score": 2,
+      "superiority_advantages": [
+        "same ToolRegistry workflows as CLI/API",
+        "live evidence, approvals, plans, diffs, jobs and certification in one surface"
+      ],
+      "acceptance": "The web operator console can perform and inspect the same governed CoCo workflows as CLI/API, including modes, plans, approvals, files, terminal/jobs, diffs, sessions and evidence."
+    },
+    {
+      "id": "ide.vscode",
+      "reference": "VS Code workspace/extension integration",
+      "phase": "P2",
+      "classification": "COCO_CORE",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "implemented_on_branch",
+      "target_score": 2,
+      "superiority_advantages": [
+        "project-scoped generated extension/workspace bundle",
+        "shared ADE session/tool-policy backend rather than IDE-specific execution"
+      ],
+      "acceptance": "A generated VS Code integration exposes ADE sessions, governed edits/tools and evidence while sharing the same backend policies as CLI/web."
+    },
+    {
+      "id": "apps.generic_workflow",
+      "reference": "Generic application scaffold, preview, verification and deployment workflow",
+      "phase": "P2",
+      "classification": "COCO_WORKFLOW",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "implemented_on_branch",
+      "target_score": 2,
+      "superiority_advantages": [
+        "framework/provider-neutral app plan with preview evidence",
+        "deployment plus rollback verification under one approval envelope"
+      ],
+      "acceptance": "ADE can scaffold a runnable app, preview/verify it, deploy through a selected backend and validate rollback without Snowflake-only coupling."
+    },
+    {
+      "id": "governance.permissions_admin",
+      "reference": "Governed permissions and access administration",
+      "phase": "P1",
+      "classification": "COCO_WORKFLOW",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "implemented_on_branch",
+      "target_score": 2,
+      "superiority_advantages": [
+        "least-privilege plan with blast-radius evidence",
+        "provider-neutral permission model plus platform adapters"
+      ],
+      "acceptance": "ADE can inspect, plan and apply supported permission/RBAC changes only after approval, then independently verify resulting access and blast radius."
+    },
+    {
+      "id": "ml.agentic_workflow",
+      "reference": "End-to-end agentic ML workflow",
+      "phase": "P2",
+      "classification": "COCO_WORKFLOW",
+      "release_blocking": true,
+      "certification_track": "COCO_PARITY_CERTIFICATION",
+      "ade_current": "implemented_on_branch",
+      "target_score": 2,
+      "superiority_advantages": [
+        "data-to-evaluation-to-registry workflow with lineage",
+        "portable baseline/model comparison and cost/evidence controls"
+      ],
+      "acceptance": "An ADE agent can prepare data, train/evaluate competing models, select/register an artifact, record lineage/cost/evidence and verify a deployment or inference path."
+    }
+  ],
+  "benchmark_tracks": {
+    "coco_parity": {
+      "description": "Release-critical CoCo end-user capability parity/superiority. Cortex-specific extension live certification does not block this track.",
+      "classifications": [
+        "COCO_CORE",
+        "COCO_WORKFLOW"
+      ]
+    },
+    "snowflake_extensions": {
+      "description": "Additional Snowflake/Cortex capabilities retained as ADE extensions and certified independently.",
+      "classifications": [
+        "ADE_EXTENSION"
+      ]
+    }
+  },
+  "target_matrix": {
+    "version": "2026-09-coco-parity-expanded",
+    "description": "Expanded first-class CoCo target matrix. Broad legacy entries remain, but each explicitly requested end-user capability is separately release-tracked.",
+    "required_capabilities": [
+      "tools.python_repl",
+      "search.code_deterministic",
+      "sessions.history",
+      "sessions.checkpoints",
+      "sessions.diff_review",
+      "agents.background",
+      "agents.subagents",
+      "agents.teams",
+      "rules.instructions",
+      "context.pin_exclude",
+      "context.compaction",
+      "hosted.workspace_isolation",
+      "surfaces.operator_console",
+      "ide.vscode",
+      "apps.generic_workflow",
+      "governance.permissions_admin",
+      "ml.agentic_workflow"
+    ]
+  }
+}

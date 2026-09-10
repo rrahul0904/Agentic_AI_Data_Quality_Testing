@@ -6,6 +6,7 @@ from .engine import (
     sensitive_access_report,
 )
 from .pii import classify_column, scan_metadata, scan_query
+from .permissions import execute_permission_change, permission_change_plan
 from .rbac import (
     build_rbac_graph,
     excessive_privileges,
@@ -21,6 +22,8 @@ __all__ = [
     "classify_metadata_columns",
     "excessive_privileges",
     "object_access",
+    "permission_change_plan",
+    "execute_permission_change",
     "pii_exposure",
     "pii_policy_check",
     "propagate_pii",

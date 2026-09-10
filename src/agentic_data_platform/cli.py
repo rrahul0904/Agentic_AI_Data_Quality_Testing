@@ -35,6 +35,82 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
         "inspect": "schema_inspect", "tags": "schema_tags", "status": "metadata_status",
         "autocomplete": "autocomplete",
     },
+    "search": {
+        "index-project": "semantic_index_project",
+        "index-metadata": "semantic_index_metadata",
+        "query": "semantic_search",
+    },
+    "semantic": {
+        "ingest-yaml": "semantic_ingest_yaml", "ingest-dbt": "semantic_ingest_dbt", "ingest-lookml": "semantic_ingest_lookml", "list": "semantic_list", "show": "semantic_show",
+        "search": "semantic_registry_search", "verified-search": "semantic_verified_search",
+        "evaluate": "semantic_evaluate", "evaluate-batch": "semantic_evaluate_batch",
+        "snowflake-sync": "semantic_snowflake_sync",
+        "analyst-plan": "cortex_analyst_plan", "analyst-run": "cortex_analyst_run",
+    },
+    "cortex-agent": {
+        "create-plan": "cortex_agent_create_plan", "create": "cortex_agent_create",
+        "list": "cortex_agent_list", "show": "cortex_agent_show",
+        "update": "cortex_agent_update", "delete": "cortex_agent_delete",
+        "run-plan": "cortex_agent_run_plan", "run": "cortex_agent_run",
+        "feedback": "cortex_agent_feedback",
+        "thread-create": "cortex_thread_create", "thread-list": "cortex_thread_list",
+        "thread-show": "cortex_thread_show", "thread-update": "cortex_thread_update",
+        "thread-delete": "cortex_thread_delete",
+    },
+    "teams": {
+        "list": "team_list", "show": "team_show", "create": "team_create",
+        "edit": "team_edit", "members": "team_set_members", "delete": "team_delete",
+        "plan": "team_plan", "run": "team_run", "runs": "team_runs",
+        "run-show": "team_run_show",
+    },
+    "runner": {
+        "submit": "hosted_runner_submit", "jobs": "hosted_runner_jobs", "job": "hosted_runner_job",
+        "workspace-readiness": "hosted_runner_workspace_readiness",
+        "cancel": "hosted_runner_cancel", "register": "hosted_runner_register",
+        "runners": "hosted_runner_runners", "heartbeat": "hosted_runner_heartbeat",
+        "run-once": "hosted_runner_run_once",
+    },
+    "notebook": {
+        "inspect": "notebook_inspect", "create-plan": "notebook_create_plan",
+        "create-apply": "notebook_create_apply", "local-run": "notebook_local_run",
+        "patch-plan": "notebook_patch_plan", "patch-apply": "notebook_patch_apply", "snowflake-plan": "notebook_snowflake_plan",
+        "snowflake-run": "notebook_snowflake_run",
+    },
+    "browser": {
+        "plan": "browser_plan", "read": "browser_read", "act": "browser_act",
+    },
+    "app": {
+        "plan": "app_build_plan", "validate": "app_build_validate",
+        "apply": "app_build_apply", "deploy": "app_deploy",
+        "generic-scaffold-plan": "generic_app_scaffold_plan",
+        "generic-scaffold-apply": "generic_app_scaffold_apply",
+        "generic-validate": "generic_app_validate",
+        "generic-preview-plan": "generic_app_preview_plan",
+        "generic-preview-run": "generic_app_preview_run",
+        "generic-verify-url": "generic_app_verify_url",
+        "generic-deployment-plan": "generic_app_deployment_plan",
+        "generic-deployment-run": "generic_app_deployment_run",
+        "generic-rollback-plan": "generic_app_rollback_plan",
+        "generic-rollback-run": "generic_app_rollback_run",
+    },
+    "ml": {
+        "models": "snowpark_model_list", "versions": "snowpark_model_versions",
+        "log-plan": "snowpark_model_log_plan", "workflow-plan": "snowpark_ml_workflow_plan",
+        "lifecycle-plan": "snowpark_model_lifecycle_plan",
+        "lifecycle-execute": "snowpark_model_lifecycle_execute",
+        "agentic-plan": "agentic_ml_plan", "agentic-run": "agentic_ml_run",
+        "agentic-predict": "agentic_ml_predict", "agentic-artifacts": "agentic_ml_artifacts",
+    },
+    "ai-workflow": {
+        "plan": "ai_workflow_plan", "run": "ai_workflow_run",
+    },
+    "ide": {
+        "workspace-plan": "ide_workspace_plan", "workspace-apply": "ide_workspace_apply",
+        "context": "ide_context", "open": "ide_open",
+        "edit-plan": "ide_edit_plan", "edit-apply": "ide_edit_apply",
+        "server-register": "ide_server_register", "servers": "ide_server_list",
+        "server-remove": "ide_server_remove",
+    },
     "warehouse": {
         "status": "warehouse_status", "add": "connection_add", "remove": "connection_remove",
         "list": "connection_list", "show": "connection_show", "test": "connection_test",
@@ -49,6 +125,10 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
         "summary": "quality_summary", "recent": "quality_recent",
         "reconciliation-history": "reconciliation_history",
         "asset-health": "asset_health_score", "pipeline-health": "pipeline_health_score",
+    },
+    "snowflake-admin": {
+        "plan": "snowflake_mutation_plan",
+        "execute": "snowflake_mutation_execute",
     },
     "snowflake-test": {
         "copy-analyze": "snowflake_copy_analyze",
@@ -76,6 +156,11 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
         "run": "dbt_run", "test": "dbt_test", "build": "dbt_build",
         "seed": "dbt_seed", "snapshot": "dbt_snapshot", "validate": "dbt_validate",
         "test-generate": "dbt_test_generate", "unit-test-generate": "dbt_unit_test_gen",
+    },
+    "dbt-managed": {
+        "commands": "snowflake_managed_dbt_commands",
+        "plan": "snowflake_managed_dbt_plan",
+        "execute": "snowflake_managed_dbt_execute",
     },
     "review": {
         "dbt": "dbt_pr_review", "impact": "change_impact",
@@ -108,6 +193,7 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
         "pii-exposure": "pii_exposure", "pii-policy": "pii_policy_check",
         "pii-downstream": "pii_downstream_assets", "rbac-audit": "rbac_audit",
         "rbac-object-access": "rbac_object_access", "rbac-risk": "rbac_risk",
+        "permission-plan": "permission_plan", "permission-execute": "permission_execute",
         "pii-access": "pii_access_report",
     },
     "provider": {
@@ -154,7 +240,9 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
     },
     "memory": {
         "save": "memory_save", "list": "memory_list", "search": "memory_search",
-        "remove": "memory_remove",
+        "settings": "memory_settings", "personalization": "memory_personalization",
+        "configure": "memory_configure", "update": "memory_update",
+        "reset": "memory_reset", "remove": "memory_remove",
     },
     "trace": {
         "list": "trace_list", "show": "trace_show", "export": "trace_export",
@@ -163,6 +251,17 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
     "job": {
         "submit": "job_submit", "list": "job_list", "show": "job_show",
         "cancel": "job_cancel",
+    },
+    "automation": {
+        "create": "automation_create", "list": "automation_list", "show": "automation_show",
+        "enable": "automation_enable", "approve": "automation_approve",
+        "run-due": "automation_run_due", "queue-hosted": "automation_queue_hosted",
+        "delete": "automation_delete",
+    },
+    "plugin": {
+        "validate": "plugin_bundle_validate", "install": "plugin_bundle_install",
+        "list": "plugin_bundle_list", "show": "plugin_bundle_show",
+        "activate": "plugin_bundle_activate", "remove": "plugin_bundle_remove",
     },
 }
 
@@ -185,12 +284,13 @@ def _invoke(
     args: dict,
     *,
     actor_mode: ActorMode = ActorMode.ANALYST,
+    environment: Environment = Environment.DEV,
     dry_run: bool = False,
     approved: bool = False,
 ) -> dict:
     registry = build_tool_registry()
     definition = registry.describe(name)
-    request = ToolRequest(name, name, Environment.DEV, definition.risk, args=args)
+    request = ToolRequest(name, name, environment, definition.risk, args=args)
     return registry.invoke(
         ToolInvocation(
             request,
@@ -251,6 +351,7 @@ def build_parser() -> argparse.ArgumentParser:
         domain_parser.add_argument("--args", default="{}", help="JSON arguments passed to the deterministic tool")
         domain_parser.add_argument("--builder", action="store_true", help="invoke in Builder mode")
         domain_parser.add_argument("--admin", action="store_true", help="invoke in Admin mode through the same policy engine")
+        domain_parser.add_argument("--environment", choices=[item.value for item in Environment], default=Environment.DEV.value)
         domain_parser.add_argument("--approved", action="store_true", help="explicitly approve tools that require approval")
         domain_parser.add_argument("--dry-run", action="store_true")
 
@@ -346,6 +447,7 @@ def main(argv: list[str] | None = None) -> int:
                 tool_name,
                 json.loads(args.args),
                 actor_mode=ActorMode.ADMIN if getattr(args, "admin", False) else ActorMode.BUILDER if args.builder else ActorMode.ANALYST,
+                environment=Environment(args.environment),
                 approved=bool(args.approved),
                 dry_run=bool(args.dry_run),
             )

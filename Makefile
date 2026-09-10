@@ -181,10 +181,76 @@ parity-v2: conformance
 	PYTHONPATH=src $(PYTHON) scripts/generate_parity_ledger_v2.py
 
 
-.PHONY: snowflake-pipeline-test hospitality-generate hospitality-validate-files hospitality-bootstrap-snowflake hospitality-stage-internal hospitality-copy-load hospitality-upload-s3 hospitality-snowpipe-monitor hospitality-stream-check hospitality-dbt hospitality-reconcile hospitality-dq hospitality-certify hospitality-failure-fixtures hospitality-failure-certify hospitality-e2e-local hospitality-e2e-live hospitality-reset hospitality-teardown hospitality-test
+.PHONY: snowflake-pipeline-test
 snowflake-pipeline-test:
 	PYTHONPATH=src $(PYTHON) -m pytest -q tests/test_snowflake_pipeline_testing.py tests/test_snowflake_pipeline_surface.py tests/test_snowflake_failure_lab.py
 
+
+.PHONY: capability-superiority-check coco-certification-reports coco-parity-check snowflake-extension-check snowflake-governed-mutation-test
+capability-superiority-check:
+	PYTHONPATH=src $(PYTHON) scripts/check_capability_superiority.py --json
+	PYTHONPATH=src $(PYTHON) -m pytest -q tests/test_capability_superiority_ledger.py
+
+coco-certification-reports:
+	PYTHONPATH=src $(PYTHON) scripts/generate_coco_certification.py
+
+coco-parity-check: capability-superiority-check coco-certification-reports
+	PYTHONPATH=src $(PYTHON) scripts/check_capability_superiority.py --scope coco --require-coco-parity --json
+
+snowflake-extension-check: capability-superiority-check coco-certification-reports
+	PYTHONPATH=src $(PYTHON) scripts/check_capability_superiority.py --scope extensions --json
+
+snowflake-governed-mutation-test:
+	PYTHONPATH=src $(PYTHON) -m pytest -q tests/test_snowflake_governed_mutation.py
+
+
+.PHONY: capability-superiority-p1-check
+capability-superiority-p1-check:
+	PYTHONPATH=src $(PYTHON) -m pytest -q \
+		tests/test_unified_semantic_search.py \
+		tests/test_parallel_subagents.py \
+		tests/test_enforceable_plugin_hooks.py \
+		tests/test_automation_scheduler.py \
+		tests/test_plugin_bundles.py \
+		tests/test_snowflake_managed_dbt.py \
+		tests/test_semantic_layer.py \
+		tests/test_semantic_adapters.py \
+		tests/test_cortex_agents.py \
+		tests/test_hosted_runner.py \
+		tests/test_hosted_runner_deployment.py \
+		tests/test_notebook_agent.py \
+		tests/test_agentic_browser.py \
+		tests/test_snowflake_app_builder.py \
+		tests/test_snowpark_model_registry.py \
+		tests/test_snowpark_ml_workflow.py \
+		tests/test_ai_workflows.py \
+		tests/test_ide_bridge.py \
+		tests/test_advanced_live_capabilities.py \
+		tests/test_advanced_capability_extensions.py \
+		tests/test_shell_sandbox.py \
+		tests/test_memory_personalization.py \
+		tests/test_todo_management.py \
+		tests/test_coco_modes.py \
+		tests/test_workspace_files.py \
+		tests/test_git_parity.py \
+		tests/test_coding_workspace.py \
+		tests/test_session_checkpoints.py \
+		tests/test_context_controls.py \
+		tests/test_rules_instructions.py \
+		tests/test_agent_teams.py \
+		tests/test_hosted_workspace_isolation.py \
+		tests/test_generic_app_workflow.py \
+		tests/test_permissions_admin.py \
+		tests/test_agentic_ml_workflow.py \
+		tests/test_hosted_automations.py \
+		tests/test_cross_warehouse_search_playground.py \
+		tests/test_coco_golden_scenarios.py
+
+.PHONY: advanced-live-e2e
+advanced-live-e2e:
+	PYTHONPATH=src $(PYTHON) scripts/live_advanced_capabilities.py
+
+.PHONY: hospitality-generate hospitality-validate-files hospitality-bootstrap-snowflake hospitality-stage-internal hospitality-copy-load hospitality-upload-s3 hospitality-snowpipe-monitor hospitality-stream-check hospitality-dbt hospitality-reconcile hospitality-dq hospitality-certify hospitality-failure-fixtures hospitality-failure-certify hospitality-e2e-local hospitality-e2e-live hospitality-reset hospitality-teardown hospitality-test
 hospitality-generate:
 	$(PYTHON) scripts/hospitality_testbed/generate_data.py --preset $${ADE_TESTBED_SCALE:-tiny} --seed $${ADE_TESTBED_SEED:-42}
 
@@ -242,3 +308,10 @@ hospitality-teardown:
 
 hospitality-test:
 	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src $(PYTHON) -m pytest -q -p no:cacheprovider tests/hospitality_testbed
+
+.PHONY: coco-golden-scenarios coco-certification-report
+coco-golden-scenarios:
+	python scripts/run_coco_golden_scenarios.py
+
+coco-certification-report: coco-golden-scenarios
+	python scripts/build_coco_certification_report.py

@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from agentic_data_platform.agents.planner import PlannerAgent
 from agentic_data_platform.errors import safe_error
 from agentic_data_platform.agents import InvestigationStore, SupervisorAgent
-from agentic_data_platform.models import ActorMode, ApprovalRecord, Environment, ProjectRecord, RunRecord, ToolRequest
+from agentic_data_platform.models import ActorMode, ApprovalRecord, Environment, InteractionMode, ProjectRecord, RunRecord, ToolRequest
 from agentic_data_platform.persistence.sqlite import SQLiteControlPlaneRepository
 from agentic_data_platform.sql.parser import parse_sql
 from agentic_data_platform.tools.builtin import build_tool_registry
@@ -54,6 +54,7 @@ class MigrationPlanInput(BaseModel):
 class ToolInput(BaseModel):
     args: dict[str, Any] = Field(default_factory=dict)
     actor_mode: ActorMode = ActorMode.ANALYST
+    interaction_mode: InteractionMode = InteractionMode.AGENT
     environment: Environment = Environment.DEV
     dry_run: bool = False
     approved: bool = False
@@ -114,6 +115,9 @@ class SessionTodoInput(BaseModel):
 
 class SessionTodoUpdateInput(BaseModel):
     status: str
+    progress: float | None = None
+    evidence: list[Any] = Field(default_factory=list)
+    verified: bool | None = None
 
 
 class MemorySaveInput(BaseModel):
@@ -204,6 +208,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
         args: dict[str, Any] | None = None,
         *,
         actor_mode: ActorMode = ActorMode.ANALYST,
+        interaction_mode: InteractionMode = InteractionMode.AGENT,
         environment: Environment = Environment.DEV,
         dry_run: bool = False,
         approved: bool = False,
@@ -224,6 +229,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
                     approved=approved,
                     dry_run=dry_run,
                     actor_mode=actor_mode,
+                    interaction_mode=interaction_mode,
                 )
             )
         except PermissionError as exc:
@@ -705,9 +711,158 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             "inspect": "schema_inspect", "tags": "schema_tags", "status": "metadata_status",
             "autocomplete": "autocomplete",
         },
+        "search": {
+            "index-project": "semantic_index_project",
+            "index-metadata": "semantic_index_metadata",
+            "query": "semantic_search",
+        },
+        "semantic": {
+            "ingest-yaml": "semantic_ingest_yaml", "ingest-dbt": "semantic_ingest_dbt", "ingest-lookml": "semantic_ingest_lookml", "list": "semantic_list", "show": "semantic_show",
+            "search": "semantic_registry_search", "verified-search": "semantic_verified_search",
+            "evaluate": "semantic_evaluate", "evaluate-batch": "semantic_evaluate_batch",
+            "snowflake-sync": "semantic_snowflake_sync",
+            "analyst-plan": "cortex_analyst_plan", "analyst-run": "cortex_analyst_run",
+        },
+        "cortex-agent": {
+            "create-plan": "cortex_agent_create_plan", "create": "cortex_agent_create",
+            "list": "cortex_agent_list", "show": "cortex_agent_show",
+            "update": "cortex_agent_update", "delete": "cortex_agent_delete",
+            "run-plan": "cortex_agent_run_plan", "run": "cortex_agent_run",
+            "feedback": "cortex_agent_feedback",
+            "thread-create": "cortex_thread_create", "thread-list": "cortex_thread_list",
+            "thread-show": "cortex_thread_show", "thread-update": "cortex_thread_update",
+            "thread-delete": "cortex_thread_delete",
+        },
+        "teams": {
+            "list": "team_list", "show": "team_show", "create": "team_create",
+            "edit": "team_edit", "members": "team_set_members", "delete": "team_delete",
+            "plan": "team_plan", "run": "team_run", "runs": "team_runs",
+            "run-show": "team_run_show",
+        },
+        "runner": {
+            "submit": "hosted_runner_submit", "jobs": "hosted_runner_jobs", "job": "hosted_runner_job",
+            "workspace-readiness": "hosted_runner_workspace_readiness",
+            "cancel": "hosted_runner_cancel", "register": "hosted_runner_register",
+            "runners": "hosted_runner_runners", "heartbeat": "hosted_runner_heartbeat",
+            "run-once": "hosted_runner_run_once",
+        },
+        "notebook": {
+            "inspect": "notebook_inspect", "create-plan": "notebook_create_plan",
+            "create-apply": "notebook_create_apply", "local-run": "notebook_local_run",
+            "patch-plan": "notebook_patch_plan", "patch-apply": "notebook_patch_apply",
+            "snowflake-plan": "notebook_snowflake_plan", "snowflake-run": "notebook_snowflake_run",
+        },
+        "browser": {
+            "plan": "browser_plan", "read": "browser_read", "act": "browser_act",
+        },
+        "app": {
+            "plan": "app_build_plan", "validate": "app_build_validate",
+            "apply": "app_build_apply", "deploy": "app_deploy",
+            "generic-scaffold-plan": "generic_app_scaffold_plan",
+            "generic-scaffold-apply": "generic_app_scaffold_apply",
+            "generic-validate": "generic_app_validate",
+            "generic-preview-plan": "generic_app_preview_plan",
+            "generic-preview-run": "generic_app_preview_run",
+            "generic-verify-url": "generic_app_verify_url",
+            "generic-deployment-plan": "generic_app_deployment_plan",
+            "generic-deployment-run": "generic_app_deployment_run",
+            "generic-rollback-plan": "generic_app_rollback_plan",
+            "generic-rollback-run": "generic_app_rollback_run",
+        },
+        "ml": {
+            "models": "snowpark_model_list", "versions": "snowpark_model_versions",
+            "log-plan": "snowpark_model_log_plan", "workflow-plan": "snowpark_ml_workflow_plan",
+            "lifecycle-plan": "snowpark_model_lifecycle_plan",
+            "lifecycle-execute": "snowpark_model_lifecycle_execute",
+            "agentic-plan": "agentic_ml_plan", "agentic-run": "agentic_ml_run",
+            "agentic-predict": "agentic_ml_predict", "agentic-artifacts": "agentic_ml_artifacts",
+        },
+        "ai-workflow": {
+            "plan": "ai_workflow_plan", "run": "ai_workflow_run",
+        },
+        "ide": {
+            "workspace-plan": "ide_workspace_plan", "workspace-apply": "ide_workspace_apply",
+            "context": "ide_context", "open": "ide_open",
+            "edit-plan": "ide_edit_plan", "edit-apply": "ide_edit_apply",
+            "server-register": "ide_server_register", "servers": "ide_server_list",
+            "server-remove": "ide_server_remove",
+        },
+        "advanced": {
+            "mode": "mode_contract",
+            "model-route": "model_route",
+            "plan-create": "immutable_plan",
+            "plan-verify": "immutable_plan_verify",
+            "edit-plan": "workspace_edit_plan",
+            "edit-apply": "workspace_edit_apply",
+            "region-edit-plan": "workspace_region_edit_plan",
+            "region-edit-apply": "workspace_region_edit_apply",
+            "code-index": "code_index",
+            "code-search": "code_search",
+            "semantic-code-search": "semantic_code_search",
+            "python-repl-plan": "python_repl_plan",
+            "python-repl-run": "python_repl_run",
+            "python-repl-state": "python_repl_state",
+            "python-repl-reset": "python_repl_reset",
+            "file-read": "workspace_file_read",
+            "file-glob": "workspace_file_glob",
+            "file-find": "workspace_file_find",
+            "file-grep": "workspace_file_grep",
+            "file-diff": "workspace_file_diff",
+            "file-plan": "workspace_file_plan",
+            "file-apply": "workspace_file_apply",
+            "file-undo": "workspace_file_undo",
+            "shell-plan": "shell_plan",
+            "shell-run": "shell_run",
+            "shell-status": "shell_status",
+            "shell-kill": "shell_kill",
+            "sandbox-shell-plan": "sandbox_shell_plan",
+            "sandbox-shell-run": "sandbox_shell_run",
+            "sandbox-shell-status": "sandbox_shell_status",
+            "sandbox-shell-logs": "sandbox_shell_logs",
+            "sandbox-shell-kill": "sandbox_shell_kill",
+            "git-status": "git_status",
+            "git-diff": "git_diff",
+            "git-log": "git_log",
+            "git-remotes": "git_remotes",
+            "git-review-evidence": "git_review_evidence",
+            "git-plan": "git_change_plan",
+            "git-apply": "git_change_apply",
+            "web-fetch": "web_fetch_audited",
+            "web-search": "web_search_audited",
+            "retrieval-search": "retrieval_search",
+            "context-select": "context_select",
+            "context-compact": "context_compact",
+            "agent-validate": "custom_agent_validate",
+            "agent-save": "custom_agent_save",
+            "agent-list": "custom_agent_list",
+            "agent-recovery-plan": "agent_recovery_plan",
+            "agent-recovery-execute": "agent_recovery_execute",
+            "object-search": "warehouse_object_search",
+            "sql-playground": "sql_playground",
+            "chart-build": "chart_build",
+            "forecast": "forecast_series",
+            "anomaly": "anomaly_compare",
+            "document-extract": "document_extract",
+            "document-snowflake-extract-plan": "document_snowflake_extract_plan",
+            "document-snowflake-parse-plan": "document_snowflake_parse_plan",
+            "document-compare": "document_compare",
+            "sdk-contract": "embedded_agent_sdk_contract",
+            "account-admin-plan": "account_admin_plan",
+            "gpu-plan": "gpu_job_plan",
+            "gpu-run": "gpu_job_run",
+        },
         "data-diff": {
             "run": "data_diff", "plan": "data_diff_plan", "profile": "data_diff_profile",
             "join": "data_diff_join", "hash": "data_diff_hash", "cascade": "data_diff_cascade",
+        },
+        "snowflake-admin": {
+            "plan": "snowflake_mutation_plan",
+            "execute": "snowflake_mutation_execute",
+        },
+        "dbt-managed": {
+            "commands": "snowflake_managed_dbt_commands",
+            "plan": "snowflake_managed_dbt_plan",
+            "execute": "snowflake_managed_dbt_execute",
         },
         "snowflake-testing": {
             "copy-analyze": "snowflake_copy_analyze",
@@ -742,6 +897,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             "pii-exposure": "pii_exposure", "pii-policy": "pii_policy_check",
             "pii-downstream": "pii_downstream_assets", "rbac-audit": "rbac_audit",
             "rbac-object-access": "rbac_object_access", "rbac-risk": "rbac_risk",
+            "permission-plan": "permission_plan", "permission-execute": "permission_execute",
             "pii-access": "pii_access_report",
         },
         "providers": {
@@ -776,8 +932,18 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
         "sessions": {
             "create": "session_create", "list": "session_list", "show": "session_show",
             "message-add": "session_message_add", "messages": "session_messages",
+            "history": "session_history",
+            "checkpoint-create": "session_checkpoint_create",
+            "checkpoint-list": "session_checkpoint_list",
+            "checkpoint-show": "session_checkpoint_show",
+            "checkpoint-diff": "session_checkpoint_diff",
+            "checkpoint-review": "session_checkpoint_review",
+            "checkpoint-delete": "session_checkpoint_delete",
             "status": "session_status", "status-set": "session_status_set",
             "todo-add": "session_todo_add", "todo-update": "session_todo_update",
+            "todo-complete": "session_todo_complete", "todo-reopen": "session_todo_reopen",
+            "todo-remove": "session_todo_remove", "todo-reorder": "session_todo_reorder",
+            "todo-dependencies": "session_todo_dependencies", "todos-from-plan": "session_todos_from_plan",
             "todos": "session_todos", "reminder-add": "session_reminder_add",
             "reminders": "session_reminders", "reminder-deliver": "session_reminder_deliver",
             "revert": "session_revert", "state": "session_state",
@@ -786,9 +952,15 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             "termination": "session_termination", "retry-plan": "session_retry_plan",
             "tool-result-cap": "session_tool_result_cap", "overflow": "session_overflow",
         },
+        "rules": {
+            "list": "rule_list", "resolve": "rule_resolve", "show": "rule_show",
+            "save": "rule_save", "enable": "rule_enable", "remove": "rule_remove",
+        },
         "memory": {
             "save": "memory_save", "list": "memory_list", "search": "memory_search",
-            "remove": "memory_remove",
+            "settings": "memory_settings", "personalization": "memory_personalization",
+            "configure": "memory_configure", "update": "memory_update",
+            "reset": "memory_reset", "remove": "memory_remove",
         },
         "traces": {
             "list": "trace_list", "show": "trace_show", "export": "trace_export",
@@ -797,6 +969,17 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
         "jobs": {
             "submit": "job_submit", "list": "job_list", "show": "job_show",
             "cancel": "job_cancel",
+        },
+        "automations": {
+            "create": "automation_create", "list": "automation_list", "show": "automation_show",
+            "enable": "automation_enable", "approve": "automation_approve",
+            "run-due": "automation_run_due", "queue-hosted": "automation_queue_hosted",
+        "delete": "automation_delete",
+        },
+        "plugins": {
+            "validate": "plugin_bundle_validate", "install": "plugin_bundle_install",
+            "list": "plugin_bundle_list", "show": "plugin_bundle_show",
+            "activate": "plugin_bundle_activate", "remove": "plugin_bundle_remove",
         },
     }
 
@@ -861,6 +1044,67 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             actor_mode=ActorMode.BUILDER,
         )
 
+    @app.get("/api/v1/sessions/{session_id}/history")
+    def session_history(session_id: str, limit: int | None = None) -> dict[str, Any]:
+        return invoke_read(
+            "session_history",
+            runtime_args(session_id=session_id, limit=limit),
+        )
+
+    @app.get("/api/v1/sessions/{session_id}/checkpoints")
+    def session_checkpoint_list(session_id: str, limit: int = 100) -> dict[str, Any]:
+        return invoke_read(
+            "session_checkpoint_list",
+            runtime_args(session_id=session_id, limit=limit),
+        )
+
+    @app.post("/api/v1/sessions/{session_id}/checkpoints")
+    def session_checkpoint_create(session_id: str, payload: ArgsInput) -> dict[str, Any]:
+        return invoke_governed(
+            "session_checkpoint_create",
+            runtime_args(
+                session_id=session_id,
+                label=payload.args.get("label"),
+                metadata=payload.args.get("metadata") or {},
+            ),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/sessions/{session_id}/checkpoint-review")
+    def session_checkpoint_review(session_id: str) -> dict[str, Any]:
+        return invoke_read(
+            "session_checkpoint_review",
+            runtime_args(session_id=session_id),
+        )
+
+    @app.get("/api/v1/session-checkpoints/{checkpoint_id}")
+    def session_checkpoint_show(checkpoint_id: str) -> dict[str, Any]:
+        return invoke_read(
+            "session_checkpoint_show",
+            runtime_args(checkpoint_id=checkpoint_id),
+        )
+
+    @app.delete("/api/v1/session-checkpoints/{checkpoint_id}")
+    def session_checkpoint_delete(checkpoint_id: str) -> dict[str, Any]:
+        return invoke_governed(
+            "session_checkpoint_delete",
+            runtime_args(checkpoint_id=checkpoint_id),
+            actor_mode=ActorMode.BUILDER,
+        )
+
+    @app.get("/api/v1/session-checkpoint-diff")
+    def session_checkpoint_diff(
+        from_checkpoint_id: str,
+        to_checkpoint_id: str,
+    ) -> dict[str, Any]:
+        return invoke_read(
+            "session_checkpoint_diff",
+            runtime_args(
+                from_checkpoint_id=from_checkpoint_id,
+                to_checkpoint_id=to_checkpoint_id,
+            ),
+        )
+
     @app.get("/api/v1/sessions/{session_id}/todos")
     def session_todos(session_id: str) -> dict[str, Any]:
         return invoke_read("session_todos", runtime_args(session_id=session_id))
@@ -881,7 +1125,13 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     def session_todo_update(todo_id: str, payload: SessionTodoUpdateInput) -> dict[str, Any]:
         return invoke_governed(
             "session_todo_update",
-            runtime_args(todo_id=todo_id, status=payload.status),
+            runtime_args(
+                todo_id=todo_id,
+                status=payload.status,
+                progress=payload.progress,
+                evidence=payload.evidence,
+                verified=payload.verified,
+            ),
             actor_mode=ActorMode.BUILDER,
         )
 
@@ -1283,8 +1533,10 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             tool_name,
             payload.args,
             actor_mode=payload.actor_mode,
+            interaction_mode=payload.interaction_mode,
             environment=payload.environment,
             dry_run=payload.dry_run,
+            approved=payload.approved,
         )
 
     @app.post("/projects")
@@ -1356,8 +1608,10 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             tool_name,
             payload.args,
             actor_mode=payload.actor_mode,
+            interaction_mode=payload.interaction_mode,
             environment=payload.environment,
             dry_run=payload.dry_run,
+            approved=payload.approved,
         )
 
     @app.post("/approvals")
