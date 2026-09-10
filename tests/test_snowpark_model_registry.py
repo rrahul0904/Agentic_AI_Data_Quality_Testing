@@ -62,6 +62,7 @@ def test_model_log_plan_and_embedded_runtime_are_fingerprint_bound():
     class FakeRegistry:
         def __init__(self):
             self.calls = []
+
         def log_model(self, **kwargs):
             self.calls.append(kwargs)
             return "CHURN_MODEL:V3"
@@ -130,8 +131,18 @@ def test_drop_model_version_executes_only_with_destructive_confirmation_and_veri
 
 
 def test_ml_surfaces_exposed():
-    assert set(DOMAIN_CLI_TOOLS["ml"]) == {
-        "models", "versions", "log-plan", "workflow-plan", "lifecycle-plan", "lifecycle-execute"
+    expected = {
+        "models",
+        "versions",
+        "log-plan",
+        "workflow-plan",
+        "lifecycle-plan",
+        "lifecycle-execute",
+        "agentic-plan",
+        "agentic-run",
+        "agentic-predict",
+        "agentic-artifacts",
     }
+    assert set(DOMAIN_CLI_TOOLS["ml"]) == expected
     client = TestClient(create_app())
-    assert set(client.get("/api/v1/domains").json()["ml"]) == set(DOMAIN_CLI_TOOLS["ml"])
+    assert set(client.get("/api/v1/domains").json()["ml"]) == expected
