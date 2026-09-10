@@ -240,7 +240,9 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
     },
     "memory": {
         "save": "memory_save", "list": "memory_list", "search": "memory_search",
-        "remove": "memory_remove",
+        "settings": "memory_settings", "personalization": "memory_personalization",
+        "configure": "memory_configure", "update": "memory_update",
+        "reset": "memory_reset", "remove": "memory_remove",
     },
     "trace": {
         "list": "trace_list", "show": "trace_show", "export": "trace_export",
