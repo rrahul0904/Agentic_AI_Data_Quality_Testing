@@ -305,3 +305,10 @@ hospitality-teardown:
 
 hospitality-test:
 	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src $(PYTHON) -m pytest -q -p no:cacheprovider tests/hospitality_testbed
+
+.PHONY: coco-golden-scenarios coco-certification-report
+coco-golden-scenarios:
+	python scripts/run_coco_golden_scenarios.py
+
+coco-certification-report: coco-golden-scenarios
+	python scripts/build_coco_certification_report.py
