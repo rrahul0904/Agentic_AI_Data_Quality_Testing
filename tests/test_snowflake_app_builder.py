@@ -104,6 +104,22 @@ def test_app_deploy_is_honest_when_snowflake_cli_absent(tmp_path, monkeypatch):
 
 
 def test_app_surfaces_exposed():
-    assert set(DOMAIN_CLI_TOOLS["app"]) == {"plan", "validate", "apply", "deploy"}
+    expected = {
+        "plan",
+        "validate",
+        "apply",
+        "deploy",
+        "generic-scaffold-plan",
+        "generic-scaffold-apply",
+        "generic-validate",
+        "generic-preview-plan",
+        "generic-preview-run",
+        "generic-deployment-plan",
+        "generic-deployment-run",
+        "generic-verify-url",
+        "generic-rollback-plan",
+        "generic-rollback-run",
+    }
+    assert set(DOMAIN_CLI_TOOLS["app"]) == expected
     client = TestClient(create_app())
-    assert set(client.get("/api/v1/domains").json()["app"]) == {"plan", "validate", "apply", "deploy"}
+    assert set(client.get("/api/v1/domains").json()["app"]) == expected
