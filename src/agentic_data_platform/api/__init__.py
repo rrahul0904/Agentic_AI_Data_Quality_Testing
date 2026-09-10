@@ -16,6 +16,15 @@ from .knowledge import attach_knowledge_routes
 
 
 _CERTIFICATION_PATH = "/api/v1/certification/coco"
+_COMPOSED_PATHS = {
+    _CERTIFICATION_PATH,
+    "/api/v1/agent/query",
+    "/api/v1/knowledge/status",
+    "/api/v1/knowledge/search",
+    "/api/v1/knowledge/index-project",
+    "/api/v1/knowledge/ingest-text",
+    "/api/v1/knowledge/upload",
+}
 _base_create_app = _legacy_app.create_app
 
 
@@ -39,9 +48,32 @@ def _attach_certification_route(application: FastAPI) -> FastAPI:
     return application
 
 
+def _prioritize_composed_routes(application: FastAPI) -> FastAPI:
+    """Place exact composed routes ahead of the generic `/api/v1/{...}` dispatcher."""
+
+    composed = []
+    remaining = []
+    for route in application.router.routes:
+        if getattr(route, "path", None) in _COMPOSED_PATHS:
+            composed.append(route)
+        else:
+            remaining.append(route)
+    insertion = next(
+        (
+            index
+            for index, route in enumerate(remaining)
+            if str(getattr(route, "path", "")).startswith("/api/v1/{")
+        ),
+        len(remaining),
+    )
+    application.router.routes = remaining[:insertion] + composed + remaining[insertion:]
+    return application
+
+
 def _compose(application: FastAPI) -> FastAPI:
     application = _attach_certification_route(application)
-    return attach_knowledge_routes(application)
+    application = attach_knowledge_routes(application)
+    return _prioritize_composed_routes(application)
 
 
 def create_app(repository=None, *, _factory=_base_create_app):
