@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 import hashlib
 import json
+from pathlib import Path
 import re
 import sqlite3
 from typing import Any, Mapping, Protocol, Sequence
@@ -22,6 +23,7 @@ from .documents import DocumentExtraction, extract_document
 
 _PAGE_MARKER = re.compile(r"(?m)^\[Page\s+(\d+)\]\s*$")
 _TABLE_MARKER = re.compile(r"^\[Table\s+\d+\]$", re.I)
+_OCR_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"}
 
 
 class OCRProvider(Protocol):
@@ -109,7 +111,21 @@ def _kind(text: str) -> str:
     return "paragraph"
 
 
-def _blocks(document_id: str, safe_text: str, *, parser: str) -> tuple[DocumentBlock, ...]:
+def _normalized_confidence(value: Any) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        number = float(value)
+        if 0.0 <= number <= 1.0:
+            return number
+    return None
+
+
+def _blocks(
+    document_id: str,
+    safe_text: str,
+    *,
+    parser: str,
+    confidence: float | None,
+) -> tuple[DocumentBlock, ...]:
     blocks: list[DocumentBlock] = []
     sequence = 0
     for page, page_text in _split_pages(safe_text):
@@ -126,12 +142,16 @@ def _blocks(document_id: str, safe_text: str, *, parser: str) -> tuple[DocumentB
                     kind=_kind(text),
                     text=text,
                     page=page,
-                    confidence=1.0,
+                    confidence=confidence,
                     provenance={
                         "parser": parser,
                         "sequence": sequence,
                         "page": page,
-                        "confidence_semantics": "exact parser text, not semantic interpretation",
+                        "confidence_semantics": (
+                            "exact native-parser text"
+                            if parser == "native"
+                            else "provider supplied when available; otherwise unknown"
+                        ),
                     },
                 )
             )
@@ -215,19 +235,19 @@ class DocumentIntelligencePipeline:
                 CREATE TABLE IF NOT EXISTS ade_document_manifest (
                     index_name TEXT NOT NULL,
                     source TEXT NOT NULL,
-                    document_hash TEXT NOT NULL,
+                    sync_hash TEXT NOT NULL,
                     chunk_ids_json TEXT NOT NULL,
                     PRIMARY KEY(index_name, source)
                 )
                 """
             )
             row = connection.execute(
-                "SELECT document_hash FROM ade_document_manifest WHERE index_name=? AND source=?",
+                "SELECT sync_hash FROM ade_document_manifest WHERE index_name=? AND source=?",
                 (self.search_index.index_name, source),
             ).fetchone()
         return str(row[0]) if row else None
 
-    def _write_manifest(self, source: str, content_hash: str, chunks: Sequence[DocumentChunk]) -> None:
+    def _write_manifest(self, source: str, sync_hash: str, chunks: Sequence[DocumentChunk]) -> None:
         if self.search_index is None:
             return
         with sqlite3.connect(self.search_index.database) as connection:
@@ -236,7 +256,7 @@ class DocumentIntelligencePipeline:
                 CREATE TABLE IF NOT EXISTS ade_document_manifest (
                     index_name TEXT NOT NULL,
                     source TEXT NOT NULL,
-                    document_hash TEXT NOT NULL,
+                    sync_hash TEXT NOT NULL,
                     chunk_ids_json TEXT NOT NULL,
                     PRIMARY KEY(index_name, source)
                 )
@@ -244,16 +264,16 @@ class DocumentIntelligencePipeline:
             )
             connection.execute(
                 """
-                INSERT INTO ade_document_manifest(index_name, source, document_hash, chunk_ids_json)
+                INSERT INTO ade_document_manifest(index_name, source, sync_hash, chunk_ids_json)
                 VALUES (?, ?, ?, ?)
                 ON CONFLICT(index_name, source) DO UPDATE SET
-                    document_hash=excluded.document_hash,
+                    sync_hash=excluded.sync_hash,
                     chunk_ids_json=excluded.chunk_ids_json
                 """,
                 (
                     self.search_index.index_name,
                     source,
-                    content_hash,
+                    sync_hash,
                     json.dumps([chunk.chunk_id for chunk in chunks], separators=(",", ":")),
                 ),
             )
@@ -269,8 +289,14 @@ class DocumentIntelligencePipeline:
         max_chunk_chars: int = 1800,
         index_metadata: Mapping[str, Any] | None = None,
     ) -> ProcessedDocument:
+        if not content:
+            raise ValueError("document is empty")
+        if len(content) > max_bytes:
+            raise ValueError(f"document exceeds max_bytes={max_bytes}")
+        suffix = Path(filename or "document").suffix.casefold()
         content_hash = hashlib.sha256(content).hexdigest()
         parser = "native"
+        confidence: float | None = 1.0
         try:
             extraction = extract_document(
                 filename,
@@ -279,26 +305,38 @@ class DocumentIntelligencePipeline:
                 max_bytes=max_bytes,
             )
         except ValueError:
-            if ocr_provider is None:
+            if ocr_provider is None or suffix not in _OCR_SUFFIXES:
                 raise
             extraction = ocr_provider.extract(filename, content, content_type=content_type)
             parser = f"ocr:{ocr_provider.name}"
+            confidence = _normalized_confidence(extraction.metadata.get("confidence"))
 
         safe_text = redact_string(extraction.text)
         redacted = safe_text != extraction.text
         document_id = _document_id(extraction.source, content_hash)
-        blocks = _blocks(document_id, safe_text, parser=parser)
+        blocks = _blocks(document_id, safe_text, parser=parser, confidence=confidence)
         chunks = _chunk_blocks(document_id, blocks, max_chars=max_chunk_chars)
         if not chunks:
             raise ValueError("document produced no indexable chunks")
 
         index_status: Mapping[str, Any] | None = None
         if self.search_index is not None:
+            sync_payload = {
+                "content_hash": content_hash,
+                "index_metadata": dict(index_metadata or {}),
+                "parser": parser,
+                "embedding_provider": self.search_index.embedder.name,
+                "max_chunk_chars": max_chunk_chars,
+            }
+            sync_hash = hashlib.sha256(
+                json.dumps(sync_payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+            ).hexdigest()
             previous_hash = self._manifest(extraction.source)
-            if previous_hash == content_hash:
+            if previous_hash == sync_hash:
                 index_status = {
                     "status": "NOOP",
-                    "reason": "document content hash unchanged",
+                    "reason": "document/index configuration fingerprint unchanged",
+                    "sync_hash": sync_hash,
                     "chunks": len(chunks),
                 }
             else:
@@ -322,9 +360,10 @@ class DocumentIntelligencePipeline:
                     for chunk in chunks
                 ]
                 mutations = self.search_index.upsert_many(search_chunks)
-                self._write_manifest(extraction.source, content_hash, chunks)
+                self._write_manifest(extraction.source, sync_hash, chunks)
                 index_status = {
                     "status": "PASS",
+                    "sync_hash": sync_hash,
                     "removed_stale_chunks": removed,
                     "mutations": mutations,
                     "chunks": len(chunks),
@@ -345,6 +384,7 @@ class DocumentIntelligencePipeline:
                 "document_id": document_id,
                 "redaction_applied": redacted,
                 "ocr_used": parser.startswith("ocr:"),
+                "confidence": confidence,
             },
             index_status=index_status,
         )
