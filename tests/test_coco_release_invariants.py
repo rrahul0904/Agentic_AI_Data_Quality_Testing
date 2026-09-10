@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import importlib
 import importlib.util
 from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
 
+import agentic_data_platform.api as api_package
 from agentic_data_platform.api import create_app
 from agentic_data_platform.api.app import create_app as legacy_create_app
 
 
 ROOT = Path(__file__).resolve().parents[1]
 PROMOTER_PATH = ROOT / "scripts" / "promote_coco_ledger.py"
+CERTIFICATION_PATH = "/api/v1/certification/coco"
 
 
 def _load_promoter():
@@ -22,20 +25,43 @@ def _load_promoter():
     return module
 
 
+def _routes(application: FastAPI) -> set[tuple[str, str]]:
+    return {
+        (route.path, method)
+        for route in application.routes
+        for method in getattr(route, "methods", set())
+    }
+
+
 def test_create_app_returns_fastapi_and_certification_get_is_registered():
-    # The package factory is the canonical compositional factory; app.py remains
-    # the restored legacy monolith and must still produce a valid FastAPI app.
     legacy_application = legacy_create_app()
     assert isinstance(legacy_application, FastAPI)
 
     application = create_app()
     assert isinstance(application, FastAPI)
-    routes = {
-        (route.path, method)
+    assert (CERTIFICATION_PATH, "GET") in _routes(application)
+
+
+def test_api_factory_keeps_certification_route_after_package_reload():
+    """Regression guard for full-suite/embedded import lifecycles."""
+
+    reloaded = importlib.reload(api_package)
+    application = reloaded.create_app()
+    assert isinstance(application, FastAPI)
+    assert (CERTIFICATION_PATH, "GET") in _routes(application)
+
+    # A second reload must remain safe and must not recurse through a previously
+    # installed compatibility wrapper or duplicate the certification endpoint.
+    reloaded = importlib.reload(reloaded)
+    application = reloaded.create_app()
+    assert isinstance(application, FastAPI)
+    matching = [
+        route
         for route in application.routes
-        for method in getattr(route, "methods", set())
-    }
-    assert ("/api/v1/certification/coco", "GET") in routes
+        if getattr(route, "path", None) == CERTIFICATION_PATH
+        and "GET" in (getattr(route, "methods", set()) or set())
+    ]
+    assert len(matching) == 1
 
 
 def test_ledger_promotion_fails_closed_on_stale_golden_sha():
