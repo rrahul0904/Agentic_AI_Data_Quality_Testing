@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src http://127.0.0.1:8001 http://localhost:8001; style-src 'self'; script-src 'self'; img-src 'self' data:;" />
+  <title>Agentic Data Engineering</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <aside class="rail">
+      <div class="mark">ADE</div>
+      <div class="label">DATA ENGINEERING OS</div>
+      <nav>
+        <button class="nav active" data-view="agent">Agent</button>
+        <button class="nav" data-view="sql">SQL</button>
+        <button class="nav" data-view="evidence">Evidence</button>
+        <button class="nav" data-view="runtime">Runtime</button>
+      </nav>
+      <div class="rail-footer">
+        <span id="api-dot" class="dot"></span><span id="api-state">Checking API</span>
+      </div>
+    </aside>
+    <section class="workspace">
+      <header>
+        <div>
+          <p class="eyebrow">NATIVE WORKBENCH</p>
+          <h1 id="title">Agent</h1>
+        </div>
+        <div class="header-actions">
+          <button id="restart-api" class="secondary">Restart API</button>
+          <button id="open-console">Open full console</button>
+        </div>
+      </header>
+
+      <section id="view-agent" class="panel view active">
+        <div class="grid two">
+          <div class="card tall">
+            <div class="card-head"><strong>Grounded agent</strong><span>auto / live / deterministic</span></div>
+            <div id="chat" class="chat"><div class="message system">Ask about code, lineage, Airflow, dbt, quality, migrations or warehouse operations.</div></div>
+            <form id="agent-form" class="composer">
+              <textarea id="agent-question" rows="3" placeholder="Why did this pipeline fail, and what is the first divergence?"></textarea>
+              <div class="row"><select id="agent-mode"><option>auto</option><option>deterministic</option><option>live</option></select><button type="submit">Run investigation</button></div>
+            </form>
+          </div>
+          <div class="card">
+            <div class="card-head"><strong>Competitive runtime</strong><span>evidence-backed</span></div>
+            <pre id="competitive">Loading…</pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-sql" class="panel view">
+        <div class="card tall">
+          <div class="card-head"><strong>SQL intelligence</strong><span>review · lineage · optimize</span></div>
+          <textarea id="sql-input" class="editor" spellcheck="false">SELECT * FROM orders o CROSS JOIN customers c;</textarea>
+          <div class="row"><button id="sql-review">Review SQL</button></div>
+          <pre id="sql-output">Ready.</pre>
+        </div>
+      </section>
+
+      <section id="view-evidence" class="panel view">
+        <div class="grid two">
+          <div class="card"><div class="card-head"><strong>CoCo certification</strong><span>truthful status</span></div><pre id="coco">Loading…</pre></div>
+          <div class="card"><div class="card-head"><strong>Platform health</strong><span>local control plane</span></div><pre id="health">Loading…</pre></div>
+        </div>
+      </section>
+
+      <section id="view-runtime" class="panel view">
+        <div class="card">
+          <div class="card-head"><strong>Desktop runtime</strong><span>process supervision</span></div>
+          <pre id="runtime">Loading…</pre>
+        </div>
+      </section>
+    </section>
+  </main>
+  <script src="./renderer.js"></script>
+</body>
+</html>
