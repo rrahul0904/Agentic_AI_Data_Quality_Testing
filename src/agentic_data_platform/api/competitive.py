@@ -2,21 +2,52 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from agentic_data_platform.compute import ComputeJobSpec, PortableComputePlanner
-from agentic_data_platform.knowledge import snowflake_parse_document_sql
-from agentic_data_platform.retrieval import LocalProjectRetrievalBackend, RetrievalQuery
+from agentic_data_platform.knowledge import DocumentIntelligencePipeline, snowflake_parse_document_sql
+from agentic_data_platform.retrieval import (
+    ADESearchIndex,
+    LocalProjectRetrievalBackend,
+    RetrievalQuery,
+    SearchChunk,
+)
 
 
 class RetrievalInput(BaseModel):
     query: str = Field(min_length=1, max_length=20_000)
     limit: int = Field(default=10, ge=1, le=100)
+
+
+class SearchIndexInput(BaseModel):
+    source: str = Field(min_length=1, max_length=4096)
+    content: str = Field(min_length=1, max_length=1_000_000)
+    chunk_id: str | None = Field(default=None, max_length=512)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    index_name: str = Field(default="default", min_length=1, max_length=128)
+
+
+class SearchQueryInput(BaseModel):
+    query: str = Field(min_length=1, max_length=20_000)
+    limit: int = Field(default=10, ge=1, le=100)
+    filters: dict[str, Any] | None = None
+    index_name: str = Field(default="default", min_length=1, max_length=128)
+    explain: bool = True
+    lexical_weight: float = Field(default=0.45, ge=0)
+    vector_weight: float = Field(default=0.45, ge=0)
+    rerank_weight: float = Field(default=0.10, ge=0)
+
+
+class SearchSourceInput(BaseModel):
+    source: str = Field(min_length=1, max_length=4096)
+    index_name: str = Field(default="default", min_length=1, max_length=128)
 
 
 class ComputePlanInput(BaseModel):
@@ -52,6 +83,10 @@ def _project_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+def _search_index(index_name: str = "default") -> ADESearchIndex:
+    return ADESearchIndex(_project_root() / ".ade" / "search.db", index_name=index_name)
+
+
 def _route(application: FastAPI, path: str, method: str) -> bool:
     return any(
         getattr(route, "path", None) == path
@@ -72,11 +107,13 @@ def attach_competitive_routes(application: FastAPI) -> FastAPI:
                 "embedded_agent_sdk": True,
                 "acp_stdio": True,
                 "ssh_remote_workspace": True,
-                "provider_neutral_retrieval": True,
+                "ade_search": ["sqlite_fts5", "pluggable_embeddings", "hybrid", "filters", "explain"],
+                "cortex_search_adapter": True,
                 "portable_compute": ["docker", "kubernetes", "snowflake_spcs"],
-                "document_intelligence": ["local", "provider", "snowflake_ai_parse_document"],
+                "document_intelligence": ["local", "ocr_provider", "provider", "snowflake_ai_parse_document"],
             },
             "truthfulness": {
+                "default_vector_lane": "deterministic lexical hash projection, not a learned embedding model",
                 "live_external_certification_required": True,
                 "superiority_requires_benchmark_evidence": True,
             },
@@ -89,6 +126,95 @@ def attach_competitive_routes(application: FastAPI) -> FastAPI:
             hits = backend.search(RetrievalQuery(payload.query, limit=payload.limit))
             return {"status": "PASS", "backend": backend.name, "results": [hit.as_dict() for hit in hits]}
         except (OSError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @application.post("/api/v1/search/index", tags=["search"])
+    def search_index(payload: SearchIndexInput) -> dict[str, object]:
+        try:
+            chunk_id = payload.chunk_id or hashlib.sha256(
+                f"{payload.source}\0{payload.content}".encode("utf-8")
+            ).hexdigest()
+            index = _search_index(payload.index_name)
+            mutation = index.upsert(
+                SearchChunk(
+                    chunk_id=chunk_id,
+                    source=payload.source,
+                    content=payload.content,
+                    metadata=payload.metadata,
+                )
+            )
+            return {
+                "status": "PASS",
+                "mutation": mutation.status,
+                "chunk_id": mutation.chunk_id,
+                "content_hash": mutation.content_hash,
+                "index": index.stats(),
+            }
+        except (OSError, ValueError, RuntimeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @application.post("/api/v1/search/query", tags=["search"])
+    def search_query(payload: SearchQueryInput) -> dict[str, object]:
+        try:
+            index = _search_index(payload.index_name)
+            hits = index.search(
+                RetrievalQuery(payload.query, limit=payload.limit, filters=payload.filters),
+                lexical_weight=payload.lexical_weight,
+                vector_weight=payload.vector_weight,
+                rerank_weight=payload.rerank_weight,
+                explain=payload.explain,
+            )
+            return {
+                "status": "PASS",
+                "backend": index.backend_name,
+                "index_name": payload.index_name,
+                "results": [hit.as_dict() for hit in hits],
+            }
+        except (OSError, ValueError, RuntimeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @application.get("/api/v1/search/stats", tags=["search"])
+    def search_stats(index_name: str = "default") -> dict[str, object]:
+        try:
+            return {"status": "PASS", **_search_index(index_name).stats()}
+        except (OSError, ValueError, RuntimeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @application.post("/api/v1/search/delete-source", tags=["search"])
+    def search_delete_source(payload: SearchSourceInput) -> dict[str, object]:
+        try:
+            index = _search_index(payload.index_name)
+            removed = index.delete_source(payload.source)
+            return {"status": "PASS", "removed": removed, "index": index.stats()}
+        except (OSError, ValueError, RuntimeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @application.post("/api/v1/document/process", tags=["document"])
+    async def document_process(
+        file: UploadFile = File(...),
+        index_name: str = Form("documents"),
+        index_document: bool = Form(True),
+        metadata_json: str = Form("{}"),
+    ) -> dict[str, object]:
+        max_bytes = 20_000_000
+        content = await file.read(max_bytes + 1)
+        if len(content) > max_bytes:
+            raise HTTPException(status_code=413, detail=f"document exceeds max_bytes={max_bytes}")
+        try:
+            metadata = json.loads(metadata_json)
+            if not isinstance(metadata, dict):
+                raise ValueError("metadata_json must decode to an object")
+            index = _search_index(index_name) if index_document else None
+            pipeline = DocumentIntelligencePipeline(index)
+            result = pipeline.process(
+                file.filename or "document",
+                content,
+                content_type=file.content_type,
+                max_bytes=max_bytes,
+                index_metadata=metadata,
+            )
+            return {"status": "PASS", "document": result.as_dict()}
+        except (json.JSONDecodeError, OSError, ValueError, RuntimeError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @application.post("/api/v1/compute/plan", tags=["compute"])
