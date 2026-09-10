@@ -937,14 +937,25 @@ def build_tool_registry() -> ToolRegistry:
             args=dict(a.get("args") or {}),
             schedule=dict(a["schedule"]),
             actor_mode=ActorMode(str(a.get("_actor_mode") or "analyst")),
+            interaction_mode=InteractionMode(
+                str(a.get("_interaction_mode") or a.get("interaction_mode") or "agent")
+            ),
             environment=Environment(str(a.get("_environment") or "dev")),
             approved=False,
             enabled=bool(a.get("enabled", True)),
+            execution_backend=str(a.get("execution_backend") or "local"),
+            workspace_policy=dict(a.get("workspace_policy") or {}),
         )
 
     def automation_run_due_handler(a: dict[str, Any]) -> dict[str, Any]:
         return _automation_service(a).run_due(
             registry,
+            limit=int(a.get("limit", 100)),
+        )
+
+    def automation_queue_hosted_handler(a: dict[str, Any]) -> dict[str, Any]:
+        return _automation_service(a).queue_due_hosted(
+            _hosted_runner_store(a),
             limit=int(a.get("limit", 100)),
         )
 
@@ -992,6 +1003,14 @@ def build_tool_registry() -> ToolRegistry:
         Capability.EXECUTE,
         automation_run_due_handler,
         "Run all due automations once through normal ADE ToolRegistry policy and persist run evidence.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+    )
+    add(
+        "automation_queue_hosted",
+        Capability.EXECUTE,
+        automation_queue_hosted_handler,
+        "Dispatch due hosted automations into the durable isolated runner queue; no scheduled tool executes in the scheduler process.",
         platforms=frozenset({Platform.LOCAL}),
         risk=Risk.MUTATING,
     )
