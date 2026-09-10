@@ -159,11 +159,14 @@ jobs:
           grep -q "Settings / Doctor" /tmp/console.html
 
       - name: Generate exact-head release evidence
+        env:
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          ADE_SOURCE_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
         run: PYTHONPATH=src python scripts/generate_release_evidence.py --ci-status PASS_CI
 
       - uses: actions/upload-artifact@v4
         with:
-          name: release-readiness-${{ github.sha }}
+          name: release-readiness-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             artifacts/release-readiness.json
             artifacts/data-diff-benchmark-ci.json
