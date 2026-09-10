@@ -973,7 +973,8 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
         "automations": {
             "create": "automation_create", "list": "automation_list", "show": "automation_show",
             "enable": "automation_enable", "approve": "automation_approve",
-            "run-due": "automation_run_due", "delete": "automation_delete",
+            "run-due": "automation_run_due", "queue-hosted": "automation_queue_hosted",
+        "delete": "automation_delete",
         },
         "plugins": {
             "validate": "plugin_bundle_validate", "install": "plugin_bundle_install",
