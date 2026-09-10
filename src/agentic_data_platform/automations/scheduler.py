@@ -10,8 +10,9 @@ import sqlite3
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from agentic_data_platform.models import ActorMode, Environment, ToolRequest, new_id, utc_now
+from agentic_data_platform.models import ActorMode, Environment, InteractionMode, ToolRequest, new_id, utc_now
 from agentic_data_platform.tools.registry import ToolInvocation, ToolRegistry
+from agentic_data_platform.runners import HostedRunnerStore
 
 
 _SCHEMA = """
@@ -185,6 +186,18 @@ class AutomationService:
         self.connection = sqlite3.connect(self.path)
         self.connection.row_factory = sqlite3.Row
         self.connection.executescript(_SCHEMA)
+        columns = {
+            str(row["name"])
+            for row in self.connection.execute("PRAGMA table_info(automations)").fetchall()
+        }
+        migrations = {
+            "execution_backend": "TEXT NOT NULL DEFAULT 'local'",
+            "interaction_mode": "TEXT NOT NULL DEFAULT 'agent'",
+            "workspace_policy_json": "TEXT NOT NULL DEFAULT '{}'",
+        }
+        for column, ddl in migrations.items():
+            if column not in columns:
+                self.connection.execute(f"ALTER TABLE automations ADD COLUMN {column} {ddl}")
         self.connection.commit()
 
     def create(
@@ -195,12 +208,25 @@ class AutomationService:
         args: dict[str, Any],
         schedule: dict[str, Any],
         actor_mode: ActorMode = ActorMode.ANALYST,
+        interaction_mode: InteractionMode = InteractionMode.AGENT,
         environment: Environment = Environment.DEV,
         approved: bool = False,
         enabled: bool = True,
+        execution_backend: str = "local",
+        workspace_policy: dict[str, Any] | None = None,
         now: datetime | None = None,
     ) -> dict[str, Any]:
         current = _utc(now)
+        backend = str(execution_backend).casefold()
+        if backend not in {"local", "hosted"}:
+            raise ValueError("execution_backend must be local or hosted")
+        policy = dict(workspace_policy or {})
+        if backend == "hosted":
+            from agentic_data_platform.runners.hosted import normalize_workspace_policy
+
+            policy = normalize_workspace_policy(policy)
+        elif policy:
+            raise ValueError("workspace_policy is only valid for hosted automations")
         scheduled = next_run(schedule, after=current - timedelta(seconds=1)) if enabled else None
         automation_id = new_id("automation")
         timestamp = _iso(current) or utc_now()
@@ -208,8 +234,9 @@ class AutomationService:
             """
             INSERT INTO automations(
               automation_id,name,tool_name,args_json,schedule_json,actor_mode,environment,
-              approved,enabled,created_at,updated_at,next_run_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              approved,enabled,created_at,updated_at,next_run_at,
+              execution_backend,interaction_mode,workspace_policy_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 automation_id,
@@ -224,6 +251,9 @@ class AutomationService:
                 timestamp,
                 timestamp,
                 _iso(scheduled),
+                backend,
+                interaction_mode.value,
+                json.dumps(policy, sort_keys=True, default=str),
             ),
         )
         self.connection.commit()
@@ -278,17 +308,28 @@ class AutomationService:
         self.connection.commit()
         return bool(cursor.rowcount)
 
-    def due(self, *, now: datetime | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    def due(
+        self,
+        *,
+        now: datetime | None = None,
+        limit: int = 100,
+        execution_backend: str | None = None,
+    ) -> list[dict[str, Any]]:
         current = _iso(_utc(now))
-        rows = self.connection.execute(
-            """
+        sql = """
             SELECT * FROM automations
             WHERE enabled=1 AND next_run_at IS NOT NULL AND next_run_at <= ?
-            ORDER BY next_run_at, automation_id
-            LIMIT ?
-            """,
-            (current, max(1, min(int(limit), 1000))),
-        ).fetchall()
+        """
+        params: list[Any] = [current]
+        if execution_backend is not None:
+            backend = str(execution_backend).casefold()
+            if backend not in {"local", "hosted"}:
+                raise ValueError("execution_backend must be local or hosted")
+            sql += " AND execution_backend=?"
+            params.append(backend)
+        sql += " ORDER BY next_run_at, automation_id LIMIT ?"
+        params.append(max(1, min(int(limit), 1000)))
+        rows = self.connection.execute(sql, tuple(params)).fetchall()
         return [self._public(row) for row in rows]
 
     def run_due(
@@ -300,7 +341,11 @@ class AutomationService:
     ) -> dict[str, Any]:
         current = _utc(now)
         runs: list[AutomationRun] = []
-        for automation in self.due(now=current, limit=limit):
+        for automation in self.due(
+            now=current,
+            limit=limit,
+            execution_backend="local",
+        ):
             definition = registry.describe(automation["tool_name"])
             approved = bool(automation["approved"])
             request = ToolRequest(
@@ -316,6 +361,7 @@ class AutomationService:
                     run_id=automation["automation_id"],
                     approved=approved,
                     actor_mode=ActorMode(automation["actor_mode"]),
+                    interaction_mode=InteractionMode(automation["interaction_mode"]),
                 ))
                 status = str(result.get("status") or "PASS") if isinstance(result, dict) else "PASS"
                 payload = dict(result) if isinstance(result, dict) else {"value": result}
@@ -359,12 +405,107 @@ class AutomationService:
             "runs": [item.public() for item in runs],
         }
 
+    def _advance_after_dispatch(
+        self,
+        automation: dict[str, Any],
+        *,
+        current: datetime,
+        status: str,
+        payload: dict[str, Any],
+    ) -> None:
+        schedule = automation["schedule"]
+        next_at = next_run(schedule, after=current)
+        enabled = not (
+            str(schedule.get("type")).casefold() == "once"
+            and next_at is None
+        )
+        self.connection.execute(
+            """
+            UPDATE automations
+            SET last_run_at=?, next_run_at=?, last_status=?, last_result_json=?,
+                run_count=run_count+1, enabled=?, updated_at=?
+            WHERE automation_id=?
+            """,
+            (
+                _iso(current),
+                _iso(next_at),
+                status,
+                json.dumps(payload, sort_keys=True, default=str),
+                int(enabled),
+                _iso(current),
+                automation["automation_id"],
+            ),
+        )
+        self.connection.commit()
+
+    def queue_due_hosted(
+        self,
+        hosted: HostedRunnerStore,
+        *,
+        now: datetime | None = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        current = _utc(now)
+        runs: list[AutomationRun] = []
+        for automation in self.due(
+            now=current,
+            limit=limit,
+            execution_backend="hosted",
+        ):
+            try:
+                job = hosted.submit(
+                    tool_name=str(automation["tool_name"]),
+                    args=dict(automation["args"]),
+                    actor_mode=ActorMode(automation["actor_mode"]),
+                    interaction_mode=InteractionMode(automation["interaction_mode"]),
+                    environment=Environment(automation["environment"]),
+                    approved=bool(automation["approved"]),
+                    workspace_policy=dict(automation["workspace_policy"]),
+                )
+                status = "QUEUED_HOSTED"
+                payload = {
+                    "status": status,
+                    "hosted_job_id": job["job_id"],
+                    "workspace_policy": job["workspace_policy"],
+                    "interaction_mode": job["interaction_mode"],
+                    "approved": job["approved"],
+                }
+            except Exception as exc:
+                status = "FAIL"
+                payload = {
+                    "status": status,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            self._advance_after_dispatch(
+                automation,
+                current=current,
+                status=status,
+                payload=payload,
+            )
+            runs.append(
+                AutomationRun(
+                    automation["automation_id"],
+                    status,
+                    payload,
+                )
+            )
+        failed = [item for item in runs if item.status == "FAIL"]
+        return {
+            "status": "FAIL" if failed else "PASS",
+            "dispatch_count": len(runs),
+            "failed_count": len(failed),
+            "runs": [item.public() for item in runs],
+        }
+
     @staticmethod
     def _public(row: sqlite3.Row) -> dict[str, Any]:
         value = dict(row)
         value["args"] = json.loads(value.pop("args_json"))
         value["schedule"] = json.loads(value.pop("schedule_json"))
         value["last_result"] = json.loads(value.pop("last_result_json")) if value.get("last_result_json") else None
+        value["workspace_policy"] = json.loads(value.pop("workspace_policy_json", "{}") or "{}")
+        value["execution_backend"] = str(value.get("execution_backend") or "local")
+        value["interaction_mode"] = str(value.get("interaction_mode") or "agent")
         value["approved"] = bool(value["approved"])
         value["enabled"] = bool(value["enabled"])
         return value
