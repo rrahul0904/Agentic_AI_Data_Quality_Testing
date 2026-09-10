@@ -100,12 +100,35 @@ class GenericAppWorkflow:
             run_command = ["node", "server.js"]
             image = "node:22-alpine"
         elif framework_key == "static":
+            nginx_config = (
+                "pid /tmp/nginx.pid;\n"
+                "events {}\n"
+                "http {\n"
+                "  access_log /dev/stdout;\n"
+                "  error_log /dev/stderr;\n"
+                "  client_body_temp_path /tmp/client_temp;\n"
+                "  proxy_temp_path /tmp/proxy_temp;\n"
+                "  fastcgi_temp_path /tmp/fastcgi_temp;\n"
+                "  uwsgi_temp_path /tmp/uwsgi_temp;\n"
+                "  scgi_temp_path /tmp/scgi_temp;\n"
+                "  server {\n"
+                f"    listen {port};\n"
+                "    root /usr/share/nginx/html;\n"
+                "    location = /healthz { default_type text/plain; return 200 'ok\\n'; }\n"
+                "    location / { try_files $uri /index.html; }\n"
+                "  }\n"
+                "}\n"
+            )
             files = {
                 "index.html": f"<!doctype html><html><body><h1>{display}</h1><p>Agentic Data Engineering OS application.</p></body></html>\n",
-                "healthz": "ok\n",
+                "nginx.conf": nginx_config,
                 "Dockerfile": (
-                    "FROM nginx:1.27-alpine\nCOPY . /usr/share/nginx/html\n"
+                    "FROM nginx:1.27-alpine\n"
+                    "COPY index.html /usr/share/nginx/html/index.html\n"
+                    "COPY nginx.conf /etc/nginx/nginx.conf\n"
+                    "USER nginx\n"
                     f"EXPOSE {port}\n"
+                    "CMD [\"nginx\", \"-g\", \"daemon off;\"]\n"
                 ),
             }
             run_command = ["nginx", "-g", "daemon off;"]
@@ -287,21 +310,35 @@ class GenericAppWorkflow:
         image: str | None = None,
         namespace: str = "default",
         replicas: int = 1,
+        host_port: int | None = None,
     ) -> dict[str, Any]:
         backend_key = str(backend).casefold().replace("_", "-")
         image_name = image or f"ade/{_safe_name(str(plan['app_name'])).casefold()}:latest"
         port = int(plan["port"])
         if backend_key == "docker":
+            published = max(1024, min(int(host_port or port), 65535))
             contract = {
                 "backend": "docker",
                 "image": image_name,
                 "container_name": f"ade-{_safe_name(str(plan['app_name'])).casefold()}",
-                "port": port,
+                "container_port": port,
+                "host_port": published,
                 "target": str(Path(plan["target"]).resolve()),
+                "deployment_url": f"http://127.0.0.1:{published}/",
+                "health_url": f"http://127.0.0.1:{published}{plan['health_path']}",
+                "security": {
+                    "root_filesystem_read_only": True,
+                    "capabilities_dropped": "ALL",
+                    "no_new_privileges": True,
+                    "loopback_only": True,
+                    "memory_mb": 512,
+                    "cpus": 1.0,
+                    "pids_limit": 256,
+                },
             }
         elif backend_key in {"kubernetes", "k8s"}:
             name = _safe_name(str(plan["app_name"])).casefold().replace("_", "-")
-            manifest = {
+            deployment = {
                 "apiVersion": "apps/v1",
                 "kind": "Deployment",
                 "metadata": {"name": name, "namespace": namespace},
@@ -315,10 +352,19 @@ class GenericAppWorkflow:
                                 "name": name,
                                 "image": image_name,
                                 "ports": [{"containerPort": port}],
+                                "readinessProbe": {
+                                    "httpGet": {
+                                        "path": str(plan["health_path"]),
+                                        "port": port,
+                                    },
+                                    "initialDelaySeconds": 1,
+                                    "periodSeconds": 3,
+                                },
                                 "securityContext": {
                                     "allowPrivilegeEscalation": False,
                                     "readOnlyRootFilesystem": True,
                                     "runAsNonRoot": True,
+                                    "capabilities": {"drop": ["ALL"]},
                                 },
                                 "resources": {
                                     "requests": {"cpu": "100m", "memory": "128Mi"},
@@ -329,13 +375,34 @@ class GenericAppWorkflow:
                     },
                 },
             }
+            service = {
+                "apiVersion": "v1",
+                "kind": "Service",
+                "metadata": {"name": name, "namespace": namespace},
+                "spec": {
+                    "selector": {"app": name},
+                    "ports": [{"port": port, "targetPort": port}],
+                    "type": "ClusterIP",
+                },
+            }
+            manifest = {
+                "apiVersion": "v1",
+                "kind": "List",
+                "items": [deployment, service],
+            }
             contract = {
                 "backend": "kubernetes",
                 "image": image_name,
                 "namespace": namespace,
                 "name": name,
+                "port": port,
                 "target": str(Path(plan["target"]).resolve()),
                 "manifest": manifest,
+                "verification": {
+                    "rollout": f"deployment/{name}",
+                    "service": name,
+                    "health_path": str(plan["health_path"]),
+                },
             }
         else:
             raise ValueError("backend must be docker or kubernetes")
@@ -347,8 +414,17 @@ class GenericAppWorkflow:
         }
 
     @staticmethod
-    def deployment_run(deployment_plan: dict[str, Any], *, approval_fingerprint: str) -> dict[str, Any]:
-        payload = {key: value for key, value in deployment_plan.items() if key not in {"status", "mode", "approval_fingerprint"}}
+    def deployment_run(
+        deployment_plan: dict[str, Any],
+        *,
+        approval_fingerprint: str,
+        timeout_seconds: int = 120,
+    ) -> dict[str, Any]:
+        payload = {
+            key: value
+            for key, value in deployment_plan.items()
+            if key not in {"status", "mode", "approval_fingerprint"}
+        }
         expected = _digest(payload)
         if approval_fingerprint != expected or deployment_plan.get("approval_fingerprint") != expected:
             return {"status": "STALE_APPROVAL", "approval_fingerprint": expected}
@@ -356,33 +432,123 @@ class GenericAppWorkflow:
         if backend == "docker":
             docker = shutil.which("docker")
             if docker is None:
-                return {"status": "BLOCKED_UNAVAILABLE", "backend": backend, "reason": "Docker is unavailable."}
+                return {
+                    "status": "BLOCKED_UNAVAILABLE",
+                    "backend": backend,
+                    "reason": "Docker is unavailable.",
+                }
             build = subprocess.run(
                 [docker, "build", "-t", deployment_plan["image"], "."],
                 cwd=deployment_plan["target"],
-                capture_output=True, text=True, check=False,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if build.returncode != 0:
+                return {
+                    "status": "FAIL",
+                    "backend": backend,
+                    "phase": "image-build",
+                    "stdout": build.stdout[-4000:],
+                    "stderr": build.stderr[-8000:],
+                    "approval_fingerprint": expected,
+                }
+            subprocess.run(
+                [docker, "rm", "-f", str(deployment_plan["container_name"])],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            security = dict(deployment_plan["security"])
+            command = [
+                docker,
+                "run",
+                "-d",
+                "--name",
+                str(deployment_plan["container_name"]),
+                "--read-only",
+                "--cap-drop",
+                "ALL",
+                "--security-opt",
+                "no-new-privileges",
+                "--pids-limit",
+                str(security["pids_limit"]),
+                "--memory",
+                f"{security['memory_mb']}m",
+                "--cpus",
+                str(security["cpus"]),
+                "--tmpfs",
+                "/tmp:rw,noexec,nosuid,size=64m",
+                "-p",
+                f"127.0.0.1:{deployment_plan['host_port']}:{deployment_plan['container_port']}",
+                str(deployment_plan["image"]),
+            ]
+            run = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=False,
             )
             return {
-                "status": "PASS" if build.returncode == 0 else "FAIL",
+                "status": "PASS" if run.returncode == 0 else "FAIL",
                 "backend": backend,
-                "phase": "image-build",
-                "stdout": build.stdout[-4000:],
-                "stderr": build.stderr[-8000:],
+                "phase": "deployed",
+                "container_name": deployment_plan["container_name"],
+                "deployment_url": deployment_plan["deployment_url"],
+                "health_url": deployment_plan["health_url"],
+                "container_id": (run.stdout or "").strip(),
+                "stdout": run.stdout[-4000:],
+                "stderr": run.stderr[-8000:],
                 "approval_fingerprint": expected,
             }
+
         kubectl = shutil.which("kubectl")
         if kubectl is None:
-            return {"status": "BLOCKED_UNAVAILABLE", "backend": backend, "reason": "kubectl is unavailable."}
+            return {
+                "status": "BLOCKED_UNAVAILABLE",
+                "backend": backend,
+                "reason": "kubectl is unavailable.",
+            }
         process = subprocess.run(
             [kubectl, "apply", "-f", "-"],
             input=json.dumps(deployment_plan["manifest"]),
-            capture_output=True, text=True, check=False,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if process.returncode != 0:
+            return {
+                "status": "FAIL",
+                "backend": backend,
+                "phase": "apply",
+                "stdout": process.stdout[-4000:],
+                "stderr": process.stderr[-8000:],
+                "approval_fingerprint": expected,
+            }
+        rollout = subprocess.run(
+            [
+                kubectl,
+                "rollout",
+                "status",
+                str(deployment_plan["verification"]["rollout"]),
+                "-n",
+                str(deployment_plan["namespace"]),
+                f"--timeout={max(1, min(int(timeout_seconds), 1800))}s",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
         )
         return {
-            "status": "PASS" if process.returncode == 0 else "FAIL",
+            "status": "PASS" if rollout.returncode == 0 else "FAIL_VERIFY",
             "backend": backend,
-            "stdout": process.stdout[-4000:],
-            "stderr": process.stderr[-8000:],
+            "phase": "rollout-verification",
+            "namespace": deployment_plan["namespace"],
+            "name": deployment_plan["name"],
+            "service": deployment_plan["verification"]["service"],
+            "health_path": deployment_plan["verification"]["health_path"],
+            "stdout": (process.stdout + "\n" + rollout.stdout)[-8000:],
+            "stderr": (process.stderr + "\n" + rollout.stderr)[-8000:],
             "approval_fingerprint": expected,
         }
 
