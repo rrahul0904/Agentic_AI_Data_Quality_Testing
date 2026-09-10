@@ -8,6 +8,7 @@ from typing import Mapping, Protocol, Sequence
 
 from .backends import RetrievalHit, RetrievalQuery
 from .index import ADESearchIndex
+from .scoring import ScoringProfile
 
 
 class Reranker(Protocol):
@@ -50,7 +51,7 @@ class MultiIndexSearchResult:
 
 
 class ADESearchEngine:
-    """Fuse candidates from multiple ADE Search indexes, then rerank with evidence."""
+    """Fuse candidates from multiple ADE Search indexes, rerank, then apply metadata scoring."""
 
     def __init__(
         self,
@@ -72,8 +73,10 @@ class ADESearchEngine:
         request: RetrievalQuery,
         *,
         index_names: Sequence[str] | None = None,
-        fusion_weight: float = 0.8,
+        scoring_profile: ScoringProfile | None = None,
+        fusion_weight: float = 0.7,
         rerank_weight: float = 0.2,
+        metadata_weight: float = 0.1,
     ) -> MultiIndexSearchResult:
         request.validate()
         names = tuple(index_names or self.indexes.keys())
@@ -82,11 +85,15 @@ class ADESearchEngine:
         missing = [name for name in names if name not in self.indexes]
         if missing:
             raise KeyError(f"unknown search indexes: {', '.join(sorted(missing))}")
-        if fusion_weight < 0 or rerank_weight < 0 or fusion_weight + rerank_weight <= 0:
-            raise ValueError("fusion/rerank weights must be non-negative with positive sum")
-        weight_total = fusion_weight + rerank_weight
-        fusion_weight /= weight_total
-        rerank_weight /= weight_total
+        weights = [float(fusion_weight), float(rerank_weight), float(metadata_weight)]
+        if scoring_profile is None:
+            weights[2] = 0.0
+        if any(weight < 0 for weight in weights) or sum(weights) <= 0:
+            raise ValueError("search-stage weights must be non-negative with positive sum")
+        weight_total = sum(weights)
+        fusion_weight, rerank_weight, metadata_weight = (
+            weight / weight_total for weight in weights
+        )
 
         per_index_limit = max(request.bounded_limit() * 4, 20)
         child_request = RetrievalQuery(
@@ -138,7 +145,18 @@ class ADESearchEngine:
             hit: RetrievalHit = slot["hit"]  # type: ignore[assignment]
             fusion_score = float(slot["rrf"]) / max_rrf
             reranker_score = max(0.0, min(1.0, float(self.reranker.score(request.query, hit))))
-            final_score = fusion_weight * fusion_score + rerank_weight * reranker_score
+            metadata = hit.fields.get("metadata", {}) if isinstance(hit.fields, Mapping) else {}
+            if not isinstance(metadata, Mapping):
+                metadata = {}
+            profile_score = 0.0
+            profile_evidence: dict[str, object] = {}
+            if scoring_profile is not None:
+                profile_score, profile_evidence = scoring_profile.score(metadata)
+            final_score = (
+                fusion_weight * fusion_score
+                + rerank_weight * reranker_score
+                + metadata_weight * profile_score
+            )
             evidence = dict(hit.evidence)
             evidence["multi_index"] = {
                 "fusion": "reciprocal_rank",
@@ -149,7 +167,12 @@ class ADESearchEngine:
                 "index_errors": errors,
                 "reranker": self.reranker.name,
                 "reranker_score": reranker_score,
-                "weights": {"fusion": fusion_weight, "rerank": rerank_weight},
+                "metadata_profile": profile_evidence,
+                "weights": {
+                    "fusion": fusion_weight,
+                    "rerank": rerank_weight,
+                    "metadata": metadata_weight,
+                },
                 "final": final_score,
             }
             scored.append(
