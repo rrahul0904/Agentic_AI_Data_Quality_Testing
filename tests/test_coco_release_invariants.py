@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI
 
-from agentic_data_platform.api.app import create_app
+from agentic_data_platform.api import create_app
+from agentic_data_platform.api.app import create_app as legacy_create_app
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +23,11 @@ def _load_promoter():
 
 
 def test_create_app_returns_fastapi_and_certification_get_is_registered():
+    # The package factory is the canonical compositional factory; app.py remains
+    # the restored legacy monolith and must still produce a valid FastAPI app.
+    legacy_application = legacy_create_app()
+    assert isinstance(legacy_application, FastAPI)
+
     application = create_app()
     assert isinstance(application, FastAPI)
     routes = {
