@@ -38,6 +38,9 @@ on:
       - 'apps/web/app/CapabilityWorkbench.tsx'
       - 'apps/web/app/page.tsx'
       - 'specs/ADE_REFERENCE_CAPABILITY_SUPERIORITY_LEDGER.json'
+      - 'specs/COCO_GOLDEN_SCENARIOS.json'
+      - 'scripts/run_coco_golden_scenarios.py'
+      - 'scripts/build_coco_certification_report.py'
       - 'scripts/check_capability_superiority.py'
       - 'tests/test_capability_superiority_ledger.py'
       - 'tests/test_snowflake_governed_mutation.py'
@@ -96,6 +99,18 @@ jobs:
         run: make snowflake-governed-mutation-test
       - name: P1 capability superiority tests
         run: make capability-superiority-p1-check
+      - name: Execute eight CoCo golden scenarios
+        run: make coco-golden-scenarios
+      - name: Build truthful CoCo certification report
+        run: python scripts/build_coco_certification_report.py
+      - name: Upload CoCo certification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: coco-certification-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            reports/certification/coco_golden_scenarios.json
+            reports/certification/coco_certification_report.json
+          if-no-files-found: error
       - name: Offline CREATE plan smoke
         run: |
           ade snowflake-admin plan --environment dev --args '{"sql":"CREATE TABLE HOTEL.RAW.CI_MUTATION_TEST(ID NUMBER)"}'
