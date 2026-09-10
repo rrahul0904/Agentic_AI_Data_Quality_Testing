@@ -45,7 +45,7 @@
     {
       "id": "surfaces.snowsight",
       "reference": "Web/Snowsight agent surface",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "phase": "P2",
       "target_score": 2,
       "superiority_advantages": [
@@ -101,7 +101,7 @@
     {
       "id": "modes.agent",
       "reference": "Autonomous implementation/agent mode",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "phase": "P0",
       "target_score": 2,
       "superiority_advantages": [
@@ -116,7 +116,7 @@
     {
       "id": "modes.plan",
       "reference": "Read-only plan mode",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "phase": "P0",
       "target_score": 2,
       "superiority_advantages": [
@@ -199,7 +199,7 @@
     {
       "id": "modes.code",
       "reference": "Low-cost code-only mode",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "phase": "P2",
       "target_score": 2,
       "superiority_advantages": [
@@ -214,7 +214,7 @@
     {
       "id": "tools.files",
       "reference": "Read/create/edit local files",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "phase": "P1",
       "target_score": 2,
       "superiority_advantages": [
@@ -345,7 +345,7 @@
     {
       "id": "tools.web_search",
       "reference": "Public web search/fetch",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "phase": "P2",
       "target_score": 2,
       "superiority_advantages": [
@@ -360,7 +360,7 @@
     {
       "id": "tools.git",
       "reference": "Git changes/commits",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "phase": "P1",
       "target_score": 2,
       "superiority_advantages": [
@@ -438,7 +438,7 @@
     {
       "id": "context.management",
       "reference": "Context accounting/compaction",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "phase": "P1",
       "target_score": 2,
       "superiority_advantages": [
@@ -478,7 +478,7 @@
     {
       "id": "agents.custom",
       "reference": "Custom agent definitions/tools/models/prompts",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "phase": "P1",
       "target_score": 2,
       "superiority_advantages": [
@@ -665,7 +665,7 @@
     {
       "id": "search.snowflake_objects",
       "reference": "Semantic Snowflake object discovery",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "phase": "P1",
       "target_score": 2,
       "superiority_advantages": [
@@ -680,7 +680,7 @@
     {
       "id": "sql.playground",
       "reference": "Interactive SQL playground",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "phase": "P2",
       "target_score": 2,
       "superiority_advantages": [
@@ -695,7 +695,7 @@
     {
       "id": "visualization.inline",
       "reference": "Inline charts/KPIs from data",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "phase": "P2",
       "target_score": 2,
       "superiority_advantages": [
@@ -913,7 +913,7 @@
     {
       "id": "admin.account",
       "reference": "Natural-language Snowflake account/security/cost administration",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "phase": "P1",
       "target_score": 2,
       "superiority_advantages": [
@@ -980,7 +980,7 @@
     {
       "id": "ml.forecasting_anomaly",
       "reference": "Forecasting/anomaly workflows",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "phase": "P2",
       "target_score": 2,
       "superiority_advantages": [
@@ -1131,14 +1131,14 @@
       "classification": "COCO_CORE",
       "release_blocking": true,
       "certification_track": "COCO_PARITY_CERTIFICATION",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "target_score": 2,
       "superiority_advantages": [
         "container-sandbox execution class with network/resource controls",
         "persistent JSON-safe namespace with auditable cell history"
       ],
       "acceptance": "Python cells execute through an approval-bound REPL, preserve supported state across cells, expose history/state evidence, and never mislabel constrained execution as sandboxed.",
-      "known_limitation": "Implementation is on branch and awaits exact-head deterministic certification."
+      "known_limitation": null
     },
     {
       "id": "search.code_deterministic",
@@ -1147,14 +1147,14 @@
       "classification": "COCO_CORE",
       "release_blocking": true,
       "certification_track": "COCO_PARITY_CERTIFICATION",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "target_score": 2,
       "superiority_advantages": [
         "line/column/file-hash evidence",
         "language-aware symbol index with reproducible fingerprint"
       ],
       "acceptance": "Exact code search returns bounded path/line/column evidence tied to immutable file hashes and a reproducible index fingerprint.",
-      "known_limitation": "Implementation is on branch and awaits exact-head deterministic certification."
+      "known_limitation": null
     },
     {
       "id": "sessions.history",
@@ -1163,14 +1163,14 @@
       "classification": "COCO_CORE",
       "release_blocking": true,
       "certification_track": "COCO_PARITY_CERTIFICATION",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "target_score": 2,
       "superiority_advantages": [
         "durable provider-independent history",
         "stable history fingerprints for review and replay"
       ],
       "acceptance": "Sessions persist ordered user/assistant/tool history across process restarts and expose an auditable history fingerprint.",
-      "known_limitation": "Implementation is on branch and awaits exact-head deterministic certification."
+      "known_limitation": null
     },
     {
       "id": "sessions.checkpoints",
@@ -1179,14 +1179,14 @@
       "classification": "COCO_CORE",
       "release_blocking": true,
       "certification_track": "COCO_PARITY_CERTIFICATION",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "target_score": 2,
       "superiority_advantages": [
         "messages+todos+reminders+state captured together",
         "immutable snapshot fingerprints"
       ],
       "acceptance": "Users/agents can create, list and inspect durable checkpoints that snapshot session messages, verified todos, reminders and state.",
-      "known_limitation": "Implementation is on branch and awaits exact-head deterministic certification."
+      "known_limitation": null
     },
     {
       "id": "sessions.diff_review",
@@ -1195,14 +1195,14 @@
       "classification": "COCO_CORE",
       "release_blocking": true,
       "certification_track": "COCO_PARITY_CERTIFICATION",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "target_score": 2,
       "superiority_advantages": [
         "message/todo/state/status diff in one review",
         "fingerprinted review evidence"
       ],
       "acceptance": "ADE can compare two checkpoints and review added/removed/changed messages, todos, state and session status with stable evidence.",
-      "known_limitation": "Implementation is on branch and awaits exact-head deterministic certification."
+      "known_limitation": null
     },
     {
       "id": "agents.background",
@@ -1211,7 +1211,7 @@
       "classification": "COCO_CORE",
       "release_blocking": true,
       "certification_track": "COCO_PARITY_CERTIFICATION",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "target_score": 2,
       "superiority_advantages": [
         "durable job state independent of interactive session",
@@ -1226,7 +1226,7 @@
       "classification": "COCO_CORE",
       "release_blocking": true,
       "certification_track": "COCO_PARITY_CERTIFICATION",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "target_score": 2,
       "superiority_advantages": [
         "tool/scope/budget contracts inherited by each specialist",
@@ -1241,7 +1241,7 @@
       "classification": "COCO_CORE",
       "release_blocking": true,
       "certification_track": "COCO_PARITY_CERTIFICATION",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "target_score": 2,
       "superiority_advantages": [
         "named teammate roles with persistent configuration",
@@ -1256,7 +1256,7 @@
       "classification": "COCO_CORE",
       "release_blocking": true,
       "certification_track": "COCO_PARITY_CERTIFICATION",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "target_score": 2,
       "superiority_advantages": [
         "inspectable project/global precedence",
@@ -1271,7 +1271,7 @@
       "classification": "COCO_CORE",
       "release_blocking": true,
       "certification_track": "COCO_PARITY_CERTIFICATION",
-      "ade_current": "gap",
+      "ade_current": "implemented_on_branch",
       "target_score": 2,
       "superiority_advantages": [
         "user-visible pinned/blocked evidence set",
@@ -1286,7 +1286,7 @@
       "classification": "COCO_CORE",
       "release_blocking": true,
       "certification_track": "COCO_PARITY_CERTIFICATION",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "target_score": 2,
       "superiority_advantages": [
         "deterministic summaries with preserved recent evidence",
@@ -1301,7 +1301,7 @@
       "classification": "COCO_CORE",
       "release_blocking": true,
       "certification_track": "COCO_PARITY_CERTIFICATION",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "target_score": 2,
       "superiority_advantages": [
         "workspace isolation independent of Snowflake runtime",
@@ -1316,7 +1316,7 @@
       "classification": "COCO_CORE",
       "release_blocking": true,
       "certification_track": "COCO_PARITY_CERTIFICATION",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "target_score": 2,
       "superiority_advantages": [
         "same ToolRegistry workflows as CLI/API",
@@ -1331,7 +1331,7 @@
       "classification": "COCO_CORE",
       "release_blocking": true,
       "certification_track": "COCO_PARITY_CERTIFICATION",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "target_score": 2,
       "superiority_advantages": [
         "project-scoped generated extension/workspace bundle",
@@ -1346,7 +1346,7 @@
       "classification": "COCO_WORKFLOW",
       "release_blocking": true,
       "certification_track": "COCO_PARITY_CERTIFICATION",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "target_score": 2,
       "superiority_advantages": [
         "framework/provider-neutral app plan with preview evidence",
@@ -1361,7 +1361,7 @@
       "classification": "COCO_WORKFLOW",
       "release_blocking": true,
       "certification_track": "COCO_PARITY_CERTIFICATION",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "target_score": 2,
       "superiority_advantages": [
         "least-privilege plan with blast-radius evidence",
@@ -1376,7 +1376,7 @@
       "classification": "COCO_WORKFLOW",
       "release_blocking": true,
       "certification_track": "COCO_PARITY_CERTIFICATION",
-      "ade_current": "partial",
+      "ade_current": "implemented_on_branch",
       "target_score": 2,
       "superiority_advantages": [
         "data-to-evaluation-to-registry workflow with lineage",
