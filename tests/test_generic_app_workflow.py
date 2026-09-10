@@ -50,6 +50,9 @@ def test_node_and_static_templates_are_supported(tmp_path):
 
     assert json.loads(node["files"]["package.json"])["scripts"]["start"] == "node server.js"
     assert "index.html" in static["files"]
+    assert "nginx.conf" in static["files"]
+    assert "listen 8080;" in static["files"]["nginx.conf"]
+    assert "USER nginx" in static["files"]["Dockerfile"]
     assert node["approval_fingerprint"] != static["approval_fingerprint"]
 
 
@@ -144,17 +147,90 @@ def test_kubernetes_deployment_plan_is_nonroot_readonly_and_resource_bounded(tmp
     )
 
     manifest = deploy["manifest"]
-    container = manifest["spec"]["template"]["spec"]["containers"][0]
+    deployment, service = manifest["items"]
+    container = deployment["spec"]["template"]["spec"]["containers"][0]
     assert deploy["backend"] == "kubernetes"
-    assert manifest["metadata"]["namespace"] == "ade"
-    assert manifest["spec"]["replicas"] == 3
-    assert container["securityContext"] == {
-        "allowPrivilegeEscalation": False,
-        "readOnlyRootFilesystem": True,
-        "runAsNonRoot": True,
-    }
+    assert manifest["kind"] == "List"
+    assert deployment["metadata"]["namespace"] == "ade"
+    assert deployment["spec"]["replicas"] == 3
+    assert service["kind"] == "Service"
+    assert service["spec"]["ports"][0]["targetPort"] == 8080
+    assert container["securityContext"]["allowPrivilegeEscalation"] is False
+    assert container["securityContext"]["readOnlyRootFilesystem"] is True
+    assert container["securityContext"]["runAsNonRoot"] is True
+    assert container["securityContext"]["capabilities"]["drop"] == ["ALL"]
+    assert container["readinessProbe"]["httpGet"]["path"] == "/healthz"
     assert container["resources"]["limits"]["memory"] == "512Mi"
     assert deploy["approval_fingerprint"]
+
+
+def test_docker_deployment_plan_contains_real_run_and_health_contract(tmp_path):
+    workflow = GenericAppWorkflow(tmp_path)
+    scaffold = workflow.scaffold_plan(
+        app_name="portal",
+        directory="portal",
+        framework="python-http",
+        port=8080,
+    )
+    deploy = workflow.deployment_plan(
+        scaffold,
+        backend="docker",
+        image="example/portal:sha",
+        host_port=18081,
+    )
+
+    assert deploy["host_port"] == 18081
+    assert deploy["container_port"] == 8080
+    assert deploy["deployment_url"] == "http://127.0.0.1:18081/"
+    assert deploy["health_url"] == "http://127.0.0.1:18081/healthz"
+    assert deploy["security"]["root_filesystem_read_only"] is True
+    assert deploy["security"]["capabilities_dropped"] == "ALL"
+    assert deploy["security"]["loopback_only"] is True
+
+
+def test_docker_deployment_run_builds_and_starts_hardened_container(tmp_path, monkeypatch):
+    workflow = GenericAppWorkflow(tmp_path)
+    scaffold = workflow.scaffold_plan(
+        app_name="portal",
+        directory="portal",
+        framework="python-http",
+        port=8080,
+    )
+    deploy = workflow.deployment_plan(
+        scaffold,
+        backend="docker",
+        image="example/portal:sha",
+        host_port=18081,
+    )
+    calls = []
+
+    class Result:
+        def __init__(self, returncode=0, stdout="", stderr=""):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    def fake_run(command, **kwargs):
+        calls.append((list(command), kwargs))
+        if "run" in command:
+            return Result(stdout="container-123\n")
+        return Result(stdout="ok\n")
+
+    monkeypatch.setattr("agentic_data_platform.apps.generic.shutil.which", lambda _: "/usr/bin/docker")
+    monkeypatch.setattr("agentic_data_platform.apps.generic.subprocess.run", fake_run)
+
+    result = GenericAppWorkflow.deployment_run(
+        deploy,
+        approval_fingerprint=deploy["approval_fingerprint"],
+    )
+
+    assert result["status"] == "PASS"
+    assert result["phase"] == "deployed"
+    run_command = next(command for command, _ in calls if "run" in command)
+    assert "--read-only" in run_command
+    assert ["--cap-drop", "ALL"] == run_command[run_command.index("--cap-drop"):run_command.index("--cap-drop") + 2]
+    assert "127.0.0.1:18081:8080" in run_command
+    assert result["container_id"] == "container-123"
 
 
 def test_deployment_execution_fails_closed_when_backend_cli_missing(tmp_path, monkeypatch):
