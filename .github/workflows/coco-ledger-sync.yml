@@ -18,6 +18,7 @@ concurrency:
 
 jobs:
   synchronize:
+    # This release utility promotes only evidence proven on the exact triggering SHA.
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
