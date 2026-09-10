@@ -318,7 +318,7 @@ class ADESearchIndex:
         lexical_weight, vector_weight, rerank_weight = (weight / total_weight for weight in weights)
         candidate_limit = max(50, min(1000, request.bounded_limit() * 12))
 
-        lexical: dict[str, tuple[float, int]] = {}
+        lexical: dict[str, tuple[float, int, float]] = {}
         with self._connect() as connection:
             try:
                 rows = connection.execute(
@@ -330,10 +330,10 @@ class ADESearchIndex:
                 raise RuntimeError("SQLite FTS5 is required for ADE Search") from exc
         for rank, row in enumerate(rows, 1):
             raw = float(row["rank_score"])
-            lexical[row["chunk_id"]] = (1.0 / (1.0 + abs(raw)), rank)
+            lexical[row["chunk_id"]] = (1.0 / rank, rank, raw)
 
         query_embedding = [float(value) for value in self.embedder.embed(request.query)]
-        query_tokens = set(token.casefold() for token in _TOKEN.findall(request.query))
+        query_tokens = {token.casefold() for token in _TOKEN.findall(request.query)}
         candidates: list[dict[str, Any]] = []
         for row in self._rows():
             metadata = json.loads(row["metadata_json"] or "{}")
@@ -341,9 +341,9 @@ class ADESearchIndex:
                 continue
             embedding = json.loads(row["embedding_json"])
             cosine = self._cosine(query_embedding, embedding)
-            vector_score = max(0.0, min(1.0, (cosine + 1.0) / 2.0))
-            lexical_score, lexical_rank = lexical.get(row["chunk_id"], (0.0, 0))
-            content_tokens = set(token.casefold() for token in _TOKEN.findall(row["content"]))
+            vector_score = max(0.0, min(1.0, cosine))
+            lexical_score, lexical_rank, lexical_raw = lexical.get(row["chunk_id"], (0.0, 0, 0.0))
+            content_tokens = {token.casefold() for token in _TOKEN.findall(row["content"])}
             overlap = len(query_tokens & content_tokens) / max(1, len(query_tokens))
             final = (
                 lexical_weight * lexical_score
@@ -358,6 +358,7 @@ class ADESearchIndex:
                     "metadata": metadata,
                     "lexical_score": lexical_score,
                     "lexical_rank": lexical_rank,
+                    "lexical_raw": lexical_raw,
                     "vector_score": vector_score,
                     "cosine": cosine,
                     "rerank_score": overlap,
@@ -376,12 +377,18 @@ class ADESearchIndex:
                 "rank": rank,
                 "content_hash": row["content_hash"],
                 "embedding_provider": row["embedding_provider"],
+                "embedding_semantics": (
+                    "offline lexical feature projection"
+                    if row["embedding_provider"] == DeterministicHashEmbedding.name
+                    else "provider supplied"
+                ),
                 "updated_at": row["updated_at"],
             }
             if explain:
                 evidence["scoring"] = {
                     "lexical": round(item["lexical_score"], 8),
                     "lexical_rank": item["lexical_rank"] or None,
+                    "lexical_bm25_raw": round(item["lexical_raw"], 8),
                     "vector": round(item["vector_score"], 8),
                     "cosine": round(item["cosine"], 8),
                     "rerank_overlap": round(item["rerank_score"], 8),
