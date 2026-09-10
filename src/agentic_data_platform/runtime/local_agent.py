@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from agentic_data_platform.knowledge import extract_document
-from agentic_data_platform.models import ActorMode
+from agentic_data_platform.models import ActorMode, Risk
 from agentic_data_platform.providers import ProviderRegistry
+from agentic_data_platform.providers.base import Provider, ProviderRequest, ProviderResponse
 from agentic_data_platform.security.redaction import redact_string
 from agentic_data_platform.runtime.agent import AgentRuntime
 from agentic_data_platform.runtime.context import ContextManager
@@ -37,6 +39,34 @@ _PROJECT_PATTERNS = (
     "airflow/dags/**/*.py",
     "dags/**/*.py",
 )
+
+
+class _BudgetedProvider:
+    """Apply local cost controls without changing the certified core runtime."""
+
+    def __init__(
+        self,
+        inner: Provider,
+        *,
+        max_output_tokens: int,
+        reasoning_effort: str,
+    ) -> None:
+        self._inner = inner
+        self.name = inner.name
+        self.max_output_tokens = max_output_tokens
+        self.reasoning_effort = reasoning_effort
+
+    def generate(self, request: ProviderRequest) -> ProviderResponse:
+        metadata = dict(request.metadata)
+        if self.reasoning_effort:
+            metadata["reasoning_effort"] = self.reasoning_effort
+        return self._inner.generate(
+            replace(
+                request,
+                max_output_tokens=self.max_output_tokens,
+                metadata=metadata,
+            )
+        )
 
 
 def _root(project_root: str | Path) -> Path:
@@ -137,11 +167,23 @@ def knowledge_search(project_root: str | Path, query: str, *, limit: int = 10) -
     return {"results": training_store(project_root).search(query, limit=limit)}
 
 
-def _read_only_registry(registry: ToolRegistry) -> ToolRegistry:
+def _scoped_read_only_registry(registry: ToolRegistry, project_root: Path) -> ToolRegistry:
+    """Expose only read-only tools and pin all project selectors to one root."""
+
     safe = ToolRegistry()
+    root_text = str(project_root)
     for definition in registry.definitions():
-        if definition.enabled and definition.risk.value != "mutating":
-            safe.register(definition)
+        if not definition.enabled or definition.risk is not Risk.READ_ONLY:
+            continue
+        original_handler = definition.handler
+
+        def scoped_handler(args: dict[str, Any], *, _handler=original_handler, _root=root_text) -> dict[str, Any]:
+            scoped_args = dict(args)
+            scoped_args["project"] = _root
+            scoped_args["project_root"] = _root
+            return _handler(scoped_args)
+
+        safe.register(replace(definition, handler=scoped_handler))
     return safe
 
 
@@ -190,7 +232,11 @@ def run_project_agent(
     )
     store = runtime_store(root)
     traces = trace_store(root)
-    provider_impl = ProviderRegistry().create(provider_name)
+    provider_impl = _BudgetedProvider(
+        ProviderRegistry().create(provider_name),
+        max_output_tokens=int(config["max_output_tokens"]),
+        reasoning_effort=str(config["reasoning_effort"]),
+    )
     session_id = store.create_session(
         project_id=str(root),
         title=question[:120],
@@ -205,15 +251,13 @@ def run_project_agent(
         reserve_tokens = max(2000, context_tokens // 4)
 
     runtime = AgentRuntime(
-        _read_only_registry(registry),
+        _scoped_read_only_registry(registry, root),
         store,
         traces,
         context=ContextManager(max_tokens=context_tokens, reserve_tokens=reserve_tokens),
         context_sources=sources,
         max_steps=int(config["max_steps"]),
         repeated_tool_limit=2,
-        max_output_tokens=int(config["max_output_tokens"]),
-        provider_metadata={"reasoning_effort": config["reasoning_effort"]},
     )
     result = runtime.run(
         session_id,
