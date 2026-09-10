@@ -241,7 +241,8 @@ capability-superiority-p1-check:
 		tests/test_hosted_workspace_isolation.py \
 		tests/test_generic_app_workflow.py \
 		tests/test_permissions_admin.py \
-		tests/test_agentic_ml_workflow.py
+		tests/test_agentic_ml_workflow.py \
+		tests/test_hosted_automations.py
 
 .PHONY: advanced-live-e2e
 advanced-live-e2e:
