@@ -121,7 +121,7 @@ from agentic_data_platform.runners import sandbox as sandbox_runner
 from agentic_data_platform.notebooks import NotebookAgent
 from agentic_data_platform.browser import AgentBrowser, plan_browser_actions
 from agentic_data_platform.apps import GenericAppWorkflow, SnowflakeAppBuilder
-from agentic_data_platform.ml import SnowflakeModelRegistryAdapter, plan_log_model, plan_model_lifecycle, plan_snowpark_ml_workflow
+from agentic_data_platform.ml import AgenticMLWorkflow, SnowflakeModelRegistryAdapter, agentic_ml_plan, plan_log_model, plan_model_lifecycle, plan_snowpark_ml_workflow
 from agentic_data_platform.ai import AIWorkflowCompiler, SnowflakeAIWorkflowRunner
 from agentic_data_platform.ide import IDEBridge
 from agentic_data_platform import advanced_capabilities as advanced_caps
@@ -1738,6 +1738,56 @@ def build_tool_registry() -> ToolRegistry:
         platforms=frozenset({Platform.LOCAL}),
         risk=Risk.MUTATING,
         requires_approval=True,
+    )
+
+    add(
+        "agentic_ml_plan",
+        Capability.PLAN,
+        lambda a: agentic_ml_plan(
+            task=str(a["task"]),
+            source_id=str(a["source_id"]),
+            feature_columns=[str(item) for item in a.get("feature_columns") or []],
+            label_column=str(a["label_column"]),
+            model_name=str(a["model_name"]),
+            version=str(a["version"]),
+            train_fraction=float(a.get("train_fraction", 0.8)),
+            seed=int(a.get("seed", 42)),
+            candidates=[str(item) for item in a.get("candidates") or []] or None,
+            max_rows=int(a.get("max_rows", 100000)),
+        ),
+        "Plan a portable multi-candidate ML workflow with explicit objective, lineage and registry target.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "agentic_ml_run",
+        Capability.EXECUTE,
+        lambda a: AgenticMLWorkflow(_target(a)).run(
+            dict(a["plan"]),
+            list(a.get("records") or []),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+        ),
+        "Execute an approved portable ML workflow: prepare, train, compare, select, register, and verify inference.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "agentic_ml_predict",
+        Capability.VERIFY,
+        lambda a: AgenticMLWorkflow(_target(a)).predict(
+            str(a["model_name"]),
+            str(a["version"]),
+            dict(a["record"]),
+        ),
+        "Run verified inference from a fingerprinted local ADE model artifact.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "agentic_ml_artifacts",
+        Capability.DISCOVER,
+        lambda a: {"artifacts": AgenticMLWorkflow(_target(a)).list_artifacts()},
+        "List versioned portable ADE model artifacts and metrics.",
+        platforms=frozenset({Platform.LOCAL}),
     )
 
     def model_inventory(a: dict[str, Any]) -> dict[str, Any]:
