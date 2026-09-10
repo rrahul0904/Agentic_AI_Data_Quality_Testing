@@ -29,6 +29,9 @@ tools:
 actor_mode: analyst
 max_steps: 6
 timeout_seconds: 90
+verification:
+  - field: evidence_verified
+    equals: true
 ---
 Use deterministic warehouse evidence before drawing conclusions.
 """
@@ -41,6 +44,9 @@ Use deterministic warehouse evidence before drawing conclusions.
     assert items[0]["name"] == "snowflake-investigator"
     assert items[0]["allowed_tools"] == ["semantic_search", "snowflake_pipeline_rca"]
     assert items[0]["max_steps"] == 6
+    assert items[0]["verification_contract"] == [
+        {"field": "evidence_verified", "equals": True}
+    ]
     assert "deterministic warehouse evidence" in items[0]["system_prompt"]
 
 
@@ -80,6 +86,46 @@ def test_parallel_coordinator_isolates_one_subagent_failure():
     assert result["results"][1]["status"] == "FAIL"
     assert "RuntimeError" in result["results"][1]["error"]
     assert result["results"][2]["status"] == "PASS"
+
+
+def test_parallel_subagent_verification_contract_blocks_unverified_success():
+    definition = SubagentDefinition(
+        "evidence-agent",
+        "must prove evidence",
+        verification_contract=(
+            {"field": "evidence_verified", "equals": True},
+            {"field": "confidence", "min": 0.8},
+        ),
+    )
+
+    failed = ParallelSubagentCoordinator(
+        lambda task: {
+            "status": "PASS",
+            "summary": "claim",
+            "evidence_verified": False,
+            "confidence": 0.95,
+        }
+    ).run([SubagentTask(definition, "inspect")])
+
+    assert failed["status"] == "FAIL"
+    assert failed["failed_count"] == 1
+    outcome = failed["results"][0]
+    assert outcome["status"] == "FAIL_VERIFICATION"
+    assert outcome["verification"]["status"] == "FAIL"
+    assert outcome["verification"]["findings"][0]["passed"] is False
+
+    passed = ParallelSubagentCoordinator(
+        lambda task: {
+            "status": "PASS",
+            "summary": "verified claim",
+            "evidence_verified": True,
+            "confidence": 0.91,
+        }
+    ).run([SubagentTask(definition, "inspect")])
+
+    assert passed["status"] == "PASS"
+    assert passed["results"][0]["verification"]["status"] == "PASS"
+    assert passed["results"][0]["verification"]["verification_fingerprint"]
 
 
 def test_runtime_subagent_registry_is_hard_scoped_to_allowed_tools(tmp_path):
