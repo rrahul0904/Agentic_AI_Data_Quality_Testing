@@ -677,6 +677,18 @@ def test_agent_recovery_lifecycle_is_plan_approve_execute_verify_recertify(tmp_p
     assert planned["first_divergence"] == "source→raw"
     assert planned["root_cause"] == "WATERMARK_ADVANCED_BEYOND_EXTRACT"
     assert planned["evidence_count"] > 0
+    assert planned["platform_coverage"]["snowflake"] is True
+    assert planned["platform_coverage"]["airflow"] is True
+    assert planned["platform_coverage"]["dbt"] is True
+    assert planned["lifecycle"] == {
+        "investigated": True,
+        "planned": True,
+        "approval_boundary": True,
+        "executed": False,
+        "verified": False,
+        "recertified": False,
+    }
+    assert planned["coverage_fingerprint"]
 
     blocked = agent_recovery_execute(tmp_path, planned["incident_id"], approved=False)
     assert blocked["status"] == "AWAITING_APPROVAL"
@@ -696,6 +708,13 @@ def test_agent_recovery_lifecycle_is_plan_approve_execute_verify_recertify(tmp_p
     assert resolved["verification"]["affected_dbt_tests"] == "PASS"
     assert resolved["verification"]["pipeline_execution"] == "PASS"
     assert resolved["certification"] == "CERTIFIED"
+    assert resolved["platform_coverage"]["snowflake"] is True
+    assert resolved["platform_coverage"]["airflow"] is True
+    assert resolved["platform_coverage"]["dbt"] is True
+    assert resolved["lifecycle"]["executed"] is True
+    assert resolved["lifecycle"]["verified"] is True
+    assert resolved["lifecycle"]["recertified"] is True
+    assert resolved["agent_mode_evidence_fingerprint"]
 
 
 def test_web_workbench_exposes_same_governed_advanced_tools_as_registry(tmp_path) -> None:
