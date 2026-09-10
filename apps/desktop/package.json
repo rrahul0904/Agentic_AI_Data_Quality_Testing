@@ -1,0 +1,40 @@
+{
+  "name": "ade-desktop",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Native desktop shell for Agentic Data Engineering OS",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "44.3.0",
+    "electron-builder": "26.16.1"
+  },
+  "build": {
+    "appId": "ai.ade.desktop",
+    "productName": "Agentic Data Engineering",
+    "asar": true,
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "renderer.js",
+      "styles.css",
+      "package.json"
+    ],
+    "mac": {
+      "target": ["dmg", "zip"],
+      "category": "public.app-category.developer-tools"
+    },
+    "win": {
+      "target": ["nsis", "portable"]
+    },
+    "linux": {
+      "target": ["AppImage"],
+      "category": "Development"
+    }
+  }
+}
