@@ -6,7 +6,7 @@ on:
     paths:
       - "src/agentic_data_platform/**"
       - "tests/test_competitive_gap_closure.py"
-      - "tests/test_ade_search_document_pipeline.py"
+      - "tests/test_ade_search_*.py"
       - "benchmarks/competitive/**"
       - "apps/desktop/**"
       - "pyproject.toml"
@@ -17,7 +17,7 @@ on:
     paths:
       - "src/agentic_data_platform/**"
       - "tests/test_competitive_gap_closure.py"
-      - "tests/test_ade_search_document_pipeline.py"
+      - "tests/test_ade_search_*.py"
       - "benchmarks/competitive/**"
       - "apps/desktop/**"
       - "pyproject.toml"
@@ -49,10 +49,7 @@ jobs:
           src/agentic_data_platform/knowledge
           src/agentic_data_platform/remote_workspace.py
       - name: Run competitive capability regression suite
-        run: >-
-          pytest -q
-          tests/test_competitive_gap_closure.py
-          tests/test_ade_search_document_pipeline.py
+        run: pytest -q tests/test_competitive_gap_closure.py tests/test_ade_search_*.py
       - name: Verify public CLI plans
         run: |
           ade compute plan --backend docker --name certjob --image python:3.12-slim --command "python -V" --cpu 1 --memory-gib 1 > /tmp/compute.json
@@ -97,7 +94,7 @@ jobs:
           src/agentic_data_platform/api/competitive.py
           src/agentic_data_platform/cli_entry.py
           tests/test_competitive_gap_closure.py
-          tests/test_ade_search_document_pipeline.py
+          tests/test_ade_search_*.py
           benchmarks/competitive/run.py
 
   deterministic-benchmark:
