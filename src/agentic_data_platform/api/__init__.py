@@ -12,6 +12,7 @@ from fastapi import FastAPI
 
 from . import app as _legacy_app
 from .certification import coco_status
+from .competitive import attach_competitive_routes
 from .knowledge import attach_knowledge_routes
 
 
@@ -24,6 +25,10 @@ _COMPOSED_PATHS = {
     "/api/v1/knowledge/index-project",
     "/api/v1/knowledge/ingest-text",
     "/api/v1/knowledge/upload",
+    "/api/v1/competitive/status",
+    "/api/v1/retrieval/search",
+    "/api/v1/compute/plan",
+    "/api/v1/document/snowflake-plan",
 }
 _base_create_app = _legacy_app.create_app
 
@@ -73,6 +78,7 @@ def _prioritize_composed_routes(application: FastAPI) -> FastAPI:
 def _compose(application: FastAPI) -> FastAPI:
     application = _attach_certification_route(application)
     application = attach_knowledge_routes(application)
+    application = attach_competitive_routes(application)
     return _prioritize_composed_routes(application)
 
 
