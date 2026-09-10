@@ -253,7 +253,8 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
     "automation": {
         "create": "automation_create", "list": "automation_list", "show": "automation_show",
         "enable": "automation_enable", "approve": "automation_approve",
-        "run-due": "automation_run_due", "delete": "automation_delete",
+        "run-due": "automation_run_due", "queue-hosted": "automation_queue_hosted",
+        "delete": "automation_delete",
     },
     "plugin": {
         "validate": "plugin_bundle_validate", "install": "plugin_bundle_install",
