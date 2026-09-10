@@ -27,7 +27,7 @@ def digest(value: Any) -> str:
 
 
 def head_sha() -> str | None:
-    value = os.getenv("GITHUB_SHA")
+    value = os.getenv("GITHUB_HEAD_SHA") or os.getenv("GITHUB_SHA")
     if value:
         return value
     try:
