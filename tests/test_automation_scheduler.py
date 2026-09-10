@@ -165,5 +165,6 @@ def test_cli_exposes_automation_control_plane():
         "enable": "automation_enable",
         "approve": "automation_approve",
         "run-due": "automation_run_due",
+        "queue-hosted": "automation_queue_hosted",
         "delete": "automation_delete",
     }
