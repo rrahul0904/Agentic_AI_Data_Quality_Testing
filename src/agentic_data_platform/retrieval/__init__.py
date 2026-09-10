@@ -16,6 +16,7 @@ from .index import (
     SearchChunk,
 )
 from .providers import HTTPEmbeddingProvider, HTTPReranker
+from .scoring import NumericBoost, ScoringProfile, TimeDecay
 
 __all__ = [
     "ADESearchEngine",
@@ -29,9 +30,12 @@ __all__ = [
     "IndexMutation",
     "LocalProjectRetrievalBackend",
     "MultiIndexSearchResult",
+    "NumericBoost",
     "Reranker",
     "RetrievalHit",
     "RetrievalQuery",
+    "ScoringProfile",
     "SearchChunk",
+    "TimeDecay",
     "TokenOverlapReranker",
 ]
