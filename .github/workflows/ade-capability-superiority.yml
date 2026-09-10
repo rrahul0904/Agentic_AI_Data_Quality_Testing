@@ -20,6 +20,7 @@ on:
       - 'src/agentic_data_platform/ml/**'
       - 'src/agentic_data_platform/ai/**'
       - 'src/agentic_data_platform/ide/**'
+      - 'src/agentic_data_platform/certification/**'
       - 'scripts/run_hosted_runner.py'
       - 'scripts/live_advanced_capabilities.py'
       - 'deploy/hosted-runner/**'
@@ -36,6 +37,8 @@ on:
       - 'src/agentic_data_platform/cli.py'
       - 'src/agentic_data_platform/api/app.py'
       - 'apps/web/app/CapabilityWorkbench.tsx'
+      - 'apps/web/app/CertificationConsole.tsx'
+      - 'apps/web/app/certification/**'
       - 'apps/web/app/page.tsx'
       - 'specs/ADE_REFERENCE_CAPABILITY_SUPERIORITY_LEDGER.json'
       - 'specs/COCO_GOLDEN_SCENARIOS.json'
@@ -76,6 +79,8 @@ on:
       - 'tests/test_hosted_automations.py'
       - 'tests/test_cross_warehouse_search_playground.py'
       - 'tests/test_coco_golden_scenarios.py'
+      - 'tests/test_operator_console_parity.py'
+      - 'tests/test_coco_certification_status.py'
       - 'tests/test_snowflake_managed_dbt.py'
       - '.github/workflows/ade-capability-superiority.yml'
       - 'Makefile'
@@ -103,8 +108,12 @@ jobs:
       - name: P1 capability superiority tests
         run: make capability-superiority-p1-check
       - name: Execute eight CoCo golden scenarios
+        env:
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: make coco-golden-scenarios
       - name: Build truthful CoCo certification report
+        env:
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: python scripts/build_coco_certification_report.py
       - name: Upload CoCo certification evidence
         uses: actions/upload-artifact@v4
@@ -165,6 +174,7 @@ jobs:
           src/agentic_data_platform/ml
           src/agentic_data_platform/ai
           src/agentic_data_platform/ide
+          src/agentic_data_platform/certification
           src/agentic_data_platform/runtime/agent.py
           src/agentic_data_platform/connectors/snowflake.py
           src/agentic_data_platform/tools/builtin.py
@@ -213,10 +223,13 @@ jobs:
           tests/test_hosted_automations.py
           tests/test_cross_warehouse_search_playground.py
           tests/test_coco_golden_scenarios.py
+          tests/test_operator_console_parity.py
+          tests/test_coco_certification_status.py
           scripts/live_advanced_capabilities.py
           scripts/run_hosted_runner.py
           tests/test_capability_superiority_ledger.py
           scripts/check_capability_superiority.py
+          scripts/build_coco_certification_report.py
 
   full-regression:
     needs: targeted-certification
