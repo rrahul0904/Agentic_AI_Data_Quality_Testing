@@ -66,7 +66,20 @@ def analyze(tree, schema=None):
                 if isinstance(comparison.this, (exp.Func, exp.Cast)) and comparison.this.find(exp.Column):
                     emit('NON_SARGABLE_PREDICATE', comparison, 'Function on filtered column may prevent pruning.', 'Compare the raw column to a transformed constant.')
 
-    null_not_in_emitted = False
+    # SQLGlot has represented NOT IN differently across dialects/releases (for example,
+    # a Not wrapper, an In flag, or a predicate rendered by a wider parent expression).
+    # Detect it from the canonical SQL emitted by the parsed AST, but require an actual In
+    # node so string literals/comments containing the phrase cannot trigger this rule.
+    canonical_sql = ' '.join(tree.sql().upper().split())
+    has_not_in = any(True for _ in tree.find_all(exp.In)) and (
+        ' NOT IN ' in f' {canonical_sql} ' or ' NOT IN(' in f' {canonical_sql} '
+    )
+    if has_not_in:
+        target = next(tree.find_all(exp.In), tree)
+        emit('NULL_NOT_IN', target,
+             'NULL in NOT IN input can reject all rows.',
+             'Use NOT EXISTS or exclude NULL input.')
+
     for node in tree.walk():
         if isinstance(node, (exp.Delete, exp.Update)) and not node.args.get('where'):
             emit('UNBOUNDED_DML', node, 'DELETE/UPDATE has no WHERE.', 'Add a bounded predicate.', 'ERROR')
@@ -96,15 +109,6 @@ def analyze(tree, schema=None):
                 emit('FUNCTION_PORTABILITY', node, 'Unresolved function requires a portability check.', 'Supply a target implementation before migration.', 'INFO')
         if isinstance(node, (exp.EQ, exp.NEQ)) and (isinstance(node.left, exp.Null) or isinstance(node.right, exp.Null)):
             emit('NULL_SEMANTICS', node, 'Equality comparison with NULL evaluates UNKNOWN.', 'Use IS NULL or IS NOT NULL.', 'ERROR')
-        if isinstance(node, exp.In):
-            parent_not = isinstance(node.parent, exp.Not)
-            parser_not = bool(node.args.get('not'))
-            rendered_not = ' NOT IN ' in f" {node.sql().upper()} "
-            if (parent_not or parser_not or rendered_not) and not null_not_in_emitted:
-                emit('NULL_NOT_IN', node.parent if parent_not else node,
-                     'NULL in NOT IN input can reject all rows.',
-                     'Use NOT EXISTS or exclude NULL input.')
-                null_not_in_emitted = True
         if isinstance(node, (exp.EQ, exp.GT, exp.LT, exp.GTE, exp.LTE)):
             if isinstance(node.left, exp.Literal) and isinstance(node.right, exp.Literal) and node.left.is_string != node.right.is_string:
                 emit('IMPLICIT_CAST', node, 'Mixed string/numeric comparison uses implicit coercion.', 'Use explicit typed literals.')
