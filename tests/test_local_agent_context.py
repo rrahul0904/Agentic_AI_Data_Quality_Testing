@@ -40,18 +40,18 @@ def test_read_only_registry_forces_active_project_root(tmp_path) -> None:
     source.register(
         ToolDefinition(
             name="probe",
-            capability=Capability.METADATA,
+            capability=Capability.DISCOVER,
             risk=Risk.READ_ONLY,
-            supported_platforms=frozenset({Platform.GENERIC}),
+            supported_platforms=frozenset({Platform.LOCAL}),
             handler=lambda args: observed.update(args) or {"status": "PASS"},
         )
     )
     source.register(
         ToolDefinition(
             name="mutate",
-            capability=Capability.METADATA,
+            capability=Capability.EXECUTE,
             risk=Risk.MUTATING,
-            supported_platforms=frozenset({Platform.GENERIC}),
+            supported_platforms=frozenset({Platform.LOCAL}),
             handler=lambda args: {"status": "SHOULD_NOT_RUN"},
         )
     )
