@@ -22,9 +22,23 @@ def test_ide_workspace_bundle_generates_vscode_extension_tasks_and_bridge_config
     commands = {item["command"] for item in package["contributes"]["commands"]}
     assert commands == {
         "ade.openConsole",
+        "ade.listSessions",
+        "ade.reviewCheckpoint",
+        "ade.showCurrentContext",
+        "ade.planSelectedEdit",
         "ade.startHostedRunner",
         "ade.startAutomationWorker",
     }
+    assert plan["api_url"] == "http://localhost:8000"
+    assert {
+        "sessions",
+        "checkpoint_review",
+        "file_context",
+        "selected_edit_plan",
+        "hosted_runner",
+        "automations",
+    } <= set(plan["capabilities"])
+    assert "approval and execution remain" in plan["files"][".ade/vscode-extension/README.md"]
     assert "${workspaceFolder}" in plan["files"][".vscode/settings.json"]
 
     result = bridge.apply_workspace(
