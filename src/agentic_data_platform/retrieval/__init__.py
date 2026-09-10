@@ -15,6 +15,7 @@ from .index import (
     IndexMutation,
     SearchChunk,
 )
+from .providers import HTTPEmbeddingProvider, HTTPReranker
 
 __all__ = [
     "ADESearchEngine",
@@ -22,6 +23,8 @@ __all__ = [
     "CortexSearchBackend",
     "DeterministicHashEmbedding",
     "EmbeddingProvider",
+    "HTTPEmbeddingProvider",
+    "HTTPReranker",
     "HybridRetrievalBackend",
     "IndexMutation",
     "LocalProjectRetrievalBackend",
