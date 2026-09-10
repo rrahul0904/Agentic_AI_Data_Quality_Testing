@@ -1,0 +1,179 @@
+{
+  "version": "2026-09-10",
+  "description": "Eight deterministic CoCo-parity golden scenarios. Snowflake/Cortex live extensions are certified separately and do not determine CoCo parity.",
+  "scenarios": [
+    {
+      "id": "GS01_coding_workspace",
+      "title": "Governed coding workspace",
+      "capabilities": [
+        "modes.code",
+        "modes.edit",
+        "tools.python_repl",
+        "search.code_deterministic",
+        "search.semantic_code",
+        "tools.files",
+        "tools.shell"
+      ],
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_coding_workspace.py",
+        "tests/test_coco_modes.py",
+        "tests/test_workspace_files.py",
+        "tests/test_shell_sandbox.py"
+      ],
+      "expected": "PASS",
+      "external_required": false
+    },
+    {
+      "id": "GS02_session_context_rules",
+      "title": "Resumable sessions, checkpoints, context and rules",
+      "capabilities": [
+        "sessions.history",
+        "sessions.checkpoints",
+        "sessions.diff_review",
+        "context.pin_exclude",
+        "context.compaction",
+        "rules.instructions"
+      ],
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_session_checkpoints.py",
+        "tests/test_context_controls.py",
+        "tests/test_rules_instructions.py",
+        "tests/test_todo_management.py"
+      ],
+      "expected": "PASS",
+      "external_required": false
+    },
+    {
+      "id": "GS03_agents_and_hosted_isolation",
+      "title": "Parallel specialists, persistent teams and hosted isolation",
+      "capabilities": [
+        "agents.parallel",
+        "agents.subagents",
+        "agents.teams",
+        "agents.background",
+        "hosted.workspace_isolation"
+      ],
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_parallel_subagents.py",
+        "tests/test_agent_teams.py",
+        "tests/test_hosted_runner.py",
+        "tests/test_hosted_workspace_isolation.py"
+      ],
+      "expected": "PASS",
+      "external_required": false
+    },
+    {
+      "id": "GS04_operator_ide_apps",
+      "title": "Operator surface, VS Code bridge and generic application lifecycle",
+      "capabilities": [
+        "surfaces.operator_console",
+        "ide.vscode",
+        "surfaces.desktop_ide",
+        "apps.generic_workflow"
+      ],
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_ide_bridge.py",
+        "tests/test_generic_app_workflow.py",
+        "tests/test_api_v1_runtime.py"
+      ],
+      "expected": "PASS",
+      "external_required": false
+    },
+    {
+      "id": "GS05_governed_permissions",
+      "title": "Least-privilege permission administration",
+      "capabilities": [
+        "governance.permissions_admin",
+        "admin.account"
+      ],
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_permissions_admin.py",
+        "tests/test_snowflake_governed_mutation.py"
+      ],
+      "expected": "PASS",
+      "external_required": false
+    },
+    {
+      "id": "GS06_agentic_ml",
+      "title": "Portable end-to-end agentic ML",
+      "capabilities": [
+        "ml.agentic_workflow",
+        "ml.forecasting_anomaly"
+      ],
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_agentic_ml_workflow.py",
+        "tests/test_advanced_capability_extensions.py"
+      ],
+      "expected": "PASS",
+      "external_required": false
+    },
+    {
+      "id": "GS07_evidence_recovery",
+      "title": "Evidence-backed investigation, recovery and recertification",
+      "capabilities": [
+        "modes.agent",
+        "tools.git",
+        "context.management"
+      ],
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_advanced_capability_extensions.py",
+        "tests/test_git_parity.py",
+        "tests/test_enforceable_plugin_hooks.py"
+      ],
+      "expected": "PASS",
+      "external_required": false
+    },
+    {
+      "id": "GS08_extension_preservation",
+      "title": "ADE extensions preserved without contaminating CoCo parity",
+      "capabilities": [
+        "search.cortex_search",
+        "ai.document_intelligence",
+        "ml.gpu_jobs",
+        "ml.snowpark",
+        "sdk.coding_agent"
+      ],
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_cortex_agents.py",
+        "tests/test_advanced_live_capabilities.py",
+        "tests/test_snowpark_ml_workflow.py",
+        "tests/test_snowpark_model_registry.py"
+      ],
+      "expected": "PASS",
+      "external_required": false,
+      "certification_track": "ADE_EXTENSION_ASSURANCE"
+    }
+  ]
+}
