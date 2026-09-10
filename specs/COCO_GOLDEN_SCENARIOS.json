@@ -6,6 +6,7 @@
       "id": "GS01_coding_workspace",
       "title": "Governed coding workspace",
       "capabilities": [
+        "modes.plan",
         "modes.code",
         "modes.edit",
         "tools.python_repl",
@@ -78,6 +79,7 @@
       "id": "GS04_operator_ide_apps",
       "title": "Operator surface, VS Code bridge and generic application lifecycle",
       "capabilities": [
+        "surfaces.snowsight",
         "surfaces.operator_console",
         "ide.vscode",
         "surfaces.desktop_ide",
@@ -90,7 +92,9 @@
         "-q",
         "tests/test_ide_bridge.py",
         "tests/test_generic_app_workflow.py",
-        "tests/test_api_v1_runtime.py"
+        "tests/test_api_v1_runtime.py",
+        "tests/test_operator_console_parity.py",
+        "tests/test_coco_certification_status.py"
       ],
       "expected": "PASS",
       "external_required": false
@@ -133,11 +137,16 @@
     },
     {
       "id": "GS07_evidence_recovery",
-      "title": "Evidence-backed investigation, recovery and recertification",
+      "title": "Evidence-backed investigation, research, recovery and recertification",
       "capabilities": [
         "modes.agent",
+        "tools.web_search",
         "tools.git",
-        "context.management"
+        "context.management",
+        "agents.custom",
+        "search.snowflake_objects",
+        "sql.playground",
+        "visualization.inline"
       ],
       "command": [
         "python",
@@ -146,7 +155,8 @@
         "-q",
         "tests/test_advanced_capability_extensions.py",
         "tests/test_git_parity.py",
-        "tests/test_enforceable_plugin_hooks.py"
+        "tests/test_enforceable_plugin_hooks.py",
+        "tests/test_cross_warehouse_search_playground.py"
       ],
       "expected": "PASS",
       "external_required": false
