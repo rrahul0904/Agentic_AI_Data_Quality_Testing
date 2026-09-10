@@ -73,6 +73,7 @@ on:
       - 'tests/test_generic_app_workflow.py'
       - 'tests/test_permissions_admin.py'
       - 'tests/test_agentic_ml_workflow.py'
+      - 'tests/test_hosted_automations.py'
       - 'tests/test_snowflake_managed_dbt.py'
       - '.github/workflows/ade-capability-superiority.yml'
       - 'Makefile'
@@ -207,6 +208,7 @@ jobs:
           tests/test_generic_app_workflow.py
           tests/test_permissions_admin.py
           tests/test_agentic_ml_workflow.py
+          tests/test_hosted_automations.py
           scripts/live_advanced_capabilities.py
           scripts/run_hosted_runner.py
           tests/test_capability_superiority_ledger.py
