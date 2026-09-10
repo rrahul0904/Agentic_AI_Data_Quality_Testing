@@ -98,6 +98,8 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
         "log-plan": "snowpark_model_log_plan", "workflow-plan": "snowpark_ml_workflow_plan",
         "lifecycle-plan": "snowpark_model_lifecycle_plan",
         "lifecycle-execute": "snowpark_model_lifecycle_execute",
+        "agentic-plan": "agentic_ml_plan", "agentic-run": "agentic_ml_run",
+        "agentic-predict": "agentic_ml_predict", "agentic-artifacts": "agentic_ml_artifacts",
     },
     "ai-workflow": {
         "plan": "ai_workflow_plan", "run": "ai_workflow_run",
