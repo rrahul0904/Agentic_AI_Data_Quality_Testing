@@ -6,6 +6,7 @@ on:
     paths:
       - "src/agentic_data_platform/**"
       - "tests/test_competitive_gap_closure.py"
+      - "tests/test_ade_search_document_pipeline.py"
       - "benchmarks/competitive/**"
       - "apps/desktop/**"
       - "pyproject.toml"
@@ -16,6 +17,7 @@ on:
     paths:
       - "src/agentic_data_platform/**"
       - "tests/test_competitive_gap_closure.py"
+      - "tests/test_ade_search_document_pipeline.py"
       - "benchmarks/competitive/**"
       - "apps/desktop/**"
       - "pyproject.toml"
@@ -46,8 +48,11 @@ jobs:
           src/agentic_data_platform/compute
           src/agentic_data_platform/knowledge
           src/agentic_data_platform/remote_workspace.py
-      - name: Run gap-closure regression suite
-        run: pytest -q tests/test_competitive_gap_closure.py
+      - name: Run competitive capability regression suite
+        run: >-
+          pytest -q
+          tests/test_competitive_gap_closure.py
+          tests/test_ade_search_document_pipeline.py
       - name: Verify public CLI plans
         run: |
           ade compute plan --backend docker --name certjob --image python:3.12-slim --command "python -V" --cpu 1 --memory-gib 1 > /tmp/compute.json
@@ -67,6 +72,11 @@ jobs:
           required={
               '/api/v1/competitive/status',
               '/api/v1/retrieval/search',
+              '/api/v1/search/index',
+              '/api/v1/search/query',
+              '/api/v1/search/stats',
+              '/api/v1/search/delete-source',
+              '/api/v1/document/process',
               '/api/v1/compute/plan',
               '/api/v1/document/snowflake-plan',
               '/api/v1/certification/coco',
@@ -87,6 +97,7 @@ jobs:
           src/agentic_data_platform/api/competitive.py
           src/agentic_data_platform/cli_entry.py
           tests/test_competitive_gap_closure.py
+          tests/test_ade_search_document_pipeline.py
           benchmarks/competitive/run.py
 
   deterministic-benchmark:
