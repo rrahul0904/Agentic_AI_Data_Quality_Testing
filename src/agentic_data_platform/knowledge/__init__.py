@@ -8,9 +8,21 @@ from .intelligence import (
     snowflake_document_intelligence,
     snowflake_parse_document_sql,
 )
+from .pipeline import (
+    DocumentBlock,
+    DocumentChunk,
+    DocumentIntelligencePipeline,
+    OCRProvider,
+    ProcessedDocument,
+)
 
 __all__ = [
+    "DocumentBlock",
+    "DocumentChunk",
     "DocumentExtraction",
+    "DocumentIntelligencePipeline",
+    "OCRProvider",
+    "ProcessedDocument",
     "StructuredDocumentResult",
     "extract_document",
     "local_document_intelligence",
