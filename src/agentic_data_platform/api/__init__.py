@@ -1,7 +1,7 @@
 """Public FastAPI assembly for the Agentic Data Engineering OS.
 
 The legacy monolithic factory remains intact while certification routing is attached
-through a small, idempotent composition layer.  The wrapper captures its underlying
+through a small, idempotent composition layer. The wrapper captures its underlying
 factory by value so package/module reloads cannot turn the compatibility patch into
 self-reference or silently drop the certification route.
 """
@@ -47,12 +47,12 @@ def create_app(repository=None, *, _factory=_base_create_app):
     return _attach_certification_route(application)
 
 
-# Preserve both long-standing import surfaces.  Capturing `_factory` as a default
-# argument above makes this safe even if the package is reloaded during a test or
-# embedding lifecycle: an older wrapper still points to the original factory rather
-# than a mutable module global that can later point back to itself.
+# Preserve the long-standing direct-module factory and ASGI surfaces. Capturing
+# `_factory` as a default argument above makes package reloads safe: older wrappers
+# retain their original underlying factory instead of following a mutable module
+# global back to themselves. Do not assign a package-level `app` object here because
+# that would shadow the `agentic_data_platform.api.app` submodule on reload.
 _legacy_app.create_app = create_app
 _legacy_app.app = _attach_certification_route(_legacy_app.app)
-app = _legacy_app.app
 
-__all__ = ["app", "create_app"]
+__all__ = ["create_app"]
