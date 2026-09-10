@@ -119,10 +119,10 @@ def main() -> int:
         and golden.get("failed") == 0
         and golden.get("passed") == 8
     )
-    local_certified = all_golden_passed and not effective_unresolved
     head = git_head()
     golden_head = golden.get("head_sha")
     head_matches = bool(head and golden_head and head == golden_head)
+    local_certified = all_golden_passed and not effective_unresolved and head_matches
 
     report = {
         "schema_version": 2,
@@ -155,7 +155,7 @@ def main() -> int:
             "superiority_not_inferred_from_implementation": True,
             "golden_scenario_pass_may_certify_local_implementation": True,
             "declared_and_effective_status_reported_separately": True,
-            "exact_head_match_reported_separately": True,
+            "exact_head_match_required_for_local_certification": True,
         },
     }
     report["certification_fingerprint"] = digest(report)
