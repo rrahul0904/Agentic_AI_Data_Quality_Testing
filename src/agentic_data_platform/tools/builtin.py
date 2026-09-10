@@ -1723,6 +1723,7 @@ def build_tool_registry() -> ToolRegistry:
             image=a.get("image"),
             namespace=str(a.get("namespace") or "default"),
             replicas=int(a.get("replicas", 1)),
+            host_port=a.get("host_port"),
         ),
         "Plan provider-neutral Docker or Kubernetes deployment with security contract.",
         platforms=frozenset({Platform.LOCAL}),
@@ -1733,6 +1734,7 @@ def build_tool_registry() -> ToolRegistry:
         lambda a: GenericAppWorkflow.deployment_run(
             dict(a["deployment_plan"]),
             approval_fingerprint=str(a["approval_fingerprint"]),
+            timeout_seconds=int(a.get("timeout_seconds", 120)),
         ),
         "Execute an approved Docker/Kubernetes deployment step and fail closed when runtime tooling is unavailable.",
         platforms=frozenset({Platform.LOCAL}),
