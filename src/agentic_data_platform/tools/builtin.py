@@ -120,7 +120,7 @@ from agentic_data_platform.agents.teams import TeamCoordinator, TeamStore
 from agentic_data_platform.runners import sandbox as sandbox_runner
 from agentic_data_platform.notebooks import NotebookAgent
 from agentic_data_platform.browser import AgentBrowser, plan_browser_actions
-from agentic_data_platform.apps import SnowflakeAppBuilder
+from agentic_data_platform.apps import GenericAppWorkflow, SnowflakeAppBuilder
 from agentic_data_platform.ml import SnowflakeModelRegistryAdapter, plan_log_model, plan_model_lifecycle, plan_snowpark_ml_workflow
 from agentic_data_platform.ai import AIWorkflowCompiler, SnowflakeAIWorkflowRunner
 from agentic_data_platform.ide import IDEBridge
@@ -335,6 +335,10 @@ def _notebook_agent(_: dict[str, Any]) -> NotebookAgent:
 
 def _app_builder(args: dict[str, Any]) -> SnowflakeAppBuilder:
     return SnowflakeAppBuilder(_target(args))
+
+def _generic_app_workflow(args: dict[str, Any]) -> GenericAppWorkflow:
+    return GenericAppWorkflow(_target(args))
+
 
 
 def _ide_bridge(args: dict[str, Any]) -> IDEBridge:
@@ -1618,6 +1622,118 @@ def build_tool_registry() -> ToolRegistry:
         ),
         "Deploy an approved Streamlit or Snowflake App Runtime project with Snowflake CLI.",
         platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+
+    add(
+        "generic_app_scaffold_plan",
+        Capability.PLAN,
+        lambda a: _generic_app_workflow(a).scaffold_plan(
+            app_name=str(a["app_name"]),
+            directory=str(a["directory"]),
+            framework=str(a.get("framework") or "python-http"),
+            title=a.get("title"),
+            port=int(a.get("port", 8080)),
+        ),
+        "Plan a provider-neutral runnable app scaffold with exact content fingerprint.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "generic_app_scaffold_apply",
+        Capability.EXECUTE,
+        lambda a: _generic_app_workflow(a).scaffold_apply(
+            dict(a["plan"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+            overwrite=bool(a.get("overwrite", False)),
+        ),
+        "Materialize an approved provider-neutral app scaffold exactly.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "generic_app_validate",
+        Capability.VERIFY,
+        lambda a: _generic_app_workflow(a).validate(dict(a["plan"])),
+        "Validate generic app scaffold and health/run contracts.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "generic_app_preview_plan",
+        Capability.PLAN,
+        lambda a: _generic_app_workflow(a).preview_plan(
+            dict(a["plan"]),
+            host_port=a.get("host_port"),
+            memory_mb=int(a.get("memory_mb", 512)),
+            cpus=float(a.get("cpus", 1.0)),
+        ),
+        "Plan an isolated local container preview with loopback-only published port.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "generic_app_preview_run",
+        Capability.EXECUTE,
+        lambda a: GenericAppWorkflow.preview_run(
+            dict(a["preview_plan"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+        ),
+        "Run an approved isolated Docker preview; fail closed when Docker is unavailable.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "generic_app_verify_url",
+        Capability.VERIFY,
+        lambda a: GenericAppWorkflow.verify_url(
+            str(a["url"]),
+            timeout_seconds=int(a.get("timeout_seconds", 5)),
+        ),
+        "Verify a preview/deployment health URL and record response fingerprint.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "generic_app_deployment_plan",
+        Capability.PLAN,
+        lambda a: _generic_app_workflow(a).deployment_plan(
+            dict(a["plan"]),
+            backend=str(a["backend"]),
+            image=a.get("image"),
+            namespace=str(a.get("namespace") or "default"),
+            replicas=int(a.get("replicas", 1)),
+        ),
+        "Plan provider-neutral Docker or Kubernetes deployment with security contract.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "generic_app_deployment_run",
+        Capability.EXECUTE,
+        lambda a: GenericAppWorkflow.deployment_run(
+            dict(a["deployment_plan"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+        ),
+        "Execute an approved Docker/Kubernetes deployment step and fail closed when runtime tooling is unavailable.",
+        platforms=frozenset({Platform.LOCAL}),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+    add(
+        "generic_app_rollback_plan",
+        Capability.PLAN,
+        lambda a: GenericAppWorkflow.rollback_plan(dict(a["deployment_plan"])),
+        "Plan exact rollback for a generic Docker/Kubernetes deployment.",
+        platforms=frozenset({Platform.LOCAL}),
+    )
+    add(
+        "generic_app_rollback_run",
+        Capability.EXECUTE,
+        lambda a: GenericAppWorkflow.rollback_run(
+            dict(a["rollback_plan"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+        ),
+        "Execute an approved generic deployment rollback.",
+        platforms=frozenset({Platform.LOCAL}),
         risk=Risk.MUTATING,
         requires_approval=True,
     )
