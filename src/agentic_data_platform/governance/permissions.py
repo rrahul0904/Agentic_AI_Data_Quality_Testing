@@ -213,6 +213,85 @@ def permission_change_plan(
     }
 
 
+
+def _casefold_row(row: Mapping[str, Any]) -> dict[str, str]:
+    return {
+        str(key).casefold(): str(value).casefold()
+        for key, value in row.items()
+        if value is not None
+    }
+
+
+def _verification_matches(
+    plan: Mapping[str, Any],
+    rows: list[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    action = str(plan["action"]).casefold()
+    principal = str(plan["principal"]).casefold()
+    role = str(plan.get("role") or "").casefold()
+    privilege = str(plan.get("privilege") or "").casefold()
+    object_name = str(plan.get("object_name") or "").casefold()
+    matches: list[dict[str, Any]] = []
+
+    for raw in rows:
+        row = _casefold_row(raw)
+        grantee = (
+            row.get("grantee_name")
+            or row.get("grantee")
+            or row.get("user_name")
+            or row.get("principal")
+            or ""
+        )
+        if grantee and grantee != principal:
+            continue
+
+        if action in {"grant_role", "revoke_role"}:
+            granted_role = (
+                row.get("role")
+                or row.get("granted_role")
+                or row.get("name")
+                or row.get("rolname")
+                or ""
+            )
+            if granted_role == role:
+                matches.append(dict(raw))
+            continue
+
+        row_privilege = (
+            row.get("privilege")
+            or row.get("privilege_type")
+            or ""
+        )
+        row_object = (
+            row.get("name")
+            or row.get("object_name")
+            or row.get("table_name")
+            or row.get("object")
+            or ""
+        )
+        object_match = row_object == object_name or row_object.endswith("." + object_name)
+        if row_privilege == privilege and object_match:
+            matches.append(dict(raw))
+    return matches
+
+
+def _verify_permission_state(
+    plan: Mapping[str, Any],
+    rows: list[Mapping[str, Any]],
+) -> dict[str, Any]:
+    matches = _verification_matches(plan, rows)
+    expected_present = str(plan["action"]).casefold().startswith("grant")
+    observed_present = bool(matches)
+    passed = observed_present if expected_present else not observed_present
+    return {
+        "status": "PASS" if passed else "FAIL",
+        "expected_present": expected_present,
+        "observed_present": observed_present,
+        "match_count": len(matches),
+        "matches": matches[:100],
+    }
+
+
 def execute_permission_change(
     connector: DataPlatformConnector,
     plan: Mapping[str, Any],
@@ -258,11 +337,19 @@ def execute_permission_change(
     mutation = executor(str(plan["statement"]))
     try:
         verification = connector.execute_read(str(plan["verification_sql"]))
-        verify_rows = list(verification.rows)
-        verify_status = "PASS"
+        verify_rows = [dict(row) for row in verification.rows]
+        state = _verify_permission_state(plan, verify_rows)
+        verify_status = state["status"]
         verify_error = None
     except Exception as exc:
         verify_rows = []
+        state = {
+            "status": "FAIL",
+            "expected_present": str(plan["action"]).casefold().startswith("grant"),
+            "observed_present": False,
+            "match_count": 0,
+            "matches": [],
+        }
         verify_status = "FAIL"
         verify_error = f"{type(exc).__name__}: {exc}"
 
@@ -271,6 +358,7 @@ def execute_permission_change(
         "verification_sql_sha256": sha256(str(plan["verification_sql"]).encode("utf-8")).hexdigest(),
         "verification_row_count": len(verify_rows),
         "verification_rows": verify_rows[:100],
+        "verification_state": state,
         "mutation_query_id": getattr(mutation, "query_id", None),
     }
     return {
