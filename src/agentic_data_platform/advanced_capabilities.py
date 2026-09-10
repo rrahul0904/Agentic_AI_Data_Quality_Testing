@@ -2085,6 +2085,28 @@ def agent_recovery_plan(workspace: str | Path, *, scenario_id: str = "watermark_
     supervisor = _supervisor(workspace)
     report = supervisor.investigate(scenario_id)
     public = supervisor.public_report(report.incident_id)
+    scenario = __import__(
+        "agentic_data_platform.agents.scenarios",
+        fromlist=["get_scenario"],
+    ).get_scenario(scenario_id)
+    path = list(scenario.pipeline_path)
+    coverage = {
+        "snowflake": any("snowflake." in item.casefold() or item.upper().startswith("RAW.") for item in path),
+        "airflow": any("airflow." in item.casefold() for item in path),
+        "dbt": any(
+            item.casefold().startswith(("stg_", "int_", "fact_", "mart_"))
+            for item in path
+        ),
+        "pipeline_path": path,
+    }
+    lifecycle = {
+        "investigated": True,
+        "planned": public.get("remediation") is not None,
+        "approval_boundary": public["state"] == "AWAITING_APPROVAL",
+        "executed": False,
+        "verified": False,
+        "recertified": False,
+    }
     return {
         "status": "PASS",
         "mode": "LOCAL_PROVING_GROUND",
@@ -2098,6 +2120,9 @@ def agent_recovery_plan(workspace: str | Path, *, scenario_id: str = "watermark_
         "remediation": public.get("remediation"),
         "evidence_count": len(public.get("evidence") or []),
         "agent_result_count": len(public.get("agent_results") or []),
+        "platform_coverage": coverage,
+        "lifecycle": lifecycle,
+        "coverage_fingerprint": _digest({"platform_coverage": coverage, "lifecycle": lifecycle}),
         "execution_boundary": "explicit ToolRegistry approval required before recovery execution",
     }
 
@@ -2123,6 +2148,39 @@ def agent_recovery_execute(
     public = supervisor.public_report(resolved.incident_id)
     execution = public.get("execution_result") or {}
     verification = public.get("verification_result") or {}
+    scenario = __import__(
+        "agentic_data_platform.agents.scenarios",
+        fromlist=["get_scenario"],
+    ).get_scenario(current.scenario_id)
+    path = list(scenario.pipeline_path)
+    coverage = {
+        "snowflake": any("snowflake." in item.casefold() or item.upper().startswith("RAW.") for item in path),
+        "airflow": any("airflow." in item.casefold() for item in path),
+        "dbt": any(
+            item.casefold().startswith(("stg_", "int_", "fact_", "mart_"))
+            for item in path
+        ),
+        "pipeline_path": path,
+    }
+    transitions = public.get("transitions") or []
+    lifecycle = {
+        "investigated": True,
+        "planned": public.get("remediation") is not None,
+        "approval_boundary": True,
+        "executed": execution.get("status") == "PASS",
+        "verified": verification.get("status") == "PASS",
+        "recertified": public.get("certification") == "CERTIFIED",
+    }
+    evidence = {
+        "platform_coverage": coverage,
+        "lifecycle": lifecycle,
+        "airflow_actions": execution.get("airflow_actions") or [],
+        "dbt_selector": execution.get("dbt_selector"),
+        "dbt_command": execution.get("dbt_command"),
+        "verification": verification,
+        "certification": public.get("certification"),
+        "transitions": transitions,
+    }
     return {
         "status": "PASS" if public.get("certification") == "CERTIFIED" else "FAIL",
         "mode": "LOCAL_PROVING_GROUND",
@@ -2135,7 +2193,10 @@ def agent_recovery_execute(
         "verification": verification,
         "certification": public.get("certification"),
         "certifications": public.get("certifications") or [],
-        "transitions": public.get("transitions") or [],
+        "transitions": transitions,
+        "platform_coverage": coverage,
+        "lifecycle": lifecycle,
+        "agent_mode_evidence_fingerprint": _digest(evidence),
     }
 
 
