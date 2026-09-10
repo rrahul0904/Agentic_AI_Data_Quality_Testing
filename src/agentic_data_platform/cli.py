@@ -191,6 +191,7 @@ DOMAIN_CLI_TOOLS: dict[str, dict[str, str]] = {
         "pii-exposure": "pii_exposure", "pii-policy": "pii_policy_check",
         "pii-downstream": "pii_downstream_assets", "rbac-audit": "rbac_audit",
         "rbac-object-access": "rbac_object_access", "rbac-risk": "rbac_risk",
+        "permission-plan": "permission_plan", "permission-execute": "permission_execute",
         "pii-access": "pii_access_report",
     },
     "provider": {
