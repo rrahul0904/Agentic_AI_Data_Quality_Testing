@@ -263,12 +263,82 @@ def test_governed_snowflake_permission_executes_and_independently_verifies():
     assert result["status"] == "PASS"
     assert result["verification_status"] == "PASS"
     assert result["evidence"]["verification_row_count"] == 1
+    assert result["evidence"]["verification_state"]["status"] == "PASS"
+    assert result["evidence"]["verification_state"]["match_count"] == 1
     assert result["evidence"]["statement_sha256"]
     assert result["evidence_fingerprint"]
     assert calls == [
         "GRANT SELECT ON TABLE RAW.RESERVATIONS TO ROLE ANALYST_ROLE",
         "SHOW GRANTS TO ROLE ANALYST_ROLE",
     ]
+
+
+def test_permission_verification_fails_when_requested_grant_is_not_observed():
+    def executor(sql: str) -> dict[str, Any]:
+        if sql.startswith("SHOW GRANTS"):
+            return {
+                "rows": [
+                    {
+                        "privilege": "SELECT",
+                        "granted_on": "TABLE",
+                        "name": "RAW.OTHER_TABLE",
+                        "grantee_name": "ANALYST_ROLE",
+                    }
+                ]
+            }
+        return {"rows": []}
+
+    connector = SnowflakeConnector(executor)
+    plan = permission_change_plan(
+        platform="snowflake",
+        action="grant_privilege",
+        principal="ANALYST_ROLE",
+        privilege="select",
+        object_type="table",
+        object_name="RAW.RESERVATIONS",
+    )
+    result = execute_permission_change(
+        connector,
+        plan,
+        approval_fingerprint=plan["approval_fingerprint"],
+        actor_mode="admin",
+    )
+
+    assert result["status"] == "FAIL_VERIFY"
+    assert result["verification_status"] == "FAIL"
+    state = result["evidence"]["verification_state"]
+    assert state["expected_present"] is True
+    assert state["observed_present"] is False
+    assert state["match_count"] == 0
+
+
+def test_permission_revoke_verifies_requested_grant_is_absent():
+    def executor(sql: str) -> dict[str, Any]:
+        if sql.startswith("SHOW GRANTS"):
+            return {"rows": []}
+        return {"rows": []}
+
+    connector = SnowflakeConnector(executor)
+    plan = permission_change_plan(
+        platform="snowflake",
+        action="revoke_privilege",
+        principal="ANALYST_ROLE",
+        privilege="select",
+        object_type="table",
+        object_name="RAW.RESERVATIONS",
+        environment="dev",
+    )
+    result = execute_permission_change(
+        connector,
+        plan,
+        approval_fingerprint=plan["approval_fingerprint"],
+        actor_mode="admin",
+    )
+
+    assert result["status"] == "PASS"
+    state = result["evidence"]["verification_state"]
+    assert state["expected_present"] is False
+    assert state["observed_present"] is False
 
 
 def test_permissions_tools_cli_and_api_are_exposed():
