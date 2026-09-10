@@ -51,7 +51,7 @@ class MultiIndexSearchResult:
 
 
 class ADESearchEngine:
-    """Fuse candidates from multiple ADE Search indexes, rerank, then apply metadata scoring."""
+    """Fuse multiple ADE indexes, rerank candidates, and apply explainable metadata scoring."""
 
     def __init__(
         self,
@@ -73,6 +73,7 @@ class ADESearchEngine:
         request: RetrievalQuery,
         *,
         index_names: Sequence[str] | None = None,
+        index_boosts: Mapping[str, float] | None = None,
         scoring_profile: ScoringProfile | None = None,
         fusion_weight: float = 0.7,
         rerank_weight: float = 0.2,
@@ -85,6 +86,14 @@ class ADESearchEngine:
         missing = [name for name in names if name not in self.indexes]
         if missing:
             raise KeyError(f"unknown search indexes: {', '.join(sorted(missing))}")
+        boosts = {name: 1.0 for name in names}
+        for name, boost in dict(index_boosts or {}).items():
+            if name not in boosts:
+                raise KeyError(f"index boost references unknown selected index: {name}")
+            value = float(boost)
+            if value < 0 or value > 100:
+                raise ValueError("index boosts must be between 0 and 100")
+            boosts[name] = value
         weights = [float(fusion_weight), float(rerank_weight), float(metadata_weight)]
         if scoring_profile is None:
             weights[2] = 0.0
@@ -128,11 +137,14 @@ class ADESearchEngine:
                         "rrf": 0.0,
                         "indexes": [],
                         "ranks": {},
+                        "contributions": {},
                     },
                 )
-                slot["rrf"] = float(slot["rrf"]) + 1.0 / (self.rrf_k + rank)
+                contribution = boosts[name] / (self.rrf_k + rank)
+                slot["rrf"] = float(slot["rrf"]) + contribution
                 slot["indexes"].append(name)  # type: ignore[union-attr]
                 slot["ranks"][name] = rank  # type: ignore[index]
+                slot["contributions"][name] = contribution  # type: ignore[index]
                 if hit.score > slot["hit"].score:  # type: ignore[union-attr]
                     slot["hit"] = hit
 
@@ -159,11 +171,13 @@ class ADESearchEngine:
             )
             evidence = dict(hit.evidence)
             evidence["multi_index"] = {
-                "fusion": "reciprocal_rank",
+                "fusion": "weighted_reciprocal_rank",
                 "rrf_k": self.rrf_k,
                 "fusion_score": fusion_score,
                 "indexes": sorted(set(slot["indexes"])),
                 "ranks": dict(slot["ranks"]),
+                "index_boosts": {name: boosts[name] for name in sorted(set(slot["indexes"]))},
+                "index_contributions": dict(slot["contributions"]),
                 "index_errors": errors,
                 "reranker": self.reranker.name,
                 "reranker_score": reranker_score,
