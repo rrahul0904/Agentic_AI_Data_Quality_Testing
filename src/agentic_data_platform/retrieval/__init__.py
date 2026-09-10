@@ -7,6 +7,7 @@ from .backends import (
     RetrievalHit,
     RetrievalQuery,
 )
+from .engine import ADESearchEngine, MultiIndexSearchResult, Reranker, TokenOverlapReranker
 from .index import (
     ADESearchIndex,
     DeterministicHashEmbedding,
@@ -16,6 +17,7 @@ from .index import (
 )
 
 __all__ = [
+    "ADESearchEngine",
     "ADESearchIndex",
     "CortexSearchBackend",
     "DeterministicHashEmbedding",
@@ -23,7 +25,10 @@ __all__ = [
     "HybridRetrievalBackend",
     "IndexMutation",
     "LocalProjectRetrievalBackend",
+    "MultiIndexSearchResult",
+    "Reranker",
     "RetrievalHit",
     "RetrievalQuery",
     "SearchChunk",
+    "TokenOverlapReranker",
 ]
