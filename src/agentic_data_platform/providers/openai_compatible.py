@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 
 import httpx
@@ -50,7 +51,17 @@ class OpenAICompatibleProvider:
         if request.temperature is not None:
             payload["temperature"] = request.temperature
         if request.max_output_tokens is not None:
-            payload["max_tokens"] = request.max_output_tokens
+            if self.name == "openai":
+                payload["max_completion_tokens"] = request.max_output_tokens
+            else:
+                payload["max_tokens"] = request.max_output_tokens
+        if self.name == "openai":
+            reasoning_effort = str(
+                request.metadata.get("reasoning_effort")
+                or os.getenv("ADE_OPENAI_REASONING_EFFORT", "low")
+            ).strip()
+            if reasoning_effort:
+                payload["reasoning_effort"] = reasoning_effort
         response = self._client.post(f"{self.base_url}/chat/completions", headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
