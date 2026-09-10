@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from agentic_data_platform.agents.planner import PlannerAgent
 from agentic_data_platform.errors import safe_error
 from agentic_data_platform.agents import InvestigationStore, SupervisorAgent
-from agentic_data_platform.models import ActorMode, ApprovalRecord, Environment, ProjectRecord, RunRecord, ToolRequest
+from agentic_data_platform.models import ActorMode, ApprovalRecord, Environment, InteractionMode, ProjectRecord, RunRecord, ToolRequest
 from agentic_data_platform.persistence.sqlite import SQLiteControlPlaneRepository
 from agentic_data_platform.sql.parser import parse_sql
 from agentic_data_platform.tools.builtin import build_tool_registry
@@ -54,6 +54,7 @@ class MigrationPlanInput(BaseModel):
 class ToolInput(BaseModel):
     args: dict[str, Any] = Field(default_factory=dict)
     actor_mode: ActorMode = ActorMode.ANALYST
+    interaction_mode: InteractionMode = InteractionMode.AGENT
     environment: Environment = Environment.DEV
     dry_run: bool = False
     approved: bool = False
@@ -207,6 +208,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
         args: dict[str, Any] | None = None,
         *,
         actor_mode: ActorMode = ActorMode.ANALYST,
+        interaction_mode: InteractionMode = InteractionMode.AGENT,
         environment: Environment = Environment.DEV,
         dry_run: bool = False,
         approved: bool = False,
@@ -227,6 +229,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
                     approved=approved,
                     dry_run=dry_run,
                     actor_mode=actor_mode,
+                    interaction_mode=interaction_mode,
                 )
             )
         except PermissionError as exc:
@@ -1529,6 +1532,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             tool_name,
             payload.args,
             actor_mode=payload.actor_mode,
+            interaction_mode=payload.interaction_mode,
             environment=payload.environment,
             dry_run=payload.dry_run,
             approved=payload.approved,
@@ -1603,6 +1607,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             tool_name,
             payload.args,
             actor_mode=payload.actor_mode,
+            interaction_mode=payload.interaction_mode,
             environment=payload.environment,
             dry_run=payload.dry_run,
             approved=payload.approved,
