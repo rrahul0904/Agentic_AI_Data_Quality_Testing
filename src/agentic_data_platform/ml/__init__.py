@@ -1,3 +1,4 @@
+from .agentic import AgenticMLWorkflow, agentic_ml_plan
 from .workflow import EmbeddedSnowparkMLWorkflowRuntime, plan_snowpark_ml_workflow
 from .registry import (
     EmbeddedModelRegistryRuntime,
@@ -7,6 +8,8 @@ from .registry import (
 )
 
 __all__ = [
+    "AgenticMLWorkflow",
+    "agentic_ml_plan",
     "EmbeddedModelRegistryRuntime",
     "EmbeddedSnowparkMLWorkflowRuntime",
     "SnowflakeModelRegistryAdapter",
