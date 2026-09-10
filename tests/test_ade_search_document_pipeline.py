@@ -42,6 +42,7 @@ def test_ade_search_is_incremental_filtered_explainable_and_namespace_isolated(t
     assert hits[0].evidence["content_hash"] == updated.content_hash
     assert hits[0].evidence["scoring"]["lexical"] > 0
     assert hits[0].evidence["scoring"]["final"] > 0
+    assert hits[0].evidence["embedding_semantics"] == "offline lexical feature projection"
     assert len(hits[0].fingerprint) == 64
     assert index.stats()["chunks"] == 2
 
@@ -83,10 +84,21 @@ def test_document_pipeline_redacts_chunks_indexes_and_noops_unchanged_content(tm
         index_metadata={"environment": "prod", "system": "airflow"},
     )
     assert repeated.index_status["status"] == "NOOP"
+
+    metadata_changed = pipeline.process(
+        "runbook.md",
+        content,
+        index_metadata={"environment": "prod", "system": "airflow", "owner": "data-platform"},
+    )
+    assert metadata_changed.index_status["status"] == "PASS"
+    owner_hits = index.search(
+        RetrievalQuery("scheduler", limit=3, filters={"owner": "data-platform"})
+    )
+    assert owner_hits
     assert index.stats()["sources"] == 1
 
 
-def test_document_pipeline_can_use_explicit_ocr_provider(tmp_path):
+def test_document_pipeline_can_use_explicit_ocr_provider_without_fabricated_confidence(tmp_path):
     class FakeOCR:
         name = "fake-ocr"
 
@@ -108,5 +120,6 @@ def test_document_pipeline_can_use_explicit_ocr_provider(tmp_path):
     )
     assert processed.provenance["ocr_used"] is True
     assert processed.provenance["parser"] == "ocr:fake-ocr"
-    assert processed.blocks[0].confidence == 1.0
+    assert processed.provenance["confidence"] is None
+    assert processed.blocks[0].confidence is None
     assert "INV-99" in processed.chunks[0].text
