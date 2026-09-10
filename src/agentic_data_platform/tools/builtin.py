@@ -3575,15 +3575,85 @@ def build_tool_registry() -> ToolRegistry:
         "List project-scoped custom agent definitions.",
         platforms=frozenset({Platform.LOCAL}),
     )
+    def warehouse_object_search_handler(a: dict[str, Any]) -> dict[str, Any]:
+        supplied = a.get("objects")
+        source = "supplied_objects"
+        if supplied is not None:
+            objects = [dict(item) for item in supplied]
+        else:
+            source = "metadata_service"
+            service = _metadata_service(a)
+            assets = service.search_assets(
+                "",
+                connection_name=a.get("connection"),
+                limit=int(a.get("candidate_limit", 5000)),
+            )
+            lineage = dict(a.get("lineage_by_object") or {})
+            objects = []
+            for asset in assets:
+                detail = service.inspect(
+                    str(asset["connection_name"]),
+                    str(asset["schema_name"]),
+                    str(asset["object_name"]),
+                )
+                qualified = ".".join(
+                    part
+                    for part in (
+                        detail.get("catalog"),
+                        detail.get("schema_name"),
+                        detail.get("object_name"),
+                    )
+                    if part
+                )
+                hints = dict(
+                    lineage.get(detail["object_id"])
+                    or lineage.get(qualified)
+                    or {}
+                )
+                objects.append(
+                    {
+                        "object_id": detail["object_id"],
+                        "connection_name": detail["connection_name"],
+                        "platform": detail["warehouse"],
+                        "database": detail.get("catalog"),
+                        "schema": detail["schema_name"],
+                        "name": detail["object_name"],
+                        "qualified_name": qualified,
+                        "object_type": detail.get("object_type"),
+                        "description": detail.get("comment"),
+                        "columns": [
+                            column["column_name"]
+                            for column in detail.get("columns") or []
+                        ],
+                        "upstream": list(hints.get("upstream") or []),
+                        "downstream": list(hints.get("downstream") or []),
+                        "recent_evidence": detail.get("refreshed_at"),
+                    }
+                )
+        result = advanced_caps.search_warehouse_objects(
+            str(a["query"]),
+            objects,
+            limit=int(a.get("limit", 20)),
+        )
+        result["inventory_source"] = source
+        result["inventory_fingerprint"] = advanced_caps._digest(
+            [
+                (
+                    item.get("platform"),
+                    item.get("connection_name"),
+                    item.get("qualified_name"),
+                    item.get("recent_evidence"),
+                )
+                for item in objects
+            ]
+        )
+        return result
+
     add(
         "warehouse_object_search",
         Capability.DISCOVER,
-        lambda a: advanced_caps.search_warehouse_objects(
-            str(a["query"]),
-            list(a.get("objects") or []),
-            limit=int(a.get("limit", 20)),
-        ),
-        "Rank Snowflake and cross-warehouse objects by intent, columns, lineage and recent evidence.",
+        warehouse_object_search_handler,
+        "Rank real indexed Snowflake and cross-warehouse metadata by intent, columns, lineage and recent evidence.",
         platforms=frozenset({Platform.LOCAL, Platform.SNOWFLAKE, Platform.REDSHIFT, Platform.POSTGRES, Platform.BIGQUERY, Platform.DATABRICKS}),
     )
     add(
