@@ -184,6 +184,8 @@ from agentic_data_platform.governance import (
     classify_metadata_columns,
     excessive_privileges as governance_excessive_privileges,
     object_access as governance_object_access,
+    permission_change_plan as governance_permission_change_plan,
+    execute_permission_change as governance_execute_permission_change,
     pii_exposure as governance_pii_exposure,
     pii_policy_check as governance_pii_policy_check,
     propagate_pii as governance_propagate_pii,
@@ -2745,6 +2747,72 @@ def build_tool_registry() -> ToolRegistry:
     add("pii_exposure", Capability.VERIFY, pii_exposure_handler, "Find downstream dbt assets exposed to PII.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
     add("pii_policy_check", Capability.VERIFY, pii_policy_handler, "Block SQL that references disallowed PII categories.", platforms=frozenset({Platform.LOCAL}))
     add("pii_downstream_assets", Capability.DISCOVER, pii_exposure_handler, "Return downstream assets carrying propagated PII.", platforms=frozenset({Platform.LOCAL, Platform.DBT}))
+    def permission_execute_handler(a: dict[str, Any]) -> dict[str, Any]:
+        try:
+            if a.get("connection"):
+                profile = _connection_store(a).resolve_config(str(a["connection"]))
+                connector = connector_from_args(
+                    {
+                        "platform": profile["platform"],
+                        "config": profile["config"],
+                    }
+                )
+            else:
+                connector = connector_from_args(a)
+        except ExternalConnectionUnavailable as exc:
+            return {
+                "status": "SKIP_EXTERNAL",
+                "platform": str(a.get("platform") or ""),
+                "reason": str(exc),
+            }
+        return governance_execute_permission_change(
+            connector,
+            dict(a["plan"]),
+            approval_fingerprint=str(a["approval_fingerprint"]),
+            actor_mode=str(a.get("_actor_mode") or a.get("actor_mode") or "builder"),
+        )
+
+    add(
+        "permission_plan",
+        Capability.PLAN,
+        lambda a: governance_permission_change_plan(
+            platform=str(a["platform"]),
+            action=str(a["action"]),
+            principal=str(a["principal"]),
+            principal_kind=str(a.get("principal_kind") or "role"),
+            privilege=a.get("privilege"),
+            object_type=a.get("object_type"),
+            object_name=a.get("object_name"),
+            role=a.get("role"),
+            environment=str(a.get("_environment") or a.get("environment") or "dev"),
+            reason=a.get("reason"),
+            observed_graph=a.get("observed_graph"),
+        ),
+        "Plan least-privilege permission/RBAC changes with blast-radius and independent verification evidence.",
+        platforms=frozenset({
+            Platform.LOCAL,
+            Platform.SNOWFLAKE,
+            Platform.DATABRICKS,
+            Platform.REDSHIFT,
+            Platform.POSTGRES,
+        }),
+    )
+    add(
+        "permission_execute",
+        Capability.EXECUTE,
+        permission_execute_handler,
+        "Execute an approved permission plan only through a connector that explicitly exposes governed mutation, then independently verify access.",
+        platforms=frozenset({
+            Platform.LOCAL,
+            Platform.SNOWFLAKE,
+            Platform.DATABRICKS,
+            Platform.REDSHIFT,
+            Platform.POSTGRES,
+        }),
+        risk=Risk.MUTATING,
+        requires_approval=True,
+    )
+
     add("rbac_audit", Capability.VERIFY, rbac_inventory_handler, "Build warehouse user-role-object access graph.", platforms=frozenset({Platform.LOCAL}))
     add("rbac_object_access", Capability.DISCOVER, lambda a: governance_object_access(rbac_inventory_handler(a)["graph"], a["object"]), "List principals with access to a warehouse object.", platforms=frozenset({Platform.LOCAL}))
     add("rbac_risk", Capability.VERIFY, lambda a: governance_excessive_privileges(rbac_inventory_handler(a)["graph"], observed_objects_by_principal=a.get("observed_objects_by_principal"), minimum_grants=int(a.get("minimum_grants", 20)), unused_ratio_threshold=float(a.get("unused_ratio_threshold", 0.8))), "Detect excessive role/user grants using observed-access evidence.", platforms=frozenset({Platform.LOCAL}))
