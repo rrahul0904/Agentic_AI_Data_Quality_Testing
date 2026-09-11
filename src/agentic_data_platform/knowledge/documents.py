@@ -109,19 +109,34 @@ def _pdf_text(content: bytes) -> tuple[str, dict[str, Any]]:
     pages: list[str] = []
     extracted_pages = 0
     image_count = 0
+    assets: list[dict[str, Any]] = []
     for index, page in enumerate(reader.pages, start=1):
         text = (page.extract_text() or "").strip()
         try:
-            image_count += len(page.images)
+            page_image_count = len(page.images)
         except Exception:
-            pass
+            page_image_count = 0
+        for image_index in range(page_image_count):
+            assets.append(
+                {
+                    "kind": "image",
+                    "page": index,
+                    "index": image_index,
+                    "bbox": None,
+                    "bbox_unit": None,
+                    "geometry_semantics": "not exposed by pypdf page image enumeration",
+                }
+            )
+        image_count += page_image_count
         if text:
             extracted_pages += 1
             pages.append(f"[Page {index}]\n{text}")
     return "\n\n".join(pages).strip(), {
         "pages": len(reader.pages),
         "pages_with_text": extracted_pages,
+        "page_semantics": "pdf page number",
         "embedded_images": image_count,
+        "assets": assets,
     }
 
 
@@ -144,10 +159,27 @@ def _docx_text(content: bytes) -> tuple[str, dict[str, Any]]:
                 rows.append(" | ".join(cells))
         if rows:
             blocks.append(f"[Table {table_index}]\n" + "\n".join(rows))
+    assets = [
+        {
+            "kind": "image",
+            "page": None,
+            "index": index,
+            "bbox": {
+                "width": int(shape.width),
+                "height": int(shape.height),
+            },
+            "bbox_unit": "emu",
+            "geometry_semantics": "inline shape dimensions; DOCX has no stable page coordinate without layout rendering",
+        }
+        for index, shape in enumerate(document.inline_shapes)
+    ]
     return "\n\n".join(blocks).strip(), {
         "paragraphs": paragraph_count,
         "tables": len(document.tables),
         "table_rows": table_rows,
+        "embedded_images": len(assets),
+        "page_semantics": None,
+        "assets": assets,
     }
 
 
@@ -156,9 +188,10 @@ def _pptx_text(content: bytes) -> tuple[str, dict[str, Any]]:
     pages: list[str] = []
     table_count = 0
     image_count = 0
+    assets: list[dict[str, Any]] = []
     for slide_index, slide in enumerate(presentation.slides, start=1):
         blocks: list[str] = []
-        for shape in slide.shapes:
+        for shape_index, shape in enumerate(slide.shapes):
             if getattr(shape, "has_text_frame", False):
                 text = "\n".join(
                     paragraph.text.strip()
@@ -178,6 +211,28 @@ def _pptx_text(content: bytes) -> tuple[str, dict[str, Any]]:
                     blocks.append(f"[Table {table_count}]\n" + "\n".join(rows))
             if getattr(shape, "shape_type", None) == 13:  # MSO_SHAPE_TYPE.PICTURE
                 image_count += 1
+                content_type = None
+                try:
+                    content_type = shape.image.content_type
+                except Exception:
+                    pass
+                assets.append(
+                    {
+                        "kind": "image",
+                        "page": slide_index,
+                        "index": shape_index,
+                        "name": str(getattr(shape, "name", "") or "") or None,
+                        "mime_type": content_type,
+                        "bbox": {
+                            "left": int(shape.left),
+                            "top": int(shape.top),
+                            "width": int(shape.width),
+                            "height": int(shape.height),
+                        },
+                        "bbox_unit": "emu",
+                        "geometry_semantics": "PowerPoint slide coordinates",
+                    }
+                )
         if blocks:
             pages.append(f"[Page {slide_index}]\n" + "\n\n".join(blocks))
     return "\n\n".join(pages).strip(), {
@@ -185,6 +240,7 @@ def _pptx_text(content: bytes) -> tuple[str, dict[str, Any]]:
         "tables": table_count,
         "embedded_images": image_count,
         "page_semantics": "slide number",
+        "assets": assets,
     }
 
 
@@ -193,6 +249,7 @@ def _xlsx_text(content: bytes) -> tuple[str, dict[str, Any]]:
     sheets: list[str] = []
     nonempty_rows = 0
     nonempty_cells = 0
+    sheet_names = list(workbook.sheetnames)
     try:
         for worksheet in workbook.worksheets:
             rows: list[str] = []
@@ -209,10 +266,12 @@ def _xlsx_text(content: bytes) -> tuple[str, dict[str, Any]]:
     finally:
         workbook.close()
     return "\n\n".join(sheets).strip(), {
-        "sheets": len(workbook.sheetnames),
-        "sheet_names": list(workbook.sheetnames),
+        "sheets": len(sheet_names),
+        "sheet_names": sheet_names,
         "nonempty_rows": nonempty_rows,
         "nonempty_cells": nonempty_cells,
+        "page_semantics": None,
+        "assets": [],
     }
 
 
@@ -249,6 +308,8 @@ def _eml_text(content: bytes) -> tuple[str, dict[str, Any]]:
         "body_parts": body_parts,
         "attachments": sorted(set(attachment_names)),
         "attachment_count": len(set(attachment_names)),
+        "page_semantics": None,
+        "assets": [],
     }
 
 
@@ -284,6 +345,8 @@ def extract_document(
         "bytes": len(content),
         "content_type": content_type,
         "suffix": suffix,
+        "page_semantics": None,
+        "assets": [],
     }
     try:
         if suffix == ".pdf":
