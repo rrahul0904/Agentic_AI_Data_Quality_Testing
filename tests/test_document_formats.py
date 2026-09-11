@@ -4,9 +4,10 @@ from email.message import EmailMessage
 import io
 
 from openpyxl import Workbook
+from PIL import Image
 from pptx import Presentation
 
-from agentic_data_platform.knowledge import extract_document
+from agentic_data_platform.knowledge import DocumentIntelligencePipeline, extract_document
 
 
 def test_html_extracts_visible_text_and_excludes_script_style():
@@ -38,7 +39,7 @@ def test_eml_extracts_headers_body_and_attachment_metadata():
     assert "binary" not in result.text
 
 
-def test_pptx_extracts_slide_text_tables_and_page_markers():
+def _presentation_bytes() -> bytes:
     presentation = Presentation()
     slide = presentation.slides.add_slide(presentation.slide_layouts[5])
     textbox = slide.shapes.add_textbox(0, 0, 5_000_000, 1_000_000)
@@ -48,20 +49,60 @@ def test_pptx_extracts_slide_text_tables_and_page_markers():
     table.cell(0, 1).text = "Service"
     table.cell(1, 0).text = "Orchestration"
     table.cell(1, 1).text = "Airflow"
+
+    image_buffer = io.BytesIO()
+    Image.new("RGB", (8, 8), (255, 255, 255)).save(image_buffer, format="PNG")
+    image_buffer.seek(0)
+    slide.shapes.add_picture(image_buffer, 500_000, 3_000_000, width=800_000, height=800_000)
+
+    second = presentation.slides.add_slide(presentation.slide_layouts[5])
+    second_box = second.shapes.add_textbox(0, 0, 5_000_000, 1_000_000)
+    second_box.text_frame.text = "Recovery Procedures"
+
     buffer = io.BytesIO()
     presentation.save(buffer)
+    return buffer.getvalue()
 
+
+def test_pptx_extracts_slide_text_tables_page_markers_and_asset_geometry():
     result = extract_document(
         "architecture.pptx",
-        buffer.getvalue(),
+        _presentation_bytes(),
         content_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
     )
     assert result.source_type == "pptx"
     assert "[Page 1]" in result.text
+    assert "[Page 2]" in result.text
     assert "Architecture Overview" in result.text
+    assert "Recovery Procedures" in result.text
     assert "Orchestration | Airflow" in result.text
-    assert result.metadata["slides"] == 1
+    assert result.metadata["slides"] == 2
     assert result.metadata["tables"] == 1
+    assert result.metadata["embedded_images"] == 1
+    assert result.metadata["page_semantics"] == "slide number"
+    asset = result.metadata["assets"][0]
+    assert asset["page"] == 1
+    assert asset["bbox_unit"] == "emu"
+    assert asset["bbox"]["width"] == 800_000
+    assert asset["mime_type"] == "image/png"
+
+
+def test_document_pipeline_page_selection_is_explicit_and_fails_closed_without_pages():
+    pipeline = DocumentIntelligencePipeline()
+    selected = pipeline.process("architecture.pptx", _presentation_bytes(), pages=[2])
+    assert selected.provenance["page_selection"] == [2]
+    assert selected.provenance["page_semantics"] == "slide number"
+    assert all(block.page == 2 for block in selected.blocks)
+    assert "Recovery Procedures" in selected.chunks[0].text
+    assert "Architecture Overview" not in selected.chunks[0].text
+    assert selected.assets == ()
+
+    try:
+        pipeline.process("plain.md", b"No page layout here", pages=[1])
+    except ValueError as exc:
+        assert "page provenance" in str(exc)
+    else:
+        raise AssertionError("page selection must fail when the parser has no page provenance")
 
 
 def test_xlsx_extracts_sheet_values_without_formula_execution():
