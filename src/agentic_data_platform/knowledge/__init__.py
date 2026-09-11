@@ -9,6 +9,7 @@ from .intelligence import (
     snowflake_parse_document_sql,
 )
 from .pipeline import (
+    DocumentAsset,
     DocumentBlock,
     DocumentChunk,
     DocumentIntelligencePipeline,
@@ -17,6 +18,7 @@ from .pipeline import (
 )
 
 __all__ = [
+    "DocumentAsset",
     "DocumentBlock",
     "DocumentChunk",
     "DocumentExtraction",
