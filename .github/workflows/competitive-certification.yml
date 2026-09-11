@@ -6,9 +6,14 @@ on:
     paths:
       - "src/agentic_data_platform/**"
       - "tests/test_competitive_gap_closure.py"
+      - "tests/test_competitive_ledger.py"
+      - "tests/test_acp_hardening.py"
+      - "tests/test_ade_bench_adapter.py"
       - "tests/test_ade_search_*.py"
       - "tests/test_document_formats.py"
       - "benchmarks/competitive/**"
+      - "benchmarks/search/**"
+      - "scripts/generate_competitive_ledger.py"
       - "apps/desktop/**"
       - "pyproject.toml"
       - ".github/workflows/competitive-certification.yml"
@@ -18,9 +23,14 @@ on:
     paths:
       - "src/agentic_data_platform/**"
       - "tests/test_competitive_gap_closure.py"
+      - "tests/test_competitive_ledger.py"
+      - "tests/test_acp_hardening.py"
+      - "tests/test_ade_bench_adapter.py"
       - "tests/test_ade_search_*.py"
       - "tests/test_document_formats.py"
       - "benchmarks/competitive/**"
+      - "benchmarks/search/**"
+      - "scripts/generate_competitive_ledger.py"
       - "apps/desktop/**"
       - "pyproject.toml"
       - ".github/workflows/competitive-certification.yml"
@@ -41,10 +51,12 @@ jobs:
           cache: pip
       - name: Install ADE
         run: python -m pip install -e '.[dev,testbed]'
-      - name: Compile new competitive modules
+      - name: Compile competitive modules
         run: >-
           python -m compileall -q
           src/agentic_data_platform/acp_server.py
+          src/agentic_data_platform/benchmarks
+          src/agentic_data_platform/certification
           src/agentic_data_platform/retrieval
           src/agentic_data_platform/sdk
           src/agentic_data_platform/compute
@@ -54,6 +66,9 @@ jobs:
         run: >-
           pytest -q
           tests/test_competitive_gap_closure.py
+          tests/test_competitive_ledger.py
+          tests/test_acp_hardening.py
+          tests/test_ade_bench_adapter.py
           tests/test_ade_search_*.py
           tests/test_document_formats.py
       - name: Verify public CLI plans
@@ -77,6 +92,7 @@ jobs:
               '/api/v1/retrieval/search',
               '/api/v1/search/index',
               '/api/v1/search/query',
+              '/api/v1/search/multi-query',
               '/api/v1/search/stats',
               '/api/v1/search/delete-source',
               '/api/v1/document/process',
@@ -92,6 +108,8 @@ jobs:
         run: >-
           ruff check
           src/agentic_data_platform/acp_server.py
+          src/agentic_data_platform/benchmarks
+          src/agentic_data_platform/certification/competitive.py
           src/agentic_data_platform/retrieval
           src/agentic_data_platform/sdk
           src/agentic_data_platform/compute
@@ -100,9 +118,14 @@ jobs:
           src/agentic_data_platform/api/competitive.py
           src/agentic_data_platform/cli_entry.py
           tests/test_competitive_gap_closure.py
+          tests/test_competitive_ledger.py
+          tests/test_acp_hardening.py
+          tests/test_ade_bench_adapter.py
           tests/test_ade_search_*.py
           tests/test_document_formats.py
           benchmarks/competitive/run.py
+          benchmarks/search/run.py
+          scripts/generate_competitive_ledger.py
 
   deterministic-benchmark:
     name: 1077 SQL + 500 lineage deterministic benchmark
@@ -122,6 +145,26 @@ jobs:
         with:
           name: competitive-deterministic-${{ github.event.pull_request.head.sha || github.sha }}
           path: artifacts/competitive/deterministic-benchmark.json
+          if-no-files-found: error
+
+  search-regression-benchmark:
+    name: ADE Search deterministic quality regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install ADE benchmark dependencies
+        run: python -m pip install -e '.[dev]'
+      - name: Run ADE-owned Search benchmark
+        run: python benchmarks/search/run.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ade-search-regression-${{ github.event.pull_request.head.sha || github.sha }}
+          path: artifacts/competitive/search-benchmark.json
           if-no-files-found: error
 
   desktop-package:
@@ -160,7 +203,29 @@ jobs:
 
   competitive-local-gate:
     name: Competitive local gate
-    needs: [local-capability-certification, deterministic-benchmark, desktop-package]
+    needs:
+      - local-capability-certification
+      - deterministic-benchmark
+      - search-regression-benchmark
+      - desktop-package
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Local competitive capability, deterministic benchmark, and native desktop packaging are green."
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install ADE
+        run: python -m pip install -e .
+      - name: Generate exact-head competitive ledger
+        run: >-
+          python scripts/generate_competitive_ledger.py
+          --commit-sha "${{ github.event.pull_request.head.sha || github.sha }}"
+          --local-gate-passed
+          --output artifacts/competitive/capability-ledger.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: competitive-capability-ledger-${{ github.event.pull_request.head.sha || github.sha }}
+          path: artifacts/competitive/capability-ledger.json
+          if-no-files-found: error
+      - run: echo "Local competitive capability, deterministic SQL/lineage, Search regression, and native desktop packaging are green for the exact head."
