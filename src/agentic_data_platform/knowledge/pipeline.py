@@ -33,6 +33,21 @@ class OCRProvider(Protocol):
 
 
 @dataclass(frozen=True)
+class DocumentAsset:
+    asset_id: str
+    kind: str
+    page: int | None
+    bbox: Mapping[str, float | int] | None
+    bbox_unit: str | None
+    mime_type: str | None = None
+    name: str | None = None
+    provenance: Mapping[str, Any] = field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class DocumentBlock:
     block_id: str
     kind: str
@@ -69,6 +84,7 @@ class ProcessedDocument:
     chunks: tuple[DocumentChunk, ...]
     metadata: Mapping[str, Any]
     provenance: Mapping[str, Any]
+    assets: tuple[DocumentAsset, ...] = ()
     index_status: Mapping[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
@@ -157,6 +173,84 @@ def _blocks(
             )
             sequence += 1
     return tuple(blocks)
+
+
+def _assets(document_id: str, metadata: Mapping[str, Any], *, parser: str) -> tuple[DocumentAsset, ...]:
+    raw_assets = metadata.get("assets")
+    if not isinstance(raw_assets, list):
+        return ()
+    assets: list[DocumentAsset] = []
+    for index, raw in enumerate(raw_assets):
+        if not isinstance(raw, Mapping):
+            continue
+        kind = str(raw.get("kind") or "asset").strip() or "asset"
+        page_value = raw.get("page")
+        page = int(page_value) if isinstance(page_value, int) and not isinstance(page_value, bool) and page_value > 0 else None
+        bbox_value = raw.get("bbox")
+        bbox: dict[str, float | int] | None = None
+        if isinstance(bbox_value, Mapping):
+            normalized_bbox: dict[str, float | int] = {}
+            for key, value in bbox_value.items():
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    normalized_bbox[str(key)] = value
+            bbox = normalized_bbox or None
+        fingerprint_payload = {
+            "document_id": document_id,
+            "index": index,
+            "kind": kind,
+            "page": page,
+            "bbox": bbox,
+            "name": raw.get("name"),
+            "mime_type": raw.get("mime_type"),
+        }
+        asset_id = hashlib.sha256(
+            json.dumps(fingerprint_payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+        ).hexdigest()
+        assets.append(
+            DocumentAsset(
+                asset_id=asset_id,
+                kind=kind,
+                page=page,
+                bbox=bbox,
+                bbox_unit=str(raw.get("bbox_unit")) if raw.get("bbox_unit") else None,
+                mime_type=str(raw.get("mime_type")) if raw.get("mime_type") else None,
+                name=str(raw.get("name")) if raw.get("name") else None,
+                provenance={
+                    "parser": parser,
+                    "asset_index": index,
+                    "geometry_semantics": raw.get("geometry_semantics"),
+                },
+            )
+        )
+    return tuple(assets)
+
+
+def _select_pages(
+    blocks: Sequence[DocumentBlock],
+    assets: Sequence[DocumentAsset],
+    requested_pages: Sequence[int] | None,
+) -> tuple[tuple[DocumentBlock, ...], tuple[DocumentAsset, ...], tuple[int, ...]]:
+    if requested_pages is None:
+        return tuple(blocks), tuple(assets), ()
+    pages: list[int] = []
+    for value in requested_pages:
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError("pages must contain positive integers")
+        if value not in pages:
+            pages.append(value)
+    selected = tuple(sorted(pages))
+    if not selected:
+        raise ValueError("pages must not be empty when page selection is requested")
+    available = {block.page for block in blocks if block.page is not None}
+    if not available:
+        raise ValueError("page selection requires parser-provided page provenance")
+    missing = [page for page in selected if page not in available]
+    if missing:
+        raise ValueError(f"requested pages have no extractable text: {missing}")
+    selected_set = set(selected)
+    selected_blocks = tuple(block for block in blocks if block.page in selected_set)
+    selected_assets = tuple(asset for asset in assets if asset.page is None or asset.page in selected_set)
+    return selected_blocks, selected_assets, selected
 
 
 def _chunk_blocks(
@@ -288,6 +382,7 @@ class DocumentIntelligencePipeline:
         max_bytes: int = 20_000_000,
         max_chunk_chars: int = 1800,
         index_metadata: Mapping[str, Any] | None = None,
+        pages: Sequence[int] | None = None,
     ) -> ProcessedDocument:
         if not content:
             raise ValueError("document is empty")
@@ -314,7 +409,9 @@ class DocumentIntelligencePipeline:
         safe_text = redact_string(extraction.text)
         redacted = safe_text != extraction.text
         document_id = _document_id(extraction.source, content_hash)
-        blocks = _blocks(document_id, safe_text, parser=parser, confidence=confidence)
+        all_blocks = _blocks(document_id, safe_text, parser=parser, confidence=confidence)
+        all_assets = _assets(document_id, extraction.metadata, parser=parser)
+        blocks, assets, selected_pages = _select_pages(all_blocks, all_assets, pages)
         chunks = _chunk_blocks(document_id, blocks, max_chars=max_chunk_chars)
         if not chunks:
             raise ValueError("document produced no indexable chunks")
@@ -327,6 +424,7 @@ class DocumentIntelligencePipeline:
                 "parser": parser,
                 "embedding_provider": self.search_index.embedder.name,
                 "max_chunk_chars": max_chunk_chars,
+                "pages": list(selected_pages),
             }
             sync_hash = hashlib.sha256(
                 json.dumps(sync_payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
@@ -353,6 +451,7 @@ class DocumentIntelligencePipeline:
                             "source_type": extraction.source_type,
                             "page_start": chunk.page_start,
                             "page_end": chunk.page_end,
+                            "selected_pages": list(selected_pages),
                             "block_ids": list(chunk.block_ids),
                             "secrets_redacted": redacted,
                         },
@@ -376,7 +475,11 @@ class DocumentIntelligencePipeline:
             content_hash=content_hash,
             blocks=blocks,
             chunks=chunks,
-            metadata={**extraction.metadata, "secrets_redacted": redacted},
+            metadata={
+                **extraction.metadata,
+                "secrets_redacted": redacted,
+                "selected_pages": list(selected_pages),
+            },
             provenance={
                 "parser": parser,
                 "source": extraction.source,
@@ -385,6 +488,9 @@ class DocumentIntelligencePipeline:
                 "redaction_applied": redacted,
                 "ocr_used": parser.startswith("ocr:"),
                 "confidence": confidence,
+                "page_selection": list(selected_pages),
+                "page_semantics": extraction.metadata.get("page_semantics"),
             },
+            assets=assets,
             index_status=index_status,
         )
