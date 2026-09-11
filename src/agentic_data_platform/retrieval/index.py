@@ -5,6 +5,11 @@ laptop, Docker container, Kubernetes pod, or private VPC. Embeddings are pluggab
 default hashing embedder is deterministic/offline and must not be described as a learned
 semantic model. Production deployments can inject a learned embedding provider or swap the
 storage adapter without changing the search/evidence contract.
+
+Small indexes use exact vector candidate scans. Larger local indexes use persisted
+multi-table random-hyperplane LSH for approximate candidate generation, followed by exact
+cosine scoring on the bounded candidate set. This is explicitly not HNSW and should not be
+presented as an exact nearest-neighbor index.
 """
 
 from __future__ import annotations
@@ -88,7 +93,7 @@ class IndexMutation:
 
 
 class ADESearchIndex:
-    """SQLite FTS5 + vector hybrid index with incremental content hashes."""
+    """SQLite FTS5 + pluggable-vector hybrid index with local approximate candidates."""
 
     backend_name = "ade_search"
 
@@ -98,13 +103,29 @@ class ADESearchIndex:
         *,
         index_name: str = "default",
         embedder: EmbeddingProvider | None = None,
+        exact_vector_scan_limit: int = 5_000,
+        lsh_tables: int = 4,
+        lsh_bits: int = 12,
+        lsh_candidate_limit: int = 2_000,
     ) -> None:
         if not index_name.strip():
             raise ValueError("index_name is required")
+        if exact_vector_scan_limit < 0:
+            raise ValueError("exact_vector_scan_limit must be non-negative")
+        if lsh_tables < 1 or lsh_tables > 32:
+            raise ValueError("lsh_tables must be between 1 and 32")
+        if lsh_bits < 4 or lsh_bits > 24:
+            raise ValueError("lsh_bits must be between 4 and 24")
+        if lsh_candidate_limit < 10 or lsh_candidate_limit > 100_000:
+            raise ValueError("lsh_candidate_limit must be between 10 and 100000")
         self.database = Path(database).expanduser().resolve()
         self.database.parent.mkdir(parents=True, exist_ok=True)
         self.index_name = index_name.strip()
         self.embedder = embedder or DeterministicHashEmbedding()
+        self.exact_vector_scan_limit = int(exact_vector_scan_limit)
+        self.lsh_tables = int(lsh_tables)
+        self.lsh_bits = int(lsh_bits)
+        self.lsh_candidate_limit = int(lsh_candidate_limit)
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
@@ -143,12 +164,66 @@ class ADESearchIndex:
                 """
             )
             connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS ade_search_lsh (
+                    index_name TEXT NOT NULL,
+                    chunk_id TEXT NOT NULL,
+                    embedding_provider TEXT NOT NULL,
+                    table_no INTEGER NOT NULL,
+                    bucket INTEGER NOT NULL,
+                    PRIMARY KEY(index_name, chunk_id, embedding_provider, table_no)
+                )
+                """
+            )
+            connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_ade_search_source ON ade_search_chunks(index_name, source)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ade_search_lsh_bucket "
+                "ON ade_search_lsh(index_name, embedding_provider, table_no, bucket)"
             )
 
     @staticmethod
     def _metadata_json(metadata: Mapping[str, Any]) -> str:
         return json.dumps(dict(metadata), sort_keys=True, separators=(",", ":"), default=str)
+
+    @staticmethod
+    def _hyperplane_sign(table_no: int, bit_no: int, dimension: int) -> float:
+        digest = hashlib.sha256(f"ade-lsh-v1:{table_no}:{bit_no}:{dimension}".encode("utf-8")).digest()
+        return 1.0 if digest[0] & 1 else -1.0
+
+    def _lsh_buckets(self, embedding: Sequence[float]) -> tuple[int, ...]:
+        buckets: list[int] = []
+        for table_no in range(self.lsh_tables):
+            bucket = 0
+            for bit_no in range(self.lsh_bits):
+                projection = 0.0
+                for dimension, value in enumerate(embedding):
+                    projection += float(value) * self._hyperplane_sign(table_no, bit_no, dimension)
+                if projection >= 0.0:
+                    bucket |= 1 << bit_no
+            buckets.append(bucket)
+        return tuple(buckets)
+
+    def _write_lsh(
+        self,
+        connection: sqlite3.Connection,
+        chunk_id: str,
+        embedding: Sequence[float],
+        provider: str,
+    ) -> None:
+        connection.execute(
+            "DELETE FROM ade_search_lsh WHERE index_name=? AND chunk_id=?",
+            (self.index_name, chunk_id),
+        )
+        connection.executemany(
+            "INSERT INTO ade_search_lsh(index_name, chunk_id, embedding_provider, table_no, bucket) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [
+                (self.index_name, chunk_id, provider, table_no, bucket)
+                for table_no, bucket in enumerate(self._lsh_buckets(embedding))
+            ],
+        )
 
     def upsert(self, chunk: SearchChunk) -> IndexMutation:
         chunk.validate()
@@ -157,8 +232,8 @@ class ADESearchIndex:
         now = datetime.now(timezone.utc).isoformat()
         with self._connect() as connection:
             current = connection.execute(
-                "SELECT content_hash, metadata_json, source, embedding_provider FROM ade_search_chunks "
-                "WHERE index_name=? AND chunk_id=?",
+                "SELECT content_hash, metadata_json, source, embedding_provider, embedding_json "
+                "FROM ade_search_chunks WHERE index_name=? AND chunk_id=?",
                 (self.index_name, chunk.chunk_id),
             ).fetchone()
             if (
@@ -168,6 +243,18 @@ class ADESearchIndex:
                 and current["source"] == chunk.source
                 and current["embedding_provider"] == self.embedder.name
             ):
+                lsh_count = connection.execute(
+                    "SELECT COUNT(*) FROM ade_search_lsh WHERE index_name=? AND chunk_id=? "
+                    "AND embedding_provider=?",
+                    (self.index_name, chunk.chunk_id, self.embedder.name),
+                ).fetchone()[0]
+                if int(lsh_count) != self.lsh_tables:
+                    self._write_lsh(
+                        connection,
+                        chunk.chunk_id,
+                        json.loads(current["embedding_json"]),
+                        self.embedder.name,
+                    )
                 return IndexMutation("NOOP", chunk.chunk_id, content_hash)
 
             embedding = [float(value) for value in self.embedder.embed(chunk.content)]
@@ -206,6 +293,7 @@ class ADESearchIndex:
                 "INSERT INTO ade_search_fts(index_name, chunk_id, content) VALUES (?, ?, ?)",
                 (self.index_name, chunk.chunk_id, chunk.content),
             )
+            self._write_lsh(connection, chunk.chunk_id, embedding, self.embedder.name)
         return IndexMutation("UPDATED" if current else "INSERTED", chunk.chunk_id, content_hash)
 
     def upsert_many(self, chunks: Sequence[SearchChunk]) -> dict[str, int]:
@@ -235,6 +323,10 @@ class ADESearchIndex:
                 "DELETE FROM ade_search_fts WHERE index_name=? AND chunk_id=?",
                 (self.index_name, chunk_id),
             )
+            connection.execute(
+                "DELETE FROM ade_search_lsh WHERE index_name=? AND chunk_id=?",
+                (self.index_name, chunk_id),
+            )
         return IndexMutation("DELETED", chunk_id, row["content_hash"])
 
     def delete_source(self, source: str) -> int:
@@ -251,6 +343,10 @@ class ADESearchIndex:
                 )
                 connection.executemany(
                     "DELETE FROM ade_search_fts WHERE index_name=? AND chunk_id=?",
+                    [(self.index_name, chunk_id) for chunk_id in ids],
+                )
+                connection.executemany(
+                    "DELETE FROM ade_search_lsh WHERE index_name=? AND chunk_id=?",
                     [(self.index_name, chunk_id) for chunk_id in ids],
                 )
         return len(ids)
@@ -294,12 +390,48 @@ class ADESearchIndex:
             raise ValueError("search query contains no searchable tokens")
         return " OR ".join('"' + token.replace('"', '""') + '"' for token in tokens[:64])
 
-    def _rows(self) -> list[sqlite3.Row]:
+    def _candidate_rows(
+        self,
+        query_embedding: Sequence[float],
+        lexical_ids: Sequence[str],
+    ) -> tuple[list[sqlite3.Row], str, int]:
         with self._connect() as connection:
-            return connection.execute(
-                "SELECT * FROM ade_search_chunks WHERE index_name=?",
-                (self.index_name,),
+            row_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ade_search_chunks WHERE index_name=?",
+                    (self.index_name,),
+                ).fetchone()[0]
+            )
+            if row_count <= self.exact_vector_scan_limit:
+                rows = connection.execute(
+                    "SELECT * FROM ade_search_chunks WHERE index_name=?",
+                    (self.index_name,),
+                ).fetchall()
+                return list(rows), "exact_scan", row_count
+
+            ids: set[str] = set(lexical_ids)
+            for table_no, bucket in enumerate(self._lsh_buckets(query_embedding)):
+                rows = connection.execute(
+                    "SELECT chunk_id FROM ade_search_lsh WHERE index_name=? AND embedding_provider=? "
+                    "AND table_no=? AND bucket=? LIMIT ?",
+                    (
+                        self.index_name,
+                        self.embedder.name,
+                        table_no,
+                        bucket,
+                        self.lsh_candidate_limit,
+                    ),
+                ).fetchall()
+                ids.update(str(row["chunk_id"]) for row in rows)
+            if not ids:
+                return [], "sqlite_lsh_approximate", 0
+            ordered = sorted(ids)[: self.lsh_candidate_limit]
+            placeholders = ",".join("?" for _ in ordered)
+            rows = connection.execute(
+                f"SELECT * FROM ade_search_chunks WHERE index_name=? AND chunk_id IN ({placeholders})",
+                (self.index_name, *ordered),
             ).fetchall()
+            return list(rows), "sqlite_lsh_approximate", len(rows)
 
     def search(
         self,
@@ -334,8 +466,12 @@ class ADESearchIndex:
 
         query_embedding = [float(value) for value in self.embedder.embed(request.query)]
         query_tokens = {token.casefold() for token in _TOKEN.findall(request.query)}
+        vector_rows, vector_strategy, vector_candidates = self._candidate_rows(
+            query_embedding,
+            tuple(lexical.keys()),
+        )
         candidates: list[dict[str, Any]] = []
-        for row in self._rows():
+        for row in vector_rows:
             metadata = json.loads(row["metadata_json"] or "{}")
             if not self._matches_filter(metadata, request.filters):
                 continue
@@ -382,6 +518,8 @@ class ADESearchIndex:
                     if row["embedding_provider"] == DeterministicHashEmbedding.name
                     else "provider supplied"
                 ),
+                "vector_candidate_strategy": vector_strategy,
+                "vector_candidates_scored": vector_candidates,
                 "updated_at": row["updated_at"],
             }
             if explain:
@@ -418,6 +556,12 @@ class ADESearchIndex:
                 "MAX(updated_at) AS last_updated FROM ade_search_chunks WHERE index_name=?",
                 (self.index_name,),
             ).fetchone()
+            lsh_rows = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ade_search_lsh WHERE index_name=? AND embedding_provider=?",
+                    (self.index_name, self.embedder.name),
+                ).fetchone()[0]
+            )
         return {
             "backend": self.backend_name,
             "index_name": self.index_name,
@@ -426,4 +570,13 @@ class ADESearchIndex:
             "last_updated": row["last_updated"],
             "embedding_provider": self.embedder.name,
             "database": str(self.database),
+            "vector_candidates": {
+                "small_index_strategy": "exact_scan",
+                "large_index_strategy": "sqlite_lsh_approximate",
+                "exact_scan_limit": self.exact_vector_scan_limit,
+                "lsh_tables": self.lsh_tables,
+                "lsh_bits": self.lsh_bits,
+                "lsh_candidate_limit": self.lsh_candidate_limit,
+                "persisted_lsh_rows": lsh_rows,
+            },
         }
