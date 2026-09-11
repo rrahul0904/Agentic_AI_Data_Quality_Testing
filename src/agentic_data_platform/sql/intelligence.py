@@ -9,36 +9,56 @@ from .rules import analyze
 
 
 _SINGLE_QUOTED = re.compile(r"'(?:''|[^'])*'", re.S)
+_DOUBLE_QUOTED = re.compile(r'"(?:""|[^"])*"', re.S)
+_BACKTICK_QUOTED = re.compile(r"`(?:``|[^`])*`", re.S)
+_BRACKET_QUOTED = re.compile(r"\[(?:\]\]|[^\]])*\]", re.S)
 _DOLLAR_QUOTED = re.compile(r"\$\$(?:.|\n)*?\$\$", re.S)
 _BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.S)
 _LINE_COMMENT = re.compile(r"--[^\n]*")
 _NOT_IN = re.compile(r"\bNOT\s+IN\s*\(", re.I)
+_MASK_PATTERNS = (
+    _DOLLAR_QUOTED,
+    _SINGLE_QUOTED,
+    _DOUBLE_QUOTED,
+    _BACKTICK_QUOTED,
+    _BRACKET_QUOTED,
+    _BLOCK_COMMENT,
+    _LINE_COMMENT,
+)
 
 
-def _parsed_not_in_finding(tree):
-    """Detect NOT IN from SQLGlot's canonical parsed statement, independent of AST wrapper shape.
+def _mask_nonstructural_sql(sql: str) -> str:
+    value = sql
+    for pattern in _MASK_PATTERNS:
+        value = pattern.sub(lambda match: " " * len(match.group(0)), value)
+    return value
 
-    SQLGlot has represented negated IN predicates with different parent/argument layouts across
-    dialect/version combinations. We therefore use the already-successfully-parsed canonical SQL
-    as a compatibility fallback, after removing literal/comment text so words inside data cannot
-    create a false finding.
+
+def _not_in_finding_from_source(sql: str):
+    """Detect NOT IN only after parsing succeeded, masking literals/comments/quoted identifiers.
+
+    SQLGlot has represented negated IN predicates with different AST and canonical rendering
+    shapes across versions/dialects. This compatibility fallback therefore examines the original
+    *validated* SQL statement text, but only structural tokens are left visible. Masking preserves
+    string length so line/column evidence remains tied to the submitted SQL.
     """
 
-    rendered = tree.sql()
-    structural = _DOLLAR_QUOTED.sub("$$''$$", rendered)
-    structural = _SINGLE_QUOTED.sub("''", structural)
-    structural = _BLOCK_COMMENT.sub(" ", structural)
-    structural = _LINE_COMMENT.sub(" ", structural)
-    if not _NOT_IN.search(structural):
+    structural = _mask_nonstructural_sql(sql)
+    match = _NOT_IN.search(structural)
+    if not match:
         return None
+    line = sql.count("\n", 0, match.start()) + 1
+    previous_newline = sql.rfind("\n", 0, match.start())
+    column = match.start() - previous_newline
     return {
         "rule_id": "NULL_NOT_IN",
         "severity": "WARN",
         "message": "NULL in NOT IN input can reject all rows.",
-        "line": None,
-        "column": None,
-        "evidence": rendered,
+        "line": line,
+        "column": column,
+        "evidence": sql,
         "recommendation": "Use NOT EXISTS or exclude NULL input.",
+        "statement_index": None,
     }
 
 
@@ -50,11 +70,11 @@ def review_sql(sql, dialect=None, schema=None):
         findings = []
         for index, tree in enumerate(trees):
             statement_findings = list(analyze(tree, schema))
-            if not any(item.get("rule_id") == "NULL_NOT_IN" for item in statement_findings):
-                fallback = _parsed_not_in_finding(tree)
-                if fallback:
-                    statement_findings.append(fallback)
             findings.extend(dict(item, statement_index=index) for item in statement_findings)
+        if not any(item.get("rule_id") == "NULL_NOT_IN" for item in findings):
+            fallback = _not_in_finding_from_source(sql)
+            if fallback:
+                findings.append(fallback)
         return {
             "parseable": True,
             "dialect": dialect or "ansi",
