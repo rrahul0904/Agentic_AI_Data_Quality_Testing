@@ -125,6 +125,17 @@ def _route(application: FastAPI, path: str, method: str) -> bool:
     )
 
 
+def _document_pages(value: str) -> list[int] | None:
+    parsed = json.loads(value)
+    if parsed is None or parsed == []:
+        return None
+    if not isinstance(parsed, list):
+        raise ValueError("pages_json must decode to an array of positive page numbers or null")
+    if any(isinstance(item, bool) or not isinstance(item, int) or item <= 0 for item in parsed):
+        raise ValueError("pages_json must contain positive integers")
+    return list(dict.fromkeys(parsed))
+
+
 def attach_competitive_routes(application: FastAPI) -> FastAPI:
     if _route(application, "/api/v1/competitive/status", "GET"):
         return application
@@ -158,6 +169,9 @@ def attach_competitive_routes(application: FastAPI) -> FastAPI:
                     "xlsx",
                     "html",
                     "eml",
+                    "page_selection",
+                    "asset_provenance",
+                    "native_image_geometry_where_available",
                     "ocr_provider",
                     "provider",
                     "snowflake_ai_parse_document",
@@ -165,6 +179,7 @@ def attach_competitive_routes(application: FastAPI) -> FastAPI:
             },
             "truthfulness": {
                 "default_vector_lane": "deterministic lexical hash projection, not a learned embedding model",
+                "document_geometry": "only emitted when native parser metadata exposes it; no fabricated page coordinates",
                 "live_external_certification_required": True,
                 "superiority_requires_benchmark_evidence": True,
             },
@@ -288,6 +303,7 @@ def attach_competitive_routes(application: FastAPI) -> FastAPI:
         index_name: str = Form("documents"),
         index_document: bool = Form(True),
         metadata_json: str = Form("{}"),
+        pages_json: str = Form("null"),
     ) -> dict[str, object]:
         max_bytes = 20_000_000
         content = await file.read(max_bytes + 1)
@@ -297,6 +313,7 @@ def attach_competitive_routes(application: FastAPI) -> FastAPI:
             metadata = json.loads(metadata_json)
             if not isinstance(metadata, dict):
                 raise ValueError("metadata_json must decode to an object")
+            pages = _document_pages(pages_json)
             index = _search_index(index_name) if index_document else None
             pipeline = DocumentIntelligencePipeline(index)
             result = pipeline.process(
@@ -305,6 +322,7 @@ def attach_competitive_routes(application: FastAPI) -> FastAPI:
                 content_type=file.content_type,
                 max_bytes=max_bytes,
                 index_metadata=metadata,
+                pages=pages,
             )
             return {"status": "PASS", "document": result.as_dict()}
         except (json.JSONDecodeError, OSError, ValueError, RuntimeError) as exc:
