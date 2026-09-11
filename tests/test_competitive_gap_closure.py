@@ -40,7 +40,10 @@ class FakeProvider:
     def generate(self, request):
         assert "invoice_id" in request.messages[-1]["content"]
         return ProviderResponse(
-            content='{"invoice_id":"INV-42","total":19.5,"unexpected":"ignored"}',
+            content=(
+                '{"invoice_id":"INV-42","total":19.5,"unexpected":"ignored",'
+                '"_ade_evidence":{"invoice_id":{"quote":"INV-42","confidence":0.93}}}'
+            ),
             usage=Usage(input_tokens=100, output_tokens=20, cost_usd=0.001),
             finish_reason="stop",
         )
@@ -162,6 +165,14 @@ def test_document_intelligence_supports_provider_and_snowflake_paths():
     assert result.status == "PASS"
     assert result.extracted == {"invoice_id": "INV-42", "total": 19.5}
     assert result.provenance["unexpected_fields_ignored"] == ["unexpected"]
+    invoice_evidence = result.provenance["field_evidence"]["invoice_id"]
+    assert invoice_evidence["source_evidence"] == "provider_quote_verified"
+    assert invoice_evidence["confidence"] == 0.93
+    assert invoice_evidence["confidence_source"] == "provider_supplied"
+    total_evidence = result.provenance["field_evidence"]["total"]
+    assert total_evidence["source_evidence"] == "exact_literal_verified"
+    assert total_evidence["confidence"] is None
+    assert total_evidence["confidence_source"] == "not_provided"
 
     sql = snowflake_parse_document_sql(
         "@DB.SCHEMA.DOCS",
