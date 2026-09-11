@@ -14,6 +14,7 @@ from agentic_data_platform.security.redaction import redact_string
 
 
 _STAGE = re.compile(r"^@[A-Za-z_][A-Za-z0-9_$]*(?:\.[A-Za-z_][A-Za-z0-9_$]*){0,2}$")
+_RESERVED_EVIDENCE_KEY = "_ade_evidence"
 
 
 @dataclass(frozen=True)
@@ -70,6 +71,80 @@ def _json_object(text: str) -> dict[str, Any]:
     return value
 
 
+def _confidence(value: Any) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        normalized = float(value)
+        if 0.0 <= normalized <= 1.0:
+            return normalized
+    return None
+
+
+def _verified_span(text: str, candidate: str) -> dict[str, Any] | None:
+    value = candidate.strip()
+    if not value:
+        return None
+    start = text.find(value)
+    if start < 0:
+        start = text.casefold().find(value.casefold())
+    if start < 0:
+        return None
+    end = start + len(value)
+    context_start = max(0, start - 80)
+    context_end = min(len(text), end + 80)
+    return {
+        "start": start,
+        "end": end,
+        "quote": text[context_start:context_end],
+        "matched_text": text[start:end],
+    }
+
+
+def _literal_candidates(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, bool):
+        return ["true" if value else "false", "True" if value else "False"]
+    if isinstance(value, (str, int, float)):
+        return [str(value)]
+    return []
+
+
+def _field_evidence(
+    safe_text: str,
+    normalized: Mapping[str, Any],
+    provider_evidence: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    provider_evidence = provider_evidence or {}
+    for field, value in normalized.items():
+        supplied = provider_evidence.get(field)
+        supplied_map = supplied if isinstance(supplied, Mapping) else {}
+        supplied_quote = supplied_map.get("quote")
+        quote_span = _verified_span(safe_text, str(supplied_quote)) if supplied_quote else None
+        literal_span = None
+        if quote_span is None:
+            for candidate in _literal_candidates(value):
+                literal_span = _verified_span(safe_text, candidate)
+                if literal_span is not None:
+                    break
+        confidence = _confidence(supplied_map.get("confidence"))
+        source_span = quote_span or literal_span
+        result[field] = {
+            "value_present": value is not None,
+            "source_evidence": (
+                "provider_quote_verified"
+                if quote_span is not None
+                else "exact_literal_verified"
+                if literal_span is not None
+                else "not_verified_in_source_text"
+            ),
+            "source_span": source_span,
+            "confidence": confidence,
+            "confidence_source": "provider_supplied" if confidence is not None else "not_provided",
+        }
+    return result
+
+
 def provider_structured_extraction(
     extraction: DocumentExtraction,
     provider: Provider,
@@ -85,7 +160,9 @@ def provider_structured_extraction(
     prompt = (
         "Extract the requested fields from the supplied document. "
         "Return JSON only. Do not infer values that are not supported by the document; "
-        "use null for missing values.\n\n"
+        "use null for missing values. You may optionally include an `_ade_evidence` object "
+        "keyed by field, with a short exact source `quote` and a 0..1 `confidence` only when "
+        "your backend genuinely provides that confidence. Do not fabricate confidence.\n\n"
         f"Requested fields:\n{fields}\n\nDocument:\n{safe_text}"
     )
     response = provider.generate(
@@ -117,7 +194,10 @@ def provider_structured_extraction(
         )
     requested = set(schema)
     normalized = {key: structured.get(key) for key in schema}
-    unexpected = sorted(set(structured) - requested)
+    unexpected = sorted(set(structured) - requested - {_RESERVED_EVIDENCE_KEY})
+    raw_evidence = structured.get(_RESERVED_EVIDENCE_KEY)
+    provider_evidence = raw_evidence if isinstance(raw_evidence, Mapping) else None
+    field_evidence = _field_evidence(safe_text, normalized, provider_evidence)
     return StructuredDocumentResult(
         status="PASS",
         backend=getattr(provider, "name", "provider"),
@@ -130,6 +210,8 @@ def provider_structured_extraction(
             "unexpected_fields_ignored": unexpected,
             "document_metadata": extraction.metadata,
             "secrets_redacted": safe_text != extraction.text,
+            "field_evidence": field_evidence,
+            "confidence_semantics": "confidence is null unless explicitly supplied by the provider",
         },
     )
 
@@ -196,7 +278,12 @@ def snowflake_document_intelligence(
     )
     result = connector.execute_read(sql)
     if not result.rows:
-        return {"status": "FAIL", "backend": "snowflake_ai_parse_document", "error": "no result returned", "sql": sql}
+        return {
+            "status": "FAIL",
+            "backend": "snowflake_ai_parse_document",
+            "error": "no result returned",
+            "sql": sql,
+        }
     row = result.rows[0]
     raw = next((value for key, value in row.items() if str(key).casefold() == "parsed_document"), None)
     if isinstance(raw, str):
