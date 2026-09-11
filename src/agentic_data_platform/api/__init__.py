@@ -27,6 +27,12 @@ _COMPOSED_PATHS = {
     "/api/v1/knowledge/upload",
     "/api/v1/competitive/status",
     "/api/v1/retrieval/search",
+    "/api/v1/search/index",
+    "/api/v1/search/query",
+    "/api/v1/search/multi-query",
+    "/api/v1/search/stats",
+    "/api/v1/search/delete-source",
+    "/api/v1/document/process",
     "/api/v1/compute/plan",
     "/api/v1/document/snowflake-plan",
 }
