@@ -33,8 +33,7 @@ class CapabilityRecord:
         return value
 
 
-_LOCAL_CAPABILITIES = (
-    ("coco_local_parity_regression", "platform"),
+_LOCAL_GATE_CAPABILITIES = (
     ("ade_search_persistent_hybrid", "search"),
     ("ade_search_multi_index_scoring", "search"),
     ("ade_search_local_lsh_candidates", "search"),
@@ -90,7 +89,18 @@ def build_competitive_ledger(
                 **workflow_evidence,
             },
         ).as_dict()
-        for name, scope in _LOCAL_CAPABILITIES
+        for name, scope in _LOCAL_GATE_CAPABILITIES
+    ]
+    independent = [
+        CapabilityRecord(
+            capability="coco_local_parity_regression",
+            scope="platform",
+            status=CompetitiveStatus.IMPLEMENTED_UNCERTIFIED,
+            evidence={
+                "commit_sha": sha,
+                "reason": "owned by the independent exact-head ade-capability-superiority workflow; not inferred from this gate",
+            },
+        ).as_dict()
     ]
     external = [
         CapabilityRecord(
@@ -108,7 +118,7 @@ def build_competitive_ledger(
         ).as_dict()
         for name, scope, status in _EXTERNAL_CAPABILITIES
     ]
-    records = [*local, *external]
+    records = [*local, *independent, *external]
     counts: dict[str, int] = {}
     for record in records:
         counts[record["status"]] = counts.get(record["status"], 0) + 1
@@ -121,6 +131,7 @@ def build_competitive_ledger(
         "counts": counts,
         "truthfulness": {
             "local_certification_applies_only_to_this_exact_commit": True,
+            "coco_status_requires_independent_exact_head_workflow": True,
             "external_status_never_inferred_from_local_tests": True,
             "superiority_requires_separate_executed_comparative_benchmark": True,
             "ade_bench_score_claimed": False,
