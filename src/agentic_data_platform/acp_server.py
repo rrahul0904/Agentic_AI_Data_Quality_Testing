@@ -120,8 +120,6 @@ class ADEACPAgent(Agent):
 
     async def authenticate(self, method_id: str, **kwargs: Any) -> AuthenticateResponse | None:
         del method_id, kwargs
-        # Provider credentials remain external environment/config references; ACP never
-        # receives raw warehouse or LLM secrets from ADE.
         return AuthenticateResponse()
 
     async def new_session(
@@ -195,7 +193,7 @@ class ADEACPAgent(Agent):
                 return False
             await self._conn.session_update(
                 session_id,
-                AgentMessageChunk(content=TextContentBlock(text=value[start : start + chunk_chars])),
+                AgentMessageChunk(content=text_block(value[start : start + chunk_chars])),
             )
         return True
 
@@ -218,7 +216,7 @@ class ADEACPAgent(Agent):
         if not question:
             await self._conn.session_update(
                 session_id,
-                AgentMessageChunk(content=TextContentBlock(text="ADE received no textual prompt content.")),
+                AgentMessageChunk(content=text_block("ADE received no textual prompt content.")),
             )
             return PromptResponse(stop_reason="end_turn")
         if session_id in self._cancelled:
