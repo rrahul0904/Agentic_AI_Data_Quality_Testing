@@ -65,6 +65,7 @@ jobs:
             if curl -fsS http://127.0.0.1:8001/healthz > /tmp/api-health.json \
               && curl -fsS http://127.0.0.1:3000/api/healthz > /tmp/web-health.json \
               && curl -fsS http://127.0.0.1:3000/api/ade/healthz > /tmp/proxy-health.json \
+              && curl -fsS http://127.0.0.1:3000/api/ade/api/v1/overview > /tmp/overview.json \
               && curl -fsS http://127.0.0.1:3000/api/ade/api/v1/competitive/status > /tmp/competitive.json \
               && curl -fsS http://127.0.0.1:3000/ > /tmp/home.html; then
               ready=true
@@ -83,12 +84,36 @@ jobs:
           for path in ("/tmp/api-health.json", "/tmp/web-health.json", "/tmp/proxy-health.json"):
               payload = json.load(open(path))
               assert payload["status"] == "PASS", (path, payload)
+          overview = json.load(open("/tmp/overview.json"))
+          assert overview["counts"]["oracle_tables"] == 144
+          assert overview["counts"]["postgres_tables"] == 157
+          assert overview["counts"]["airflow_dags"] >= 57
+          assert overview["counts"]["dbt_models"] == 70
+          assert overview["counts"]["tools"] >= 50
           competitive = json.load(open("/tmp/competitive.json"))
           assert competitive["status"] == "PASS", competitive
           PY
 
+          for endpoint in \
+            /api/v1/platform/inventory \
+            /api/v1/airflow/inventory \
+            /api/v1/airflow/assets \
+            /api/v1/dbt/summary \
+            /api/v1/quality/summary \
+            /api/v1/providers \
+            /api/v1/skills/catalog \
+            /api/v1/training/status \
+            /api/v1/domains \
+            /api/v1/certification/coco \
+            /api/v1/competitive/status \
+            /api/v1/knowledge/status; do
+            curl -fsS "http://127.0.0.1:3000/api/ade${endpoint}" >/dev/null
+          done
+
+          curl -fsS http://127.0.0.1:3000/certification > /tmp/certification.html
           grep -q "ADE OS" /tmp/home.html
           grep -q "Agentic" /tmp/home.html
+          grep -q "Certification" /tmp/certification.html
 
       - name: Show logs on failure
         if: failure()
