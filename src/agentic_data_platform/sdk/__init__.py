@@ -1,5 +1,11 @@
-"""Headless Python SDK for the Agentic Data Engineering OS."""
+"""Headless and embedded SDK for the Agentic Data Engineering OS."""
 
-from .client import PlatformClient
+from .client import ADEClient, HttpADEClient, LocalAgentSession, PlatformClient, ToolApprovalRequest
 
-__all__ = ["PlatformClient"]
+__all__ = [
+    "ADEClient",
+    "HttpADEClient",
+    "LocalAgentSession",
+    "PlatformClient",
+    "ToolApprovalRequest",
+]
