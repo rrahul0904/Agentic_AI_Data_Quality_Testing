@@ -1,0 +1,99 @@
+name: web-e2e
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "src/agentic_data_platform/api/**"
+      - "src/agentic_data_platform/**"
+      - "deploy/**"
+      - "docker-compose.web.yml"
+      - ".dockerignore"
+      - "pyproject.toml"
+      - ".github/workflows/web-e2e.yml"
+  push:
+    branches:
+      - feature/ade-10x-competitive-certification
+    paths:
+      - "apps/web/**"
+      - "src/agentic_data_platform/api/**"
+      - "src/agentic_data_platform/**"
+      - "deploy/**"
+      - "docker-compose.web.yml"
+      - ".dockerignore"
+      - "pyproject.toml"
+      - ".github/workflows/web-e2e.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  website-e2e:
+    name: Production web + API container smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Typecheck and build Next.js operator console
+        working-directory: apps/web
+        run: |
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npm run build
+
+      - name: Build and start production containers
+        run: docker compose -f docker-compose.web.yml up -d --build
+
+      - name: Wait for browser-facing ADE control plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready=false
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:8001/healthz > /tmp/api-health.json \
+              && curl -fsS http://127.0.0.1:3000/api/healthz > /tmp/web-health.json \
+              && curl -fsS http://127.0.0.1:3000/api/ade/healthz > /tmp/proxy-health.json \
+              && curl -fsS http://127.0.0.1:3000/api/ade/api/v1/competitive/status > /tmp/competitive.json \
+              && curl -fsS http://127.0.0.1:3000/ > /tmp/home.html; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" != "true" ]; then
+            docker compose -f docker-compose.web.yml ps || true
+            docker compose -f docker-compose.web.yml logs --no-color || true
+            exit 1
+          fi
+
+          python - <<'PY'
+          import json
+          for path in ("/tmp/api-health.json", "/tmp/web-health.json", "/tmp/proxy-health.json"):
+              payload = json.load(open(path))
+              assert payload["status"] == "PASS", (path, payload)
+          competitive = json.load(open("/tmp/competitive.json"))
+          assert competitive["status"] == "PASS", competitive
+          PY
+
+          grep -q "ADE OS" /tmp/home.html
+          grep -q "Agentic" /tmp/home.html
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.web.yml logs --no-color || true
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose -f docker-compose.web.yml down -v --remove-orphans
