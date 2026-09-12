@@ -19,7 +19,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping
 
 
 CommandRunner = Callable[..., subprocess.CompletedProcess[str]]
