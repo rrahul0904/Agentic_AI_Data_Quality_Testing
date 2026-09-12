@@ -25,12 +25,12 @@ from acp import (
     run_agent,
     text_block,
     tool_content,
+    update_agent_message,
     update_tool_call,
 )
 from acp.interfaces import Client
 from acp.schema import (
     AgentCapabilities,
-    AgentMessageChunk,
     ClientCapabilities,
     EmbeddedResourceContentBlock,
     HttpMcpServer,
@@ -192,8 +192,8 @@ class ADEACPAgent(Agent):
             if session_id in self._cancelled:
                 return False
             await self._conn.session_update(
-                session_id,
-                AgentMessageChunk(content=text_block(value[start : start + chunk_chars])),
+                session_id=session_id,
+                update=update_agent_message(text_block(value[start : start + chunk_chars])),
             )
         return True
 
@@ -215,8 +215,8 @@ class ADEACPAgent(Agent):
         question = _prompt_text(prompt)
         if not question:
             await self._conn.session_update(
-                session_id,
-                AgentMessageChunk(content=text_block("ADE received no textual prompt content.")),
+                session_id=session_id,
+                update=update_agent_message(text_block("ADE received no textual prompt content.")),
             )
             return PromptResponse(stop_reason="end_turn")
         if session_id in self._cancelled:
