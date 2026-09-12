@@ -1,0 +1,27 @@
+FROM python:3.12-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PORT=8001
+
+WORKDIR /app
+
+COPY pyproject.toml README.md ./
+COPY src ./src
+COPY hospitality-snowflake-data-platform ./hospitality-snowflake-data-platform
+COPY shiftforge ./shiftforge
+COPY local-data-harness ./local-data-harness
+
+RUN python -m pip install --no-cache-dir .
+
+RUN mkdir -p /state /app/.ade /app/hospitality-snowflake-data-platform/.ade
+
+ENV ADE_DATABASE_PATH=/state/control-plane.db \
+    ADE_QUALITY_DATABASE=/state/quality.db \
+    ADE_INVESTIGATION_DATABASE=/state/investigations.db \
+    ADE_DEMO_PROJECT=/app/hospitality-snowflake-data-platform
+
+EXPOSE 8001
+
+CMD ["sh", "-c", "python -m uvicorn agentic_data_platform.api.app:app --host 0.0.0.0 --port ${PORT:-8001}"]
