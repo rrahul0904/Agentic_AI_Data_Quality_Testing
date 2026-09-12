@@ -6,15 +6,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PORT=8001
 
 WORKDIR /app
-
-COPY pyproject.toml README.md ./
-COPY src ./src
-COPY hospitality-snowflake-data-platform ./hospitality-snowflake-data-platform
-COPY shiftforge ./shiftforge
-COPY local-data-harness ./local-data-harness
+COPY . .
 
 RUN python -m pip install --no-cache-dir .
-
 RUN mkdir -p /state /app/.ade /app/hospitality-snowflake-data-platform/.ade
 
 ENV ADE_DATABASE_PATH=/state/control-plane.db \
