@@ -13,11 +13,13 @@ from fastapi import FastAPI
 from . import app as _legacy_app
 from .certification import coco_status
 from .competitive import attach_competitive_routes
+from .health import HEALTH_PATH, attach_health_route
 from .knowledge import attach_knowledge_routes
 
 
 _CERTIFICATION_PATH = "/api/v1/certification/coco"
 _COMPOSED_PATHS = {
+    HEALTH_PATH,
     _CERTIFICATION_PATH,
     "/api/v1/agent/query",
     "/api/v1/knowledge/status",
@@ -82,6 +84,7 @@ def _prioritize_composed_routes(application: FastAPI) -> FastAPI:
 
 
 def _compose(application: FastAPI) -> FastAPI:
+    application = attach_health_route(application)
     application = _attach_certification_route(application)
     application = attach_knowledge_routes(application)
     application = attach_competitive_routes(application)
