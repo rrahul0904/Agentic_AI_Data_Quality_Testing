@@ -150,6 +150,22 @@ def test_document_pipeline_redacts_chunks_indexes_and_noops_unchanged_content(tm
     )
     assert repeated.index_status["status"] == "NOOP"
 
+    deleted = index.delete_source("runbook.md")
+    assert deleted >= 1
+    assert index.search(RetrievalQuery("worker restarts", limit=3)) == []
+
+    restored = pipeline.process(
+        "runbook.md",
+        content,
+        index_metadata={"environment": "prod", "system": "airflow"},
+    )
+    assert restored.index_status["status"] == "PASS"
+    restored_hits = index.search(
+        RetrievalQuery("worker restarts", limit=3, filters={"environment": "prod"})
+    )
+    assert restored_hits
+    assert restored_hits[0].source == "runbook.md"
+
     metadata_changed = pipeline.process(
         "runbook.md",
         content,
