@@ -320,7 +320,7 @@ class DocumentIntelligencePipeline:
     def __init__(self, search_index: ADESearchIndex | None = None) -> None:
         self.search_index = search_index
 
-    def _manifest(self, source: str) -> str | None:
+    def _manifest(self, source: str) -> tuple[str, tuple[str, ...]] | None:
         if self.search_index is None:
             return None
         with sqlite3.connect(self.search_index.database) as connection:
@@ -336,10 +336,30 @@ class DocumentIntelligencePipeline:
                 """
             )
             row = connection.execute(
-                "SELECT sync_hash FROM ade_document_manifest WHERE index_name=? AND source=?",
+                "SELECT sync_hash, chunk_ids_json FROM ade_document_manifest WHERE index_name=? AND source=?",
                 (self.search_index.index_name, source),
             ).fetchone()
-        return str(row[0]) if row else None
+        if not row:
+            return None
+        try:
+            raw_chunk_ids = json.loads(str(row[1]))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            raw_chunk_ids = []
+        chunk_ids = tuple(
+            item for item in raw_chunk_ids if isinstance(item, str) and item.strip()
+        ) if isinstance(raw_chunk_ids, list) else ()
+        return str(row[0]), chunk_ids
+
+    def _manifest_chunks_present(self, source: str, chunk_ids: Sequence[str]) -> bool:
+        if self.search_index is None or not chunk_ids:
+            return False
+        with sqlite3.connect(self.search_index.database) as connection:
+            rows = connection.execute(
+                "SELECT chunk_id FROM ade_search_chunks WHERE index_name=? AND source=?",
+                (self.search_index.index_name, source),
+            ).fetchall()
+        indexed_ids = {str(row[0]) for row in rows}
+        return indexed_ids == set(chunk_ids)
 
     def _write_manifest(self, source: str, sync_hash: str, chunks: Sequence[DocumentChunk]) -> None:
         if self.search_index is None:
@@ -429,11 +449,17 @@ class DocumentIntelligencePipeline:
             sync_hash = hashlib.sha256(
                 json.dumps(sync_payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
             ).hexdigest()
-            previous_hash = self._manifest(extraction.source)
-            if previous_hash == sync_hash:
+            previous_manifest = self._manifest(extraction.source)
+            previous_hash = previous_manifest[0] if previous_manifest is not None else None
+            previous_chunk_ids = previous_manifest[1] if previous_manifest is not None else ()
+            manifest_is_current = (
+                previous_hash == sync_hash
+                and self._manifest_chunks_present(extraction.source, previous_chunk_ids)
+            )
+            if manifest_is_current:
                 index_status = {
                     "status": "NOOP",
-                    "reason": "document/index configuration fingerprint unchanged",
+                    "reason": "document/index configuration fingerprint and indexed chunks unchanged",
                     "sync_hash": sync_hash,
                     "chunks": len(chunks),
                 }
