@@ -1,6 +1,10 @@
-const API = 'http://127.0.0.1:8001';
+let API = null;
 
 async function api(path, options = {}) {
+  if (!API) {
+    const runtime = await window.adeDesktop.runtime();
+    API = runtime.apiUrl;
+  }
   const response = await fetch(`${API}${path}`, {
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
     ...options,
@@ -24,6 +28,7 @@ function message(role, content) {
 
 async function refreshRuntime() {
   const state = await window.adeDesktop.runtime();
+  API = state.apiUrl;
   document.querySelector('#runtime').textContent = pretty(state);
   const dot = document.querySelector('#api-dot');
   dot.classList.toggle('ok', state.apiReachable);
