@@ -1,4 +1,8 @@
-"""Deployment health surface for the ADE control plane."""
+"""Deployment health surface for the ADE control plane.
+
+Kept intentionally dependency-light so the release smoke can certify the same health
+contract in local, containerized, and hosted deployments.
+"""
 
 from __future__ import annotations
 
