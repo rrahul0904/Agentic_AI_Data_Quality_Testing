@@ -71,6 +71,19 @@ class SSHRemoteWorkspace:
             raise ValueError("remote path escapes workspace root")
         return normalized
 
+    def _confined_script(self, target: PurePosixPath, command: str) -> str:
+        """Resolve symlinks remotely and fail closed if the target leaves the workspace root."""
+
+        root = shlex.quote(str(self.root))
+        requested = shlex.quote(str(target))
+        return (
+            f"resolved_root=$(realpath -m -- {root}) || exit 70; "
+            f"resolved_target=$(realpath -m -- {requested}) || exit 70; "
+            'case "$resolved_target" in "$resolved_root"|"$resolved_root"/*) ;; '
+            '*) printf %s\\n "remote path escapes workspace root" >&2; exit 73 ;; esac; '
+            f"{command}"
+        )
+
     def command(self, script: str) -> list[str]:
         return [*self._ssh_base(), "--", "sh", "-lc", script]
 
@@ -108,12 +121,12 @@ class SSHRemoteWorkspace:
         }
 
     def list_files(self, relative: str = ".", *, max_depth: int = 4, limit: int = 2000) -> dict[str, Any]:
-        target = shlex.quote(str(self._path(relative)))
+        target = self._path(relative)
         depth = max(1, min(int(max_depth), 20))
         bounded = max(1, min(int(limit), 20_000))
-        script = (
-            f"cd {shlex.quote(str(self.root))} && "
-            f"find {target} -maxdepth {depth} -type f -print | LC_ALL=C sort | head -n {bounded}"
+        script = self._confined_script(
+            target,
+            f'find "$resolved_target" -maxdepth {depth} -type f -print | LC_ALL=C sort | head -n {bounded}',
         )
         result = self._exec(script)
         files = [line.strip() for line in result.get("stdout", "").splitlines() if line.strip()]
@@ -122,9 +135,9 @@ class SSHRemoteWorkspace:
         return result
 
     def read_text(self, relative: str, *, max_bytes: int = 2_000_000) -> dict[str, Any]:
-        target = shlex.quote(str(self._path(relative)))
+        target = self._path(relative)
         bounded = max(1, min(int(max_bytes), 20_000_000))
-        result = self._exec(f"head -c {bounded} -- {target}")
+        result = self._exec(self._confined_script(target, f'head -c {bounded} -- "$resolved_target"'))
         result.update({"path": relative, "max_bytes": bounded})
         return result
 
@@ -139,11 +152,20 @@ class SSHRemoteWorkspace:
         if not approved:
             return {"status": "APPROVAL_REQUIRED", "path": relative, "operation": "write_text"}
         target_path = self._path(relative)
-        target = shlex.quote(str(target_path))
         encoded = base64.b64encode(content.encode("utf-8")).decode("ascii")
-        parent = shlex.quote(str(target_path.parent))
-        prefix = f"mkdir -p {parent} && " if create_parents else ""
-        result = self._exec(f"{prefix}printf %s {shlex.quote(encoded)} | base64 -d > {target}")
+        parent = self._path(str(PurePosixPath(relative).parent))
+        prefix = (
+            self._confined_script(parent, 'mkdir -p -- "$resolved_target"') + "; "
+            if create_parents
+            else ""
+        )
+        result = self._exec(
+            prefix
+            + self._confined_script(
+                target_path,
+                f'printf %s {shlex.quote(encoded)} | base64 -d > "$resolved_target"',
+            )
+        )
         result.update({"path": relative, "bytes": len(content.encode('utf-8')), "approved": True})
         return result
 
@@ -158,15 +180,19 @@ class SSHRemoteWorkspace:
     ) -> dict[str, Any]:
         if not argv:
             raise ValueError("remote command argv is required")
-        if not read_only and not approved:
+        if not approved:
             return {
                 "status": "APPROVAL_REQUIRED",
                 "operation": "remote_command",
                 "argv": list(argv),
                 "cwd": cwd,
+                "read_only_requested": bool(read_only),
             }
-        directory = shlex.quote(str(self._path(cwd)))
+        directory = self._path(cwd)
         rendered = " ".join(shlex.quote(str(item)) for item in argv)
-        result = self._exec(f"cd {directory} && exec {rendered}", timeout=timeout)
-        result.update({"argv": list(argv), "cwd": cwd, "approved": bool(approved), "read_only": bool(read_only)})
+        result = self._exec(
+            self._confined_script(directory, f'cd -- "$resolved_target" && exec {rendered}'),
+            timeout=timeout,
+        )
+        result.update({"argv": list(argv), "cwd": cwd, "approved": True, "read_only": bool(read_only)})
         return result
