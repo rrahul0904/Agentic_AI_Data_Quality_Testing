@@ -38,46 +38,38 @@
         <div class="grid two">
           <div class="card tall">
             <div class="card-head"><strong>Grounded agent</strong><span>auto / live / deterministic</span></div>
-            <div id="chat" class="chat"></div>
+            <div id="chat" class="chat"><div class="message system">Ask about code, lineage, Airflow, dbt, quality, migrations or warehouse operations.</div></div>
             <form id="agent-form" class="composer">
-              <textarea id="agent-question" placeholder="Ask about the project, lineage, quality, migration, or runtime…"></textarea>
-              <div class="composer-actions">
-                <select id="agent-mode">
-                  <option value="auto">Auto</option>
-                  <option value="deterministic">Deterministic</option>
-                  <option value="live">Live provider</option>
-                </select>
-                <button type="submit">Send</button>
-              </div>
+              <textarea id="agent-question" rows="3" placeholder="Why did this pipeline fail, and what is the first divergence?"></textarea>
+              <div class="row"><select id="agent-mode"><option>auto</option><option>deterministic</option><option>live</option></select><button type="submit">Run investigation</button></div>
             </form>
           </div>
-          <div class="stack">
-            <div class="card"><div class="card-head"><strong>Platform health</strong></div><pre id="health">Loading…</pre></div>
-            <div class="card"><div class="card-head"><strong>Competitive certification</strong></div><pre id="competitive">Loading…</pre></div>
-            <div class="card"><div class="card-head"><strong>CoCo certification</strong></div><pre id="coco">Loading…</pre></div>
+          <div class="card">
+            <div class="card-head"><strong>Competitive runtime</strong><span>evidence-backed</span></div>
+            <pre id="competitive">Loading…</pre>
           </div>
         </div>
       </section>
 
       <section id="view-sql" class="panel view">
         <div class="card tall">
-          <div class="card-head"><strong>SQL intelligence</strong><span>local deterministic review</span></div>
-          <textarea id="sql-input" class="editor" spellcheck="false">select * from raw.events;</textarea>
-          <div class="toolbar"><button id="sql-review">Review SQL</button></div>
-          <pre id="sql-output">Run a review to see findings.</pre>
+          <div class="card-head"><strong>SQL intelligence</strong><span>review · lineage · optimize</span></div>
+          <textarea id="sql-input" class="editor" spellcheck="false">SELECT * FROM orders o CROSS JOIN customers c;</textarea>
+          <div class="row"><button id="sql-review">Review SQL</button></div>
+          <pre id="sql-output">Ready.</pre>
         </div>
       </section>
 
       <section id="view-evidence" class="panel view">
         <div class="grid two">
-          <div class="card"><div class="card-head"><strong>Competitive evidence</strong></div><pre id="competitive">Loading…</pre></div>
-          <div class="card"><div class="card-head"><strong>CoCo evidence</strong></div><pre id="coco">Loading…</pre></div>
+          <div class="card"><div class="card-head"><strong>CoCo certification</strong><span>truthful status</span></div><pre id="coco">Loading…</pre></div>
+          <div class="card"><div class="card-head"><strong>Platform health</strong><span>local control plane</span></div><pre id="health">Loading…</pre></div>
         </div>
       </section>
 
       <section id="view-runtime" class="panel view">
         <div class="card">
-          <div class="card-head"><strong>Desktop runtime</strong></div>
+          <div class="card-head"><strong>Desktop runtime</strong><span>process supervision</span></div>
           <pre id="runtime">Loading…</pre>
         </div>
       </section>
