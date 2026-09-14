@@ -62,12 +62,10 @@ jobs:
           set -euo pipefail
           ready=false
           for i in $(seq 1 90); do
-            if curl -fsS http://127.0.0.1:8001/healthz > /tmp/api-health.json \
-              && curl -fsS http://127.0.0.1:3000/api/healthz > /tmp/web-health.json \
-              && curl -fsS http://127.0.0.1:3000/api/ade/healthz > /tmp/proxy-health.json \
-              && curl -fsS http://127.0.0.1:3000/api/ade/api/v1/overview > /tmp/overview.json \
-              && curl -fsS http://127.0.0.1:3000/api/ade/api/v1/competitive/status > /tmp/competitive.json \
-              && curl -fsS http://127.0.0.1:3000/ > /tmp/home.html; then
+            if curl -fsS --connect-timeout 2 --max-time 5 http://127.0.0.1:8001/healthz > /tmp/api-health.json \
+              && curl -fsS --connect-timeout 2 --max-time 5 http://127.0.0.1:3000/api/healthz > /tmp/web-health.json \
+              && curl -fsS --connect-timeout 2 --max-time 5 http://127.0.0.1:3000/api/ade/healthz > /tmp/proxy-health.json \
+              && curl -fsS --connect-timeout 2 --max-time 5 http://127.0.0.1:3000/ > /tmp/home.html; then
               ready=true
               break
             fi
@@ -84,6 +82,19 @@ jobs:
           for path in ("/tmp/api-health.json", "/tmp/web-health.json", "/tmp/proxy-health.json"):
               payload = json.load(open(path))
               assert payload["status"] == "PASS", (path, payload)
+          PY
+
+      - name: Verify browser-facing ADE product surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --connect-timeout 2 --max-time 30 \
+            http://127.0.0.1:3000/api/ade/api/v1/overview > /tmp/overview.json
+          curl -fsS --connect-timeout 2 --max-time 30 \
+            http://127.0.0.1:3000/api/ade/api/v1/competitive/status > /tmp/competitive.json
+
+          python - <<'PY'
+          import json
           overview = json.load(open("/tmp/overview.json"))
           assert overview["counts"]["oracle_tables"] == 144
           assert overview["counts"]["postgres_tables"] == 157
@@ -107,10 +118,12 @@ jobs:
             /api/v1/certification/coco \
             /api/v1/competitive/status \
             /api/v1/knowledge/status; do
-            curl -fsS "http://127.0.0.1:3000/api/ade${endpoint}" >/dev/null
+            curl -fsS --connect-timeout 2 --max-time 30 \
+              "http://127.0.0.1:3000/api/ade${endpoint}" >/dev/null
           done
 
-          curl -fsS http://127.0.0.1:3000/certification > /tmp/certification.html
+          curl -fsS --connect-timeout 2 --max-time 30 \
+            http://127.0.0.1:3000/certification > /tmp/certification.html
           grep -q "ADE OS" /tmp/home.html
           grep -q "Agentic" /tmp/home.html
           grep -q "Certification" /tmp/certification.html
