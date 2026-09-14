@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import sqlite3
 from typing import Any, Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -115,6 +116,27 @@ def _project_root() -> Path:
 
 def _search_index(index_name: str = "default") -> ADESearchIndex:
     return ADESearchIndex(_project_root() / ".ade" / "search.db", index_name=index_name)
+
+
+def _delete_document_manifest(index: ADESearchIndex, source: str) -> None:
+    """Invalidate document sync state when the underlying search source is removed."""
+
+    with sqlite3.connect(index.database) as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ade_document_manifest (
+                index_name TEXT NOT NULL,
+                source TEXT NOT NULL,
+                sync_hash TEXT NOT NULL,
+                chunk_ids_json TEXT NOT NULL,
+                PRIMARY KEY(index_name, source)
+            )
+            """
+        )
+        connection.execute(
+            "DELETE FROM ade_document_manifest WHERE index_name=? AND source=?",
+            (index.index_name, source),
+        )
 
 
 def _route(application: FastAPI, path: str, method: str) -> bool:
@@ -293,6 +315,7 @@ def attach_competitive_routes(application: FastAPI) -> FastAPI:
         try:
             index = _search_index(payload.index_name)
             removed = index.delete_source(payload.source)
+            _delete_document_manifest(index, payload.source)
             return {"status": "PASS", "removed": removed, "index": index.stats()}
         except (OSError, ValueError, RuntimeError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
