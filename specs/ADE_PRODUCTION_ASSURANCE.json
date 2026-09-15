@@ -27,6 +27,7 @@
   "external_evidence_contract": {
     "required_fields": [
       "status",
+      "commit_sha",
       "executed_at",
       "artifact_uri",
       "evidence_sha256"
@@ -35,6 +36,7 @@
       "PASS_EXTERNAL",
       "FAIL_EXTERNAL"
     ],
+    "commit_binding_rule": "commit_sha must exactly match the SHA being certified",
     "superiority_metrics": {
       "required_for_superiority": [
         "winner",
