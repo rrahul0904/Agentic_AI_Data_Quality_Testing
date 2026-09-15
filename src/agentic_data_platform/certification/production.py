@@ -57,22 +57,31 @@ _EXTERNAL_TRACKS = (
 )
 
 _REQUIRED_EXTERNAL_FIELDS = (
+    "commit_sha",
     "executed_at",
     "artifact_uri",
     "evidence_sha256",
 )
 
 
-def _valid_external_evidence(record: Mapping[str, Any]) -> bool:
+def _valid_external_evidence(record: Mapping[str, Any], *, expected_commit_sha: str) -> bool:
     if record.get("status") not in {"PASS_EXTERNAL", "FAIL_EXTERNAL"}:
         return False
     if any(not str(record.get(field, "")).strip() for field in _REQUIRED_EXTERNAL_FIELDS):
         return False
+    evidence_commit_sha = str(record.get("commit_sha", "")).strip()
+    if not _SHA.fullmatch(evidence_commit_sha):
+        return False
+    if evidence_commit_sha.lower() != expected_commit_sha.lower():
+        return False
     return bool(_SHA256.fullmatch(str(record.get("evidence_sha256", "")).strip()))
 
 
-def _superiority_proven(record: Mapping[str, Any]) -> bool:
-    if record.get("status") != "PASS_EXTERNAL" or not _valid_external_evidence(record):
+def _superiority_proven(record: Mapping[str, Any], *, expected_commit_sha: str) -> bool:
+    if (
+        record.get("status") != "PASS_EXTERNAL"
+        or not _valid_external_evidence(record, expected_commit_sha=expected_commit_sha)
+    ):
         return False
     metrics = record.get("metrics")
     if not isinstance(metrics, Mapping):
@@ -124,14 +133,14 @@ def build_production_certification(
                 "commit_sha": sha,
                 "reason": "requires a real executed external run and immutable evidence artifact",
             }
-        elif _valid_external_evidence(supplied):
+        elif _valid_external_evidence(supplied, expected_commit_sha=sha):
             status = AssuranceStatus(str(supplied["status"]))
-            evidence = {"commit_sha": sha, **dict(supplied)}
+            evidence = {**dict(supplied), "commit_sha": sha}
         else:
             status = AssuranceStatus.BLOCKED_EXTERNAL
             evidence = {
                 "commit_sha": sha,
-                "reason": "external evidence was supplied but failed the evidence contract",
+                "reason": "external evidence was supplied but failed the exact-head evidence contract",
                 "supplied": dict(supplied),
             }
         records.append(
@@ -144,7 +153,7 @@ def build_production_certification(
         )
 
     superiority_record = external.get("cross_product_superiority_benchmark", {})
-    superior = _superiority_proven(superiority_record)
+    superior = _superiority_proven(superiority_record, expected_commit_sha=sha)
     counts: dict[str, int] = {}
     for record in records:
         counts[record["status"]] = counts.get(record["status"], 0) + 1
@@ -159,7 +168,7 @@ def build_production_certification(
         "truthfulness": {
             "exact_head_only": True,
             "local_ci_never_implies_external_pass": True,
-            "external_pass_requires_executed_at_artifact_uri_and_sha256": True,
+            "external_pass_requires_matching_commit_executed_at_artifact_uri_and_sha256": True,
             "superiority_requires_executed_comparative_metrics": True,
         },
     }
