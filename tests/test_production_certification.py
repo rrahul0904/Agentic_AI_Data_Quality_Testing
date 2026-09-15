@@ -61,6 +61,24 @@ def test_invalid_external_evidence_fails_closed() -> None:
     assert payload["superior"] is False
 
 
+def test_malformed_external_track_payload_fails_closed(tmp_path) -> None:
+    evidence_file = tmp_path / "evidence.json"
+    evidence_file.write_text(
+        json.dumps({"snowflake_cortex_search_live": "not-an-evidence-object"}),
+        encoding="utf-8",
+    )
+    external = load_external_evidence(evidence_file)
+    assert external["snowflake_cortex_search_live"] == "not-an-evidence-object"
+
+    payload = build_production_certification(SHA, external_evidence=external)
+    record = next(
+        item for item in payload["records"] if item["capability"] == "snowflake_cortex_search_live"
+    )
+    assert record["status"] == AssuranceStatus.BLOCKED_EXTERNAL.value
+    assert record["evidence"]["supplied"] == "not-an-evidence-object"
+    assert payload["superior"] is False
+
+
 def test_external_evidence_from_another_commit_fails_closed() -> None:
     payload = build_production_certification(
         SHA,
