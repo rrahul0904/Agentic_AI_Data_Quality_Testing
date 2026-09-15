@@ -180,6 +180,23 @@ def test_runtime_api_reports_but_does_not_self_certify(monkeypatch) -> None:
     assert body["superior"] is False
 
 
+def test_runtime_api_blocks_missing_configured_external_evidence(monkeypatch, tmp_path) -> None:
+    missing_file = tmp_path / "missing.json"
+    monkeypatch.setenv("ADE_COMMIT_SHA", SHA)
+    monkeypatch.setenv("ADE_EXTERNAL_ASSURANCE_EVIDENCE", str(missing_file))
+
+    client = TestClient(create_app())
+    response = client.get("/api/v1/certification/production")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == AssuranceStatus.BLOCKED_EXTERNAL.value
+    assert body["superior"] is False
+    external = [record for record in body["records"] if record["track"] == "EXTERNAL_ASSURANCE"]
+    assert external
+    assert {record["status"] for record in external} == {AssuranceStatus.BLOCKED_EXTERNAL.value}
+    assert body["truthfulness"]["external_evidence_load_failed"] is True
+
+
 def test_runtime_api_blocks_malformed_external_evidence(monkeypatch, tmp_path) -> None:
     evidence_file = tmp_path / "malformed.json"
     evidence_file.write_text("{not-json", encoding="utf-8")
