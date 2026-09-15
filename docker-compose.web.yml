@@ -10,6 +10,8 @@ services:
       ADE_DATABASE_PATH: /state/control-plane.db
       ADE_QUALITY_DATABASE: /state/quality.db
       ADE_INVESTIGATION_DATABASE: /state/investigations.db
+      ADE_COMMIT_SHA: ${ADE_COMMIT_SHA:-}
+      ADE_EXTERNAL_ASSURANCE_EVIDENCE: ${ADE_EXTERNAL_ASSURANCE_EVIDENCE:-}
     volumes:
       - ade-state:/state
       - ade-runtime:/app/.ade
