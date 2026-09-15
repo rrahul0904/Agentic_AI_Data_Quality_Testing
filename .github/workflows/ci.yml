@@ -103,7 +103,7 @@ jobs:
             agentic-data-platform --help
           )
 
-      - name: Run operator-console smoke
+      - name: Run operator-console end-to-end proxy smoke
         shell: bash
         run: |
           set -euo pipefail
@@ -118,14 +118,18 @@ jobs:
           API_PID=$!
           (
             cd apps/web
-            NEXT_PUBLIC_ADE_API_URL=http://127.0.0.1:8001 npm run start -- --hostname 127.0.0.1 --port 3000 > /tmp/ade-web.log 2>&1
+            ADE_API_URL=http://127.0.0.1:8001 npm run start -- --hostname 127.0.0.1 --port 3000 > /tmp/ade-web.log 2>&1
           ) &
           WEB_PID=$!
           trap 'kill $API_PID $WEB_PID 2>/dev/null || true' EXIT
 
           ready=false
           for i in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:8001/api/v1/overview > /tmp/overview.json \
+            if curl -fsS http://127.0.0.1:8001/healthz > /tmp/backend-health.json \
+              && curl -fsS http://127.0.0.1:3000/api/healthz > /tmp/web-health.json \
+              && curl -fsS http://127.0.0.1:3000/api/ade/healthz > /tmp/proxy-health.json \
+              && curl -fsS http://127.0.0.1:8001/api/v1/overview > /tmp/backend-overview.json \
+              && curl -fsS http://127.0.0.1:3000/api/ade/api/v1/overview > /tmp/proxy-overview.json \
               && curl -fsS http://127.0.0.1:3000 > /tmp/console.html; then
               ready=true
               break
@@ -142,21 +146,43 @@ jobs:
 
           python - <<'PY'
           import json
-          data = json.load(open("/tmp/overview.json"))
-          assert data["counts"]["oracle_tables"] == 144
-          assert data["counts"]["postgres_tables"] == 157
-          assert data["counts"]["airflow_dags"] >= 57
-          assert data["counts"]["dbt_models"] == 70
-          assert data["counts"]["tools"] >= 50
+          backend_health = json.load(open("/tmp/backend-health.json"))
+          web_health = json.load(open("/tmp/web-health.json"))
+          proxy_health = json.load(open("/tmp/proxy-health.json"))
+          backend = json.load(open("/tmp/backend-overview.json"))
+          proxy = json.load(open("/tmp/proxy-overview.json"))
+
+          assert backend_health["status"] == "PASS"
+          assert web_health["status"] == "PASS"
+          assert proxy_health["status"] == "PASS"
+          # Overview is generated independently per request, so compare only its stable
+          # operator-console contract rather than request-time/runtime fields.
+          assert proxy["counts"] == backend["counts"]
+          assert proxy["counts"]["oracle_tables"] == 144
+          assert proxy["counts"]["postgres_tables"] == 157
+          assert proxy["counts"]["airflow_dags"] >= 57
+          assert proxy["counts"]["dbt_models"] == 70
+          assert proxy["counts"]["tools"] >= 50
           PY
 
-          curl -fsS http://127.0.0.1:8001/api/v1/airflow/assets >/dev/null
-          curl -fsS http://127.0.0.1:8001/api/v1/providers >/dev/null
-          curl -fsS http://127.0.0.1:8001/api/v1/skills/catalog >/dev/null
-          curl -fsS http://127.0.0.1:8001/api/v1/training/status >/dev/null
+          for endpoint in \
+            /api/v1/platform/inventory \
+            /api/v1/airflow/inventory \
+            /api/v1/airflow/assets \
+            /api/v1/dbt/summary \
+            /api/v1/quality/summary \
+            /api/v1/providers \
+            /api/v1/skills/catalog \
+            /api/v1/training/status \
+            /api/v1/domains \
+            /api/v1/certification/coco \
+            /api/v1/competitive/status \
+            /api/v1/knowledge/status; do
+            curl -fsS "http://127.0.0.1:3000/api/ade${endpoint}" >/dev/null
+          done
+
+          grep -q "ADE OS" /tmp/console.html
           grep -q "Agentic" /tmp/console.html
-          grep -q "Providers" /tmp/console.html
-          grep -q "Settings / Doctor" /tmp/console.html
 
       - name: Generate exact-head release evidence
         env:
