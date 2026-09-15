@@ -17,9 +17,10 @@ from agentic_data_platform.certification.production import (
 SHA = "a" * 40
 
 
-def _external_record(*, status: str = "PASS_EXTERNAL") -> dict[str, object]:
+def _external_record(*, status: str = "PASS_EXTERNAL", commit_sha: str = SHA) -> dict[str, object]:
     return {
         "status": status,
+        "commit_sha": commit_sha,
         "executed_at": "2026-09-15T03:00:00Z",
         "artifact_uri": "s3://ade-certification/example.json",
         "evidence_sha256": hashlib.sha256(b"evidence").hexdigest(),
@@ -60,6 +61,21 @@ def test_invalid_external_evidence_fails_closed() -> None:
     assert payload["superior"] is False
 
 
+def test_external_evidence_from_another_commit_fails_closed() -> None:
+    payload = build_production_certification(
+        SHA,
+        external_evidence={
+            "snowflake_cortex_search_live": _external_record(commit_sha="b" * 40),
+        },
+    )
+    record = next(
+        item for item in payload["records"] if item["capability"] == "snowflake_cortex_search_live"
+    )
+    assert record["status"] == AssuranceStatus.BLOCKED_EXTERNAL.value
+    assert record["evidence"]["commit_sha"] == SHA
+    assert payload["superior"] is False
+
+
 def test_valid_external_pass_is_preserved_without_implying_superiority() -> None:
     payload = build_production_certification(
         SHA,
@@ -69,6 +85,7 @@ def test_valid_external_pass_is_preserved_without_implying_superiority() -> None
         item for item in payload["records"] if item["capability"] == "snowflake_cortex_search_live"
     )
     assert record["status"] == AssuranceStatus.PASS_EXTERNAL.value
+    assert record["evidence"]["commit_sha"] == SHA
     assert payload["superior"] is False
 
 
@@ -92,6 +109,20 @@ def test_superiority_stays_false_when_ade_does_not_win() -> None:
         "winner": "ADE",
         "ade_score": 0.80,
         "competitor_scores": {"competitor-a": 0.85},
+    }
+    payload = build_production_certification(
+        SHA,
+        external_evidence={"cross_product_superiority_benchmark": evidence},
+    )
+    assert payload["superior"] is False
+
+
+def test_superiority_stays_false_for_evidence_from_another_commit() -> None:
+    evidence = _external_record(commit_sha="b" * 40)
+    evidence["metrics"] = {
+        "winner": "ADE",
+        "ade_score": 0.91,
+        "competitor_scores": {"competitor-a": 0.81},
     }
     payload = build_production_certification(
         SHA,
