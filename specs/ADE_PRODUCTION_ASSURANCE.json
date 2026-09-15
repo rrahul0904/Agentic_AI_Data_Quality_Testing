@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "program": "ADE Production + Superiority Certification",
+  "principles": {
+    "exact_head_only": true,
+    "local_ci_never_implies_external_pass": true,
+    "external_pass_requires_immutable_evidence": true,
+    "superiority_requires_executed_comparative_metrics": true
+  },
+  "local_production_tracks": [
+    "production_web_api_container_topology",
+    "same_origin_operator_api_proxy",
+    "portable_docker_kubernetes_spcs_planning",
+    "governed_agent_approval_contracts",
+    "deterministic_search_sql_lineage_regressions",
+    "desktop_packaging_contract"
+  ],
+  "external_assurance_tracks": [
+    "snowflake_cortex_search_live",
+    "snowflake_ai_parse_document_live",
+    "snowflake_spcs_gpu_live",
+    "external_embedding_reranker_live",
+    "external_llm_provider_live",
+    "managed_staging_deployment",
+    "cross_product_superiority_benchmark"
+  ],
+  "external_evidence_contract": {
+    "required_fields": [
+      "status",
+      "executed_at",
+      "artifact_uri",
+      "evidence_sha256"
+    ],
+    "allowed_status": [
+      "PASS_EXTERNAL",
+      "FAIL_EXTERNAL"
+    ],
+    "superiority_metrics": {
+      "required_for_superiority": [
+        "winner",
+        "ade_score",
+        "competitor_scores"
+      ],
+      "rule": "winner must be ADE and ade_score must exceed every competitor score"
+    }
+  }
+}
