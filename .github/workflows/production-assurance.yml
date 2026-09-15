@@ -1,0 +1,92 @@
+name: production-assurance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/agentic_data_platform/certification/production.py"
+      - "src/agentic_data_platform/api/production_certification.py"
+      - "src/agentic_data_platform/api/__init__.py"
+      - "src/agentic_data_platform/certification/__init__.py"
+      - "tests/test_production_certification.py"
+      - "scripts/generate_production_certification.py"
+      - "specs/ADE_PRODUCTION_ASSURANCE.json"
+      - ".github/workflows/production-assurance.yml"
+  push:
+    branches:
+      - feature/ade-production-superiority-certification
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  assurance-contract:
+    name: Production/external assurance contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install ADE test dependencies
+        run: python -m pip install -e '.[dev,testbed]'
+
+      - name: Compile assurance surfaces
+        run: >-
+          python -m compileall -q
+          src/agentic_data_platform/certification/production.py
+          src/agentic_data_platform/api/production_certification.py
+          scripts/generate_production_certification.py
+
+      - name: Run production assurance regression tests
+        run: pytest -q tests/test_production_certification.py
+
+      - name: Ruff production assurance surfaces
+        run: >-
+          ruff check
+          src/agentic_data_platform/certification/production.py
+          src/agentic_data_platform/api/production_certification.py
+          src/agentic_data_platform/api/__init__.py
+          src/agentic_data_platform/certification/__init__.py
+          tests/test_production_certification.py
+          scripts/generate_production_certification.py
+
+      - name: Verify composed API route
+        run: |
+          python - <<'PY'
+          from agentic_data_platform.api import create_app
+          app = create_app()
+          matches = [
+              route for route in app.routes
+              if getattr(route, "path", None) == "/api/v1/certification/production"
+              and "GET" in (getattr(route, "methods", set()) or set())
+          ]
+          assert len(matches) == 1, len(matches)
+          PY
+
+      - name: Generate truthful exact-head candidate artifact
+        run: >-
+          python scripts/generate_production_certification.py
+          --commit-sha "${{ github.event.pull_request.head.sha || github.sha }}"
+          --output artifacts/production/assurance-candidate.json
+
+      - name: Assert candidate does not self-certify external or superiority state
+        run: |
+          python - <<'PY'
+          import json
+          payload = json.load(open("artifacts/production/assurance-candidate.json"))
+          assert payload["local_gate_passed"] is False
+          assert payload["superior"] is False
+          external = [r for r in payload["records"] if r["track"] == "EXTERNAL_ASSURANCE"]
+          assert external
+          assert all(r["status"] == "NOT_RUN_EXTERNAL" for r in external)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: production-assurance-candidate-${{ github.event.pull_request.head.sha || github.sha }}
+          path: artifacts/production/assurance-candidate.json
+          if-no-files-found: error
