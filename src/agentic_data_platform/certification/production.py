@@ -101,7 +101,7 @@ def build_production_certification(
     commit_sha: str,
     *,
     local_gate_passed: bool = False,
-    external_evidence: Mapping[str, Mapping[str, Any]] | None = None,
+    external_evidence: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build an exact-head assurance ledger without inferring external success from local CI."""
 
@@ -133,7 +133,9 @@ def build_production_certification(
                 "commit_sha": sha,
                 "reason": "requires a real executed external run and immutable evidence artifact",
             }
-        elif _valid_external_evidence(supplied, expected_commit_sha=sha):
+        elif isinstance(supplied, Mapping) and _valid_external_evidence(
+            supplied, expected_commit_sha=sha
+        ):
             status = AssuranceStatus(str(supplied["status"]))
             evidence = {**dict(supplied), "commit_sha": sha}
         else:
@@ -141,7 +143,7 @@ def build_production_certification(
             evidence = {
                 "commit_sha": sha,
                 "reason": "external evidence was supplied but failed the exact-head evidence contract",
-                "supplied": dict(supplied),
+                "supplied": dict(supplied) if isinstance(supplied, Mapping) else supplied,
             }
         records.append(
             AssuranceRecord(
@@ -153,7 +155,11 @@ def build_production_certification(
         )
 
     superiority_record = external.get("cross_product_superiority_benchmark", {})
-    superior = _superiority_proven(superiority_record, expected_commit_sha=sha)
+    superior = (
+        _superiority_proven(superiority_record, expected_commit_sha=sha)
+        if isinstance(superiority_record, Mapping)
+        else False
+    )
     counts: dict[str, int] = {}
     for record in records:
         counts[record["status"]] = counts.get(record["status"], 0) + 1
@@ -174,14 +180,14 @@ def build_production_certification(
     }
 
 
-def load_external_evidence(path: str | Path | None) -> dict[str, Mapping[str, Any]]:
+def load_external_evidence(path: str | Path | None) -> dict[str, Any]:
     if path is None:
         return {}
     source = Path(path)
     payload = json.loads(source.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("external evidence root must be a JSON object")
-    return {str(key): value for key, value in payload.items() if isinstance(value, Mapping)}
+    return {str(key): value for key, value in payload.items()}
 
 
 def write_production_certification(
@@ -189,7 +195,7 @@ def write_production_certification(
     commit_sha: str,
     *,
     local_gate_passed: bool = False,
-    external_evidence: Mapping[str, Mapping[str, Any]] | None = None,
+    external_evidence: Mapping[str, Any] | None = None,
 ) -> Path:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
