@@ -17,7 +17,7 @@ For container deployments, `docker-compose.web.yml` forwards:
 - `ADE_COMMIT_SHA`
 - `ADE_EXTERNAL_ASSURANCE_EVIDENCE`
 
-The external evidence path can point at a JSON artifact mounted into the runtime. Missing evidence is reported as `NOT_RUN_EXTERNAL`; malformed evidence is reported as `BLOCKED_EXTERNAL`.
+The external evidence path can point at a JSON artifact mounted into the runtime. Missing evidence is reported as `NOT_RUN_EXTERNAL`; malformed or wrong-SHA evidence is reported as `BLOCKED_EXTERNAL`.
 
 ## External evidence contract
 
@@ -26,17 +26,18 @@ Each completed external track must provide:
 ```json
 {
   "status": "PASS_EXTERNAL",
+  "commit_sha": "<exact 40-character SHA that was executed>",
   "executed_at": "2026-09-15T03:00:00Z",
   "artifact_uri": "s3://immutable-bucket/path/evidence.json",
   "evidence_sha256": "<64 hex characters>"
 }
 ```
 
-A claimed external PASS without all required fields fails closed.
+A claimed external PASS without all required fields fails closed. The evidence `commit_sha` must exactly match the SHA being certified; evidence produced by another build is never promoted or rebound to the current runtime.
 
 ## Superiority contract
 
-`superior=true` is allowed only for the `cross_product_superiority_benchmark` track when the external evidence is valid and contains executed comparative metrics:
+`superior=true` is allowed only for the `cross_product_superiority_benchmark` track when the external evidence is valid, is bound to the exact SHA being certified, and contains executed comparative metrics:
 
 ```json
 {
