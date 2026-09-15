@@ -19,7 +19,8 @@ RUN mkdir -p /state /app/.ade /app/hospitality-snowflake-data-platform/.ade
 ENV ADE_DATABASE_PATH=/state/control-plane.db \
     ADE_QUALITY_DATABASE=/state/quality.db \
     ADE_INVESTIGATION_DATABASE=/state/investigations.db \
-    ADE_DEMO_PROJECT=/app/hospitality-snowflake-data-platform
+    ADE_DEMO_PROJECT=/app/hospitality-snowflake-data-platform \
+    PYTHONPATH=/app/src
 
 EXPOSE 8001
 
