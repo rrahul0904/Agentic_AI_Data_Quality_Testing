@@ -34,7 +34,7 @@ def _external_evidence_from_environment() -> tuple[dict[str, object], bool]:
         return {}, False
     path = Path(configured).expanduser()
     if not path.is_file():
-        return {}, False
+        return {}, True
     try:
         return dict(load_external_evidence(path)), False
     except (json.JSONDecodeError, OSError, ValueError):
