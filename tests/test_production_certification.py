@@ -158,6 +158,7 @@ def test_load_external_evidence_requires_object(tmp_path) -> None:
 
 def test_runtime_api_is_unbound_without_build_sha(monkeypatch) -> None:
     monkeypatch.delenv("ADE_COMMIT_SHA", raising=False)
+    monkeypatch.delenv("ADE_EXTERNAL_ASSURANCE_EVIDENCE", raising=False)
     client = TestClient(create_app())
     response = client.get("/api/v1/certification/production")
     assert response.status_code == 200
@@ -168,6 +169,7 @@ def test_runtime_api_is_unbound_without_build_sha(monkeypatch) -> None:
 
 def test_runtime_api_reports_but_does_not_self_certify(monkeypatch) -> None:
     monkeypatch.setenv("ADE_COMMIT_SHA", SHA)
+    monkeypatch.delenv("ADE_EXTERNAL_ASSURANCE_EVIDENCE", raising=False)
     client = TestClient(create_app())
     response = client.get("/api/v1/certification/production")
     assert response.status_code == 200
@@ -176,3 +178,22 @@ def test_runtime_api_reports_but_does_not_self_certify(monkeypatch) -> None:
     assert body["commit_sha"] == SHA
     assert body["local_gate_passed"] is False
     assert body["superior"] is False
+
+
+def test_runtime_api_blocks_malformed_external_evidence(monkeypatch, tmp_path) -> None:
+    evidence_file = tmp_path / "malformed.json"
+    evidence_file.write_text("{not-json", encoding="utf-8")
+    monkeypatch.setenv("ADE_COMMIT_SHA", SHA)
+    monkeypatch.setenv("ADE_EXTERNAL_ASSURANCE_EVIDENCE", str(evidence_file))
+
+    client = TestClient(create_app())
+    response = client.get("/api/v1/certification/production")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == AssuranceStatus.BLOCKED_EXTERNAL.value
+    assert body["superior"] is False
+    external = [record for record in body["records"] if record["track"] == "EXTERNAL_ASSURANCE"]
+    assert external
+    assert {record["status"] for record in external} == {AssuranceStatus.BLOCKED_EXTERNAL.value}
+    assert body["counts"][AssuranceStatus.BLOCKED_EXTERNAL.value] == len(external)
+    assert body["truthfulness"]["external_evidence_load_failed"] is True
