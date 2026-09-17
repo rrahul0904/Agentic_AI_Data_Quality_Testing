@@ -39,6 +39,8 @@ RGA synthetic domain YAML
         |       +--> create-or-alter deploy SQL
         |
         +--> paired direct-SQL vs Semantic View benchmark workload
+        |
+        +--> manual Airflow orchestration with gated semantic deployment
 ```
 
 ## Quick start
@@ -51,6 +53,7 @@ python scripts/rga_testbed/generate_load_sql.py
 python scripts/rga_testbed/generate_dbt_project.py
 python scripts/rga_testbed/generate_semantic_view.py
 python scripts/rga_testbed/generate_benchmark_pack.py
+python scripts/rga_testbed/generate_airflow_dag.py
 ```
 
 For a bounded developer run that overrides only policy volume:
@@ -131,8 +134,34 @@ Verification uses `SYSTEM$CREATE_SEMANTIC_VIEW_FROM_YAML` in verify-only mode. D
 
 `generate_benchmark_pack.py` emits paired queries that calculate the same business questions directly from the MART and through the Semantic View. Initial workload pairs cover monthly loss ratio by cedant, ceded premium by treaty, and claims/exposure trends. The manifest declares concurrency checkpoints of 1, 5, 10, 25, and 50 so live Snowflake testing can compare latency and workload behavior without changing the business definition.
 
+## Guarded live execution
+
+`execute_snowflake_sql.py` is the explicit live-account boundary. It refuses to execute any SQL file unless `--confirm` is supplied, supports credential-free `--dry-run` hashing/evidence, tags live sessions with `RGA_SYNTHETIC_PIPELINE`, and always closes the Snowflake connection. Credentials stay in environment variables and are never written into generated SQL or manifests.
+
+Example dry-run:
+
+```bash
+python scripts/rga_testbed/execute_snowflake_sql.py \
+  --sql-file snowflake/rga_testbed/001_raw_tables.sql \
+  --confirm --dry-run
+```
+
+## Airflow orchestration
+
+`generate_airflow_dag.py` generates the manual `rga_synthetic_semantic_pipeline` DAG. It orchestrates:
+
+1. synthetic data generation;
+2. Snowflake/dbt/semantic/benchmark contract generation;
+3. Snowflake bootstrap;
+4. RAW loading;
+5. dbt build;
+6. server-side Semantic View verification;
+7. optional Semantic View deployment.
+
+The DAG has no schedule, disables catchup, allows only one active run, and defaults `deploy_semantic_view` to `false`. Deployment must be explicitly enabled when triggering the DAG.
+
 ## Current verification boundary
 
-Repository CI certifies deterministic generation, file validation, Snowflake DDL/load SQL generation, dbt scaffold generation, Semantic View contract generation, and benchmark-pair generation. **Live Snowflake object creation, dbt execution against Snowflake, Semantic View server-side verification, and live concurrency/credit measurements remain external-account verification steps and are not claimed by local CI.**
+Repository CI certifies deterministic generation, file validation, Snowflake DDL/load SQL generation, dbt scaffold generation, Semantic View contract generation, benchmark-pair generation, generated Airflow syntax, executor refusal without confirmation, and executor dry-run behavior. **Live Snowflake object creation, dbt execution against Snowflake, Semantic View server-side verification, and live concurrency/credit measurements remain external-account verification steps and are not claimed by local CI.**
 
-Next slices: guarded live Snowflake execution, Airflow orchestration, CDC/change-event fixtures, dbt execution evidence, semantic-query concurrency runner, Cortex Agent/MCP integration, and Power BI/Excel consumer validation.
+Next slices: CDC/change-event fixtures, live dbt/Snowflake evidence, semantic-query concurrency runner with query-history metrics, Cortex Agent/MCP integration, and Power BI/Excel consumer validation.
