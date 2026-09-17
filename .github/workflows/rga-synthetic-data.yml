@@ -30,7 +30,7 @@ concurrency:
 jobs:
   certify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -47,10 +47,21 @@ jobs:
         run: python scripts/rga_testbed/generate_data.py --preset tiny --policies 120 --seed 42 --output /tmp/rga-smoke
       - name: Validate generated dataset
         run: python scripts/rga_testbed/validate_dataset.py --input /tmp/rga-smoke
-      - name: Compile Snowflake DDL
-        run: python scripts/rga_testbed/generate_snowflake_ddl.py --output /tmp/rga-smoke/001_raw_tables.sql
-      - name: Verify critical Snowflake objects
+      - name: Compile Snowflake DDL and load SQL
         run: |
-          grep -q 'CREATE TABLE IF NOT EXISTS RAW.POLICIES' /tmp/rga-smoke/001_raw_tables.sql
-          grep -q 'CREATE TABLE IF NOT EXISTS RAW.CLAIMS' /tmp/rga-smoke/001_raw_tables.sql
-          grep -q 'CREATE TABLE IF NOT EXISTS RAW.EXPOSURE_MONTHLY' /tmp/rga-smoke/001_raw_tables.sql
+          python scripts/rga_testbed/generate_snowflake_ddl.py --output /tmp/rga-smoke/001_raw_tables.sql
+          python scripts/rga_testbed/generate_load_sql.py --output /tmp/rga-smoke/002_load_raw.sql --local-root /tmp/rga-smoke/csv
+      - name: Generate dbt analytics project
+        run: python scripts/rga_testbed/generate_dbt_project.py --output /tmp/rga-dbt
+      - name: Generate Snowflake semantic view contract
+        run: python scripts/rga_testbed/generate_semantic_view.py --output /tmp/rga-semantic
+      - name: Verify critical contracts
+        run: |
+          grep -q 'CREATE SCHEMA IF NOT EXISTS SEMANTIC' /tmp/rga-smoke/001_raw_tables.sql
+          grep -q 'COPY INTO RAW.POLICIES' /tmp/rga-smoke/002_load_raw.sql
+          grep -q 'COPY INTO RAW.CLAIMS' /tmp/rga-smoke/002_load_raw.sql
+          grep -q "source('rga_raw', 'policies')" /tmp/rga-dbt/models/staging/stg_policies.sql
+          grep -q "alias='REINSURANCE_PERFORMANCE'" /tmp/rga-dbt/models/marts/mart_reinsurance_performance.sql
+          grep -q 'CEDED_LOSS_RATIO' /tmp/rga-semantic/rga_reinsurance_performance.yml
+          grep -q 'SYSTEM$CREATE_SEMANTIC_VIEW_FROM_YAML' /tmp/rga-semantic/verify_semantic_view.sql
+          grep -q 'SYSTEM$CREATE_SEMANTIC_VIEW_FROM_YAML' /tmp/rga-semantic/deploy_semantic_view.sql
