@@ -57,6 +57,8 @@ jobs:
         run: python scripts/rga_testbed/generate_semantic_view.py --output /tmp/rga-semantic
       - name: Generate governed AI contracts
         run: python scripts/rga_testbed/generate_ai_integration.py --output /tmp/rga-ai
+      - name: Generate Microsoft consumer contracts
+        run: python scripts/rga_testbed/generate_microsoft_consumer_pack.py --output /tmp/rga-microsoft
       - name: Generate paired performance benchmark pack
         run: python scripts/rga_testbed/generate_benchmark_pack.py --output /tmp/rga-benchmarks
       - name: Certify benchmark runner dry-run
@@ -99,6 +101,10 @@ jobs:
           grep -q 'RGA_SYNTHETIC_TESTBED.SEMANTIC.RGA_REINSURANCE_PERFORMANCE' /tmp/rga-ai/create_agent.sql
           grep -q 'CORTEX_AGENT_RUN' /tmp/rga-ai/create_mcp_server.sql
           ! grep -q 'SYSTEM_EXECUTE_SQL' /tmp/rga-ai/mcp_spec.yml
+          grep -q 'private_preview_feature_gate' /tmp/rga-microsoft/consumer_contract.json
+          grep -q 'required_connection_mode' /tmp/rga-microsoft/consumer_contract.json
+          grep -q '<XMLA_ENDPOINT_NAME>' /tmp/rga-microsoft/xmla_setup.template.sql
+          grep -q 'Direct-connection fallback is connectivity evidence, not semantic-parity certification' /tmp/rga-microsoft/PARITY_CHECKLIST.md
           grep -q 'recommended_concurrency' /tmp/rga-benchmarks/manifest.json
           grep -q 'semantic_view(' /tmp/rga-benchmarks/monthly_loss_ratio_by_cedant.semantic.sql
           grep -q 'semantic_deploy_gate' /tmp/rga-airflow/rga_synthetic_pipeline.py
