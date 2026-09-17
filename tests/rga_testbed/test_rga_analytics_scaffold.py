@@ -83,3 +83,36 @@ def test_benchmark_pack_pairs_direct_and_semantic_queries(tmp_path: Path):
         assert "MART.REINSURANCE_PERFORMANCE" in direct
         assert "semantic_view(" in semantic.lower()
         assert "RGA_REINSURANCE_PERFORMANCE" in semantic
+
+
+def test_live_executor_is_fail_closed(tmp_path: Path):
+    module = load_module("rga_execute", ROOT / "scripts" / "rga_testbed" / "execute_snowflake_sql.py")
+    sql_file = tmp_path / "test.sql"
+    sql_file.write_text("select 1;\n", encoding="utf-8")
+    assert module.validate_request(sql_file, confirm=False) == ["Refusing Snowflake execution without --confirm"]
+    assert module.validate_request(sql_file, confirm=True) == []
+    kwargs = module.connection_kwargs(
+        {
+            "SNOWFLAKE_ACCOUNT": "example",
+            "SNOWFLAKE_USER": "runner",
+            "SNOWFLAKE_WAREHOUSE": "WH",
+            "SNOWFLAKE_PASSWORD": "secret",
+        }
+    )
+    assert kwargs["session_parameters"]["QUERY_TAG"] == "RGA_SYNTHETIC_PIPELINE"
+    assert kwargs["database"] == "RGA_SYNTHETIC_TESTBED"
+
+
+def test_airflow_dag_is_manual_and_deploy_gated(tmp_path: Path):
+    module = load_module("rga_airflow", ROOT / "scripts" / "rga_testbed" / "generate_airflow_dag.py")
+    output = tmp_path / "rga_synthetic_pipeline.py"
+    module.generate(output)
+    dag = output.read_text(encoding="utf-8")
+    compile(dag, str(output), "exec")
+    assert 'dag_id="rga_synthetic_semantic_pipeline"' in dag
+    assert "schedule=None" in dag
+    assert "catchup=False" in dag
+    assert '"deploy_semantic_view": False' in dag
+    assert "semantic_deploy_gate" in dag
+    assert "execute_snowflake_sql.py" in dag
+    assert "dbt build" in dag
