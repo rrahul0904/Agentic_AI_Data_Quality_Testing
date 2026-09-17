@@ -69,3 +69,17 @@ def test_semantic_verify_and_deploy_are_separate(tmp_path: Path):
     assert "RGA_SYNTHETIC_TESTBED.SEMANTIC" in verify_sql
     assert "  TRUE,\n  TRUE" in verify_sql
     assert "  FALSE,\n  TRUE" in deploy_sql
+
+
+def test_benchmark_pack_pairs_direct_and_semantic_queries(tmp_path: Path):
+    module = load_module("rga_benchmark", ROOT / "scripts" / "rga_testbed" / "generate_benchmark_pack.py")
+    manifest = module.generate(tmp_path, "RGA_SYNTHETIC_TESTBED")
+    assert manifest["query_tag"] == "RGA_SEMANTIC_BENCHMARK"
+    assert manifest["recommended_concurrency"][-1] == 50
+    assert len(manifest["queries"]) >= 3
+    for entry in manifest["queries"]:
+        direct = (tmp_path / entry["direct_sql"]).read_text(encoding="utf-8")
+        semantic = (tmp_path / entry["semantic_sql"]).read_text(encoding="utf-8")
+        assert "MART.REINSURANCE_PERFORMANCE" in direct
+        assert "semantic_view(" in semantic.lower()
+        assert "RGA_REINSURANCE_PERFORMANCE" in semantic
