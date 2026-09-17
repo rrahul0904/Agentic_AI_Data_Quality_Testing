@@ -31,6 +31,11 @@ DBT_DIR = f"{REPO}/rga-snowflake-data-platform/dbt"
 SEMANTIC_DIR = f"{REPO}/rga-snowflake-data-platform/semantic"
 SQL_DIR = f"{REPO}/snowflake/rga_testbed"
 
+
+def semantic_deploy_enabled(**context):
+    return bool(context["params"].get("deploy_semantic_view", False))
+
+
 with DAG(
     dag_id="rga_synthetic_semantic_pipeline",
     start_date=datetime(2026, 1, 1),
@@ -94,7 +99,7 @@ with DAG(
 
     semantic_deploy_gate = ShortCircuitOperator(
         task_id="semantic_deploy_gate",
-        python_callable=lambda **context: bool(context["params"].get("deploy_semantic_view", False)),
+        python_callable=semantic_deploy_enabled,
     )
 
     deploy_semantic_view = BashOperator(
