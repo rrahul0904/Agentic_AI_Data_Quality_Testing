@@ -1,0 +1,56 @@
+name: rga-synthetic-data
+
+on:
+  pull_request:
+    branches:
+      - feature/snowflake-pipeline-testing
+    paths:
+      - "config/rga_domain.yml"
+      - "scripts/rga_testbed/**"
+      - "tests/rga_testbed/**"
+      - "docs/RGA_SYNTHETIC_DATA_PACK.md"
+      - ".github/workflows/rga-synthetic-data.yml"
+  push:
+    branches:
+      - feature/rga-synthetic-domain-pack
+    paths:
+      - "config/rga_domain.yml"
+      - "scripts/rga_testbed/**"
+      - "tests/rga_testbed/**"
+      - "docs/RGA_SYNTHETIC_DATA_PACK.md"
+      - ".github/workflows/rga-synthetic-data.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rga-synthetic-data-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install repository dependencies
+        run: python -m pip install -e '.[dev]'
+      - name: Compile RGA Python surface
+        run: python -m compileall -q scripts/rga_testbed tests/rga_testbed
+      - name: Run RGA tests
+        run: python -m pytest -q -p no:cacheprovider tests/rga_testbed
+      - name: Generate bounded smoke dataset
+        run: python scripts/rga_testbed/generate_data.py --preset tiny --policies 120 --seed 42 --output /tmp/rga-smoke
+      - name: Validate generated dataset
+        run: python scripts/rga_testbed/validate_dataset.py --input /tmp/rga-smoke
+      - name: Compile Snowflake DDL
+        run: python scripts/rga_testbed/generate_snowflake_ddl.py --output /tmp/rga-smoke/001_raw_tables.sql
+      - name: Verify critical Snowflake objects
+        run: |
+          grep -q 'CREATE TABLE IF NOT EXISTS RAW.POLICIES' /tmp/rga-smoke/001_raw_tables.sql
+          grep -q 'CREATE TABLE IF NOT EXISTS RAW.CLAIMS' /tmp/rga-smoke/001_raw_tables.sql
+          grep -q 'CREATE TABLE IF NOT EXISTS RAW.EXPOSURE_MONTHLY' /tmp/rga-smoke/001_raw_tables.sql
