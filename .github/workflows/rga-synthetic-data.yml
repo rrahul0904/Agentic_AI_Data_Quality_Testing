@@ -55,6 +55,8 @@ jobs:
         run: python scripts/rga_testbed/generate_dbt_project.py --output /tmp/rga-dbt
       - name: Generate Snowflake semantic view contract
         run: python scripts/rga_testbed/generate_semantic_view.py --output /tmp/rga-semantic
+      - name: Generate governed AI contracts
+        run: python scripts/rga_testbed/generate_ai_integration.py --output /tmp/rga-ai
       - name: Generate paired performance benchmark pack
         run: python scripts/rga_testbed/generate_benchmark_pack.py --output /tmp/rga-benchmarks
       - name: Certify benchmark runner dry-run
@@ -85,6 +87,7 @@ jobs:
       - name: Verify critical contracts
         run: |
           grep -q 'CREATE SCHEMA IF NOT EXISTS SEMANTIC' /tmp/rga-smoke/001_raw_tables.sql
+          grep -q 'CREATE SCHEMA IF NOT EXISTS AI' /tmp/rga-smoke/001_raw_tables.sql
           grep -q 'COPY INTO RAW.POLICIES' /tmp/rga-smoke/002_load_raw.sql
           grep -q 'COPY INTO RAW.CLAIMS' /tmp/rga-smoke/002_load_raw.sql
           grep -q "source('rga_raw', 'policies')" /tmp/rga-dbt/models/staging/stg_policies.sql
@@ -92,6 +95,10 @@ jobs:
           grep -q 'CEDED_LOSS_RATIO' /tmp/rga-semantic/rga_reinsurance_performance.yml
           grep -q 'SYSTEM$CREATE_SEMANTIC_VIEW_FROM_YAML' /tmp/rga-semantic/verify_semantic_view.sql
           grep -q 'SYSTEM$CREATE_SEMANTIC_VIEW_FROM_YAML' /tmp/rga-semantic/deploy_semantic_view.sql
+          grep -q 'cortex_analyst_text_to_sql' /tmp/rga-ai/create_agent.sql
+          grep -q 'RGA_SYNTHETIC_TESTBED.SEMANTIC.RGA_REINSURANCE_PERFORMANCE' /tmp/rga-ai/create_agent.sql
+          grep -q 'CORTEX_AGENT_RUN' /tmp/rga-ai/create_mcp_server.sql
+          ! grep -q 'SYSTEM_EXECUTE_SQL' /tmp/rga-ai/mcp_spec.yml
           grep -q 'recommended_concurrency' /tmp/rga-benchmarks/manifest.json
           grep -q 'semantic_view(' /tmp/rga-benchmarks/monthly_loss_ratio_by_cedant.semantic.sql
           grep -q 'semantic_deploy_gate' /tmp/rga-airflow/rga_synthetic_pipeline.py
