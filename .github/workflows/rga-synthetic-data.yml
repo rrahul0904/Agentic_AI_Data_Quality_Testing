@@ -55,6 +55,8 @@ jobs:
         run: python scripts/rga_testbed/generate_dbt_project.py --output /tmp/rga-dbt
       - name: Generate Snowflake semantic view contract
         run: python scripts/rga_testbed/generate_semantic_view.py --output /tmp/rga-semantic
+      - name: Generate paired performance benchmark pack
+        run: python scripts/rga_testbed/generate_benchmark_pack.py --output /tmp/rga-benchmarks
       - name: Verify critical contracts
         run: |
           grep -q 'CREATE SCHEMA IF NOT EXISTS SEMANTIC' /tmp/rga-smoke/001_raw_tables.sql
@@ -65,3 +67,5 @@ jobs:
           grep -q 'CEDED_LOSS_RATIO' /tmp/rga-semantic/rga_reinsurance_performance.yml
           grep -q 'SYSTEM$CREATE_SEMANTIC_VIEW_FROM_YAML' /tmp/rga-semantic/verify_semantic_view.sql
           grep -q 'SYSTEM$CREATE_SEMANTIC_VIEW_FROM_YAML' /tmp/rga-semantic/deploy_semantic_view.sql
+          grep -q 'recommended_concurrency' /tmp/rga-benchmarks/manifest.json
+          grep -q 'semantic_view(' /tmp/rga-benchmarks/monthly_loss_ratio_by_cedant.semantic.sql
