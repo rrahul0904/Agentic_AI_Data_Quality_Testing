@@ -57,6 +57,20 @@ jobs:
         run: python scripts/rga_testbed/generate_semantic_view.py --output /tmp/rga-semantic
       - name: Generate paired performance benchmark pack
         run: python scripts/rga_testbed/generate_benchmark_pack.py --output /tmp/rga-benchmarks
+      - name: Generate Airflow orchestration
+        run: |
+          python scripts/rga_testbed/generate_airflow_dag.py --output /tmp/rga-airflow/rga_synthetic_pipeline.py
+          python -m py_compile /tmp/rga-airflow/rga_synthetic_pipeline.py
+      - name: Certify Snowflake executor fail-closed behavior
+        run: |
+          set +e
+          python scripts/rga_testbed/execute_snowflake_sql.py --sql-file /tmp/rga-smoke/001_raw_tables.sql >/tmp/executor-refusal.json
+          code=$?
+          set -e
+          test "$code" -eq 2
+          grep -q 'Refusing Snowflake execution without --confirm' /tmp/executor-refusal.json
+          python scripts/rga_testbed/execute_snowflake_sql.py --sql-file /tmp/rga-smoke/001_raw_tables.sql --confirm --dry-run >/tmp/executor-dry-run.json
+          grep -q 'DRY_RUN' /tmp/executor-dry-run.json
       - name: Verify critical contracts
         run: |
           grep -q 'CREATE SCHEMA IF NOT EXISTS SEMANTIC' /tmp/rga-smoke/001_raw_tables.sql
@@ -69,3 +83,4 @@ jobs:
           grep -q 'SYSTEM$CREATE_SEMANTIC_VIEW_FROM_YAML' /tmp/rga-semantic/deploy_semantic_view.sql
           grep -q 'recommended_concurrency' /tmp/rga-benchmarks/manifest.json
           grep -q 'semantic_view(' /tmp/rga-benchmarks/monthly_loss_ratio_by_cedant.semantic.sql
+          grep -q 'semantic_deploy_gate' /tmp/rga-airflow/rga_synthetic_pipeline.py
