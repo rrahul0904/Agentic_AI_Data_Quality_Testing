@@ -57,6 +57,17 @@ jobs:
         run: python scripts/rga_testbed/generate_semantic_view.py --output /tmp/rga-semantic
       - name: Generate paired performance benchmark pack
         run: python scripts/rga_testbed/generate_benchmark_pack.py --output /tmp/rga-benchmarks
+      - name: Certify benchmark runner dry-run
+        run: |
+          set +e
+          python scripts/rga_testbed/run_snowflake_benchmark.py --manifest /tmp/rga-benchmarks/manifest.json --mode both --concurrency 10 --iterations 2 >/tmp/benchmark-refusal.json
+          code=$?
+          set -e
+          test "$code" -eq 2
+          grep -q 'Refusing live Snowflake benchmark without --confirm-live' /tmp/benchmark-refusal.json
+          python scripts/rga_testbed/run_snowflake_benchmark.py --manifest /tmp/rga-benchmarks/manifest.json --mode both --concurrency 10 --iterations 2 --dry-run >/tmp/benchmark-dry-run.json
+          grep -q 'DRY_RUN' /tmp/benchmark-dry-run.json
+          grep -q '"task_count": 12' /tmp/benchmark-dry-run.json
       - name: Generate Airflow orchestration
         run: |
           python scripts/rga_testbed/generate_airflow_dag.py --output /tmp/rga-airflow/rga_synthetic_pipeline.py
