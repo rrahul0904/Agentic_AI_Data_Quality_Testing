@@ -47,6 +47,14 @@ jobs:
         run: python scripts/rga_testbed/generate_data.py --preset tiny --policies 120 --seed 42 --output /tmp/rga-smoke
       - name: Validate generated dataset
         run: python scripts/rga_testbed/validate_dataset.py --input /tmp/rga-smoke
+      - name: Generate CDC and late-arriving fixtures
+        run: |
+          python scripts/rga_testbed/generate_change_events.py --input /tmp/rga-smoke --output /tmp/rga-cdc --events-per-type 5
+          grep -q '"status": "PASS"' /tmp/rga-cdc/manifest.json
+          grep -q '"event_count": 15' /tmp/rga-cdc/manifest.json
+          grep -q 'late_arriving_claim' /tmp/rga-cdc/change_events.jsonl
+          grep -q 'premium_correction' /tmp/rga-cdc/change_events.jsonl
+          grep -q 'policy_status_change' /tmp/rga-cdc/change_events.jsonl
       - name: Compile Snowflake DDL and load SQL
         run: |
           python scripts/rga_testbed/generate_snowflake_ddl.py --output /tmp/rga-smoke/001_raw_tables.sql
