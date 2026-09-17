@@ -8,6 +8,7 @@ This domain pack extends the existing Snowflake pipeline testbed without changin
 RGA synthetic domain YAML
         |
         +--> deterministic CSV generation + checksums/manifests
+        |       +--> CDC / correction / late-arrival fixtures
         |
         +--> Snowflake RAW DDL + internal stage + fail-closed COPY SQL
         |
@@ -37,6 +38,7 @@ The current model covers cedants, treaties, products, insured lives, policies, c
 ```bash
 python scripts/rga_testbed/generate_data.py --preset tiny --seed 42
 python scripts/rga_testbed/validate_dataset.py --input artifacts/rga_testbed
+python scripts/rga_testbed/generate_change_events.py --input artifacts/rga_testbed
 python scripts/rga_testbed/generate_snowflake_ddl.py
 python scripts/rga_testbed/generate_load_sql.py
 python scripts/rga_testbed/generate_dbt_project.py
@@ -68,6 +70,16 @@ Monthly exposure can produce roughly 12x active-policy volume. The stress preset
 ## Business invariants
 
 The generator enforces or derives policy-to-cedant/treaty relationships, insured/product relationships, positive premium economics, treaty-share-based cession, underwriting outcomes, claim chronology, gross-vs-ceded claim bounds, claim payment/reserve behavior, and active-policy monthly exposure.
+
+## CDC and late-arriving data
+
+`generate_change_events.py` produces deterministic JSONL event envelopes over a generated baseline. The current scenarios are:
+
+- `policy_status_change`: UPDATE events with before/after policy images;
+- `premium_correction`: UPDATE events that preserve treaty-share-based ceded premium relationships;
+- `late_arriving_claim`: INSERT events where the business event date precedes the report/effective date.
+
+The fixtures have stable event IDs and a manifest so they can become inputs for incremental dbt, MERGE, Streams/Tasks, replay, and failure/recovery tests without using production data.
 
 ## Snowflake physical layer
 
@@ -119,13 +131,13 @@ Live execution additionally requires `--confirm-live` and Snowflake environment 
 
 ## Current verification boundary
 
-Repository CI certifies deterministic generation, dataset integrity, Snowflake DDL/load SQL, dbt scaffolding, Semantic View contracts, governed Cortex Agent/MCP contracts, feature-gated Power BI/Excel consumer artifacts, benchmark planning/fail-closed behavior, generated Airflow syntax, and guarded Snowflake executor behavior.
+Repository CI certifies deterministic generation, dataset integrity, deterministic CDC/change fixtures, Snowflake DDL/load SQL, dbt scaffolding, Semantic View contracts, governed Cortex Agent/MCP contracts, feature-gated Power BI/Excel consumer artifacts, benchmark planning/fail-closed behavior, generated Airflow syntax, and guarded Snowflake executor behavior.
 
-**Not yet claimed:** live Snowflake object creation and RAW load, live dbt execution, server-side Semantic View deployment verification, live benchmark numbers, live Cortex Agent/MCP execution, or Power BI/Excel XMLA connection evidence. Those require the target Snowflake account, credentials, and for Microsoft clients the XMLA preview capability.
+**Not yet claimed:** live Snowflake object creation and RAW/CDC application, live dbt execution, server-side Semantic View deployment verification, live benchmark numbers, live Cortex Agent/MCP execution, or Power BI/Excel XMLA connection evidence. Those require the target Snowflake account, credentials, and for Microsoft clients the XMLA preview capability.
 
-## Next engineering slices
+## Next engineering / external certification slices
 
-- CDC/change-event and failure fixtures for policies, premiums, and claims;
+- apply CDC fixtures through Snowflake MERGE/Streams and incremental dbt models;
 - live Snowflake + dbt certification evidence;
 - live concurrency runs at 1/5/10/25/50 users with Query History evidence;
 - Cortex Agent/MCP runtime smoke tests;
