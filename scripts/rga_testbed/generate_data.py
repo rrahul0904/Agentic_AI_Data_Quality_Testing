@@ -10,7 +10,6 @@ import argparse
 import csv
 import hashlib
 import json
-import random
 import shutil
 from collections import defaultdict
 from datetime import date, timedelta
@@ -136,7 +135,6 @@ def build_dataset(
         sort_keys=True,
     )
     generation_id = "rga_" + hashlib.sha256(fingerprint.encode()).hexdigest()[:16]
-    rng = random.Random(seed)
     writer = Writer(output, config, generation_id)
     rows_per_file = int(preset["rows_per_file"])
 
@@ -197,8 +195,6 @@ def build_dataset(
     writer.write("products", products)
 
     policy_count = int(preset["policies"])
-    policy_cache: list[dict[str, Any]] = []
-    life_cache: list[dict[str, Any]] = []
     for start in range(1, policy_count + 1, rows_per_file):
         lives: list[dict[str, Any]] = []
         policies: list[dict[str, Any]] = []
@@ -206,6 +202,9 @@ def build_dataset(
         underwriting: list[dict[str, Any]] = []
         premiums: list[dict[str, Any]] = []
         exposure: list[dict[str, Any]] = []
+        claims: list[dict[str, Any]] = []
+        payments: list[dict[str, Any]] = []
+        reserves: list[dict[str, Any]] = []
         end = min(policy_count + 1, start + rows_per_file)
         for idx in range(start, end):
             treaty = treaties[(idx * 7) % len(treaties)]
@@ -301,8 +300,42 @@ def build_dataset(
                                 "currency_code": cedant["currency_code"],
                             }
                         )
-            policy_cache.append(policy)
-            life_cache.append(lives[-1])
+            if idx % 37 == 0:
+                event_date = min(issue_date + timedelta(days=365 + (idx * 17) % 1800), reference_date - timedelta(days=5))
+                reported_date = min(event_date + timedelta(days=1 + idx % 30), reference_date)
+                claim_status = ("PAID", "OPEN", "DENIED")[idx % 3]
+                claim_amount = round(sum_assured * (1.0 if claim_status != "DENIED" else 0.2), 2)
+                ceded_claim = round(claim_amount * ceded_share, 2)
+                claim_id = f"CLM{idx:012d}"
+                claims.append({
+                    "claim_id": claim_id,
+                    "policy_id": policy_id,
+                    "treaty_id": treaty["treaty_id"],
+                    "insured_id": insured_id,
+                    "event_date": event_date,
+                    "reported_date": reported_date,
+                    "claim_status": claim_status,
+                    "cause_code": ("NATURAL", "CANCER", "CARDIO", "ACCIDENT")[idx % 4],
+                    "claim_amount": claim_amount,
+                    "ceded_claim_amount": ceded_claim,
+                    "currency_code": cedant["currency_code"],
+                })
+                if claim_status == "PAID":
+                    payments.append({
+                        "claim_payment_id": f"CPY{idx:012d}",
+                        "claim_id": claim_id,
+                        "payment_date": min(reported_date + timedelta(days=10 + idx % 45), reference_date),
+                        "payment_amount": ceded_claim,
+                        "currency_code": cedant["currency_code"],
+                    })
+                elif claim_status == "OPEN":
+                    reserves.append({
+                        "reserve_id": f"RSV{idx:012d}",
+                        "claim_id": claim_id,
+                        "valuation_date": reference_date,
+                        "case_reserve_amount": round(ceded_claim * 0.9, 2),
+                        "currency_code": cedant["currency_code"],
+                    })
         writer.write("insured_lives", lives)
         writer.write("policies", policies)
         writer.write("coverages", coverages)
@@ -311,63 +344,9 @@ def build_dataset(
             writer.write("premiums", batch)
         for batch in chunks(exposure, rows_per_file):
             writer.write("exposure_monthly", batch)
-
-    claims: list[dict[str, Any]] = []
-    payments: list[dict[str, Any]] = []
-    reserves: list[dict[str, Any]] = []
-    life_by_id = {row["insured_id"]: row for row in life_cache}
-    for idx, policy in enumerate(policy_cache, 1):
-        if idx % 37:
-            continue
-        treaty = next(item for item in treaties if item["treaty_id"] == policy["treaty_id"])
-        life_by_id[policy["insured_id"]]
-        event_date = min(policy["issue_date"] + timedelta(days=365 + (idx * 17) % 1800), reference_date - timedelta(days=5))
-        reported_date = min(event_date + timedelta(days=1 + idx % 30), reference_date)
-        claim_status = ("PAID", "OPEN", "DENIED")[idx % 3]
-        claim_amount = round(float(policy["sum_assured"]) * (1.0 if claim_status != "DENIED" else 0.2), 2)
-        ceded_claim = round(claim_amount * float(treaty["ceded_share_pct"]), 2)
-        claim_id = f"CLM{idx:012d}"
-        claims.append(
-            {
-                "claim_id": claim_id,
-                "policy_id": policy["policy_id"],
-                "treaty_id": policy["treaty_id"],
-                "insured_id": policy["insured_id"],
-                "event_date": event_date,
-                "reported_date": reported_date,
-                "claim_status": claim_status,
-                "cause_code": ("NATURAL", "CANCER", "CARDIO", "ACCIDENT")[idx % 4],
-                "claim_amount": claim_amount,
-                "ceded_claim_amount": ceded_claim,
-                "currency_code": policy["currency_code"],
-            }
-        )
-        if claim_status == "PAID":
-            payments.append(
-                {
-                    "claim_payment_id": f"CPY{idx:012d}",
-                    "claim_id": claim_id,
-                    "payment_date": min(reported_date + timedelta(days=10 + idx % 45), reference_date),
-                    "payment_amount": ceded_claim,
-                    "currency_code": policy["currency_code"],
-                }
-            )
-        elif claim_status == "OPEN":
-            reserves.append(
-                {
-                    "reserve_id": f"RSV{idx:012d}",
-                    "claim_id": claim_id,
-                    "valuation_date": reference_date,
-                    "case_reserve_amount": round(ceded_claim * 0.9, 2),
-                    "currency_code": policy["currency_code"],
-                }
-            )
-    for batch in chunks(claims, rows_per_file):
-        writer.write("claims", batch)
-    for batch in chunks(payments, rows_per_file):
-        writer.write("claim_payments", batch)
-    for batch in chunks(reserves, rows_per_file):
-        writer.write("claim_reserves", batch)
+        writer.write("claims", claims)
+        writer.write("claim_payments", payments)
+        writer.write("claim_reserves", reserves)
 
     manifest = {
         "domain": config["domain"],
