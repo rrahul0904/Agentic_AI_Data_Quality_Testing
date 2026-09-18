@@ -81,6 +81,8 @@ jobs:
         run: python scripts/rga_testbed/generate_acceleration_plan.py --output /tmp/rga-acceleration
       - name: Generate cross-consumer semantic parity suite
         run: python scripts/rga_testbed/generate_parity_suite.py --output /tmp/rga-parity
+      - name: Build governed semantic release bundle
+        run: python scripts/rga_testbed/build_semantic_release.py --output /tmp/rga-release --source-sha "$GITHUB_SHA"
       - name: Certify benchmark runner dry-run
         run: |
           set +e
@@ -139,4 +141,7 @@ jobs:
           grep -q 'cortex_agent_mcp' /tmp/rga-parity/parity_manifest.json
           grep -q 'power_bi' /tmp/rga-parity/parity_manifest.json
           grep -q 'excel' /tmp/rga-parity/parity_manifest.json
+          grep -q 'semantic_manifest_sha256' /tmp/rga-release/release_manifest.json
+          grep -q 'external_certification_required' /tmp/rga-release/release_manifest.json
+          grep -q 'round_trip_import_supported' /tmp/rga-release/interchange/ossie_compatibility.json
           grep -q 'semantic_deploy_gate' /tmp/rga-airflow/rga_synthetic_pipeline.py
