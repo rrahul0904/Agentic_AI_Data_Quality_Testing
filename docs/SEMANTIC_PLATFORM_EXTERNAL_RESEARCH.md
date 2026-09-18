@@ -286,3 +286,22 @@ semantic regression tests should include natural-language questions, expected me
 6. Add end-to-end BI workload evidence format that captures query fan-out in addition to p95 latency.
 7. Add semantic regression cases for answerable, ambiguous and rejected AI questions.
 8. Keep Power BI/Excel XMLA live certification feature-gated until enabled in the target Snowflake account.
+
+
+## Confidence-gated implementation status
+
+Only donor patterns with implementation confidence >=75% are being absorbed automatically.
+
+| Donor/resource | Confidence | Implemented in PR #17 |
+| --- | ---: | --- |
+| Snowflake-Labs/dbt_semantic_view declarative materializations + CREATE OR ALTER discipline | 95% | Yes: MAX_STALENESS policy, materialization candidates, declarative YAML, SYSTEM$MANAGE_SEMANTIC_VIEW_MATERIALIZATIONS_FROM_YAML sync template |
+| WhoopInc/snowflake-semantic-tools compiled manifest / checksums / diff-before-deploy | 92% | Yes: canonical semantic manifest, stable component hashes, change diff, impacted-artifact graph, release bundle |
+| Apache Ossie semantic interchange | 88% | Yes, export-only: governed core exported to Ossie; Snowflake-only behavior preserved as custom extensions; explicit compatibility/loss report |
+| Cube pre-aggregation / workload-shape matching pattern | 85% | Yes: canonical metric+dimension fingerprints, repeated-workload telemetry analysis, evidence-backed acceleration recommendations |
+| MetricFlow query-planning / safe multi-fact aggregation pattern | 90% | Yes: premium/claim/exposure are independently aggregated to shared grain before joining; multi-fact certification plan and reference SQL |
+| Sidemantic adapter registry / explicit format capability pattern | 82% | Partially: export direction and compatibility/loss boundary implemented for Ossie; broad automatic import remains intentionally disabled pending lossless mapping |
+| Snowflake Power BI Autopilot ingestion | 90% for migration use case | Researched and documented; no binary PBIX/PBIT parser duplicated because Snowflake already owns the ingestion path |
+| AtScale/Snowflake XMLA live Power BI + Excel | 90% architecture fit | Existing feature-gated Microsoft contract/parity suite; live endpoint evidence remains external |
+| Cortex Agent + governed Semantic View | 95% | Existing Agent/MCP generation and parity requirements; live runtime evidence remains external |
+
+Lower-confidence or unnecessarily duplicative implementations are not being copied merely because a repository exists. The goal is to absorb proven architectural mechanisms while keeping Snowflake Semantic Views as the governed runtime and avoiding a second semantic truth.
