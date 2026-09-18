@@ -109,22 +109,15 @@ def build_ossie_model(database: str, contract_path: Path = DEFAULT_CONTRACT) -> 
             }
         )
 
-    extensions = [
-        {
-            "vendor": "snowflake",
-            "name": "governed_semantic_runtime",
-            "value": {
-                "semantic_view_name": contract["name"],
-                "verified_queries": contract["verified_queries"],
-                "consumers": contract["consumers"],
-                "acceleration": contract.get("acceleration", {}),
-                "performance": contract["performance"],
-            },
-        }
-    ]
+    extension_payload = {
+        "semantic_view_name": contract["name"],
+        "verified_queries": contract["verified_queries"],
+        "consumers": contract["consumers"],
+        "acceleration": contract.get("acceleration", {}),
+        "performance": contract["performance"],
+    }
 
-    return {
-        "version": "0.2.0.dev0",
+    semantic_model = {
         "name": contract["name"].lower(),
         "description": contract["description"],
         "ai_context": {
@@ -144,7 +137,16 @@ def build_ossie_model(database: str, contract_path: Path = DEFAULT_CONTRACT) -> 
             }
         ],
         "metrics": metrics,
-        "custom_extensions": extensions,
+        "custom_extensions": [
+            {
+                "vendor_name": "SNOWFLAKE",
+                "data": json.dumps(extension_payload, sort_keys=True),
+            }
+        ],
+    }
+    return {
+        "version": "0.2.0.dev0",
+        "semantic_model": [semantic_model],
     }
 
 
