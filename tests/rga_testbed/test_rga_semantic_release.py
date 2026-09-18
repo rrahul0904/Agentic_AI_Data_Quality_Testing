@@ -75,6 +75,10 @@ def test_release_bundle_uses_manifest_diff_for_impacted_artifacts(tmp_path: Path
         baseline_path=baseline_path,
     )
     assert release["change_status"] == "UNCHANGED"
+    assert release["change_risk"]["risk"] == "none"
+    assert release["change_risk"]["approval_required"] is False
     assert release["impacted_artifacts"] == []
     diff = json.loads((tmp_path / "release" / "manifest" / "semantic_diff.json").read_text(encoding="utf-8"))
     assert diff["status"] == "UNCHANGED"
+    risk = json.loads((tmp_path / "release" / "manifest" / "semantic_change_risk.json").read_text(encoding="utf-8"))
+    assert risk["risk"] == "none"
