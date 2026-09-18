@@ -14,6 +14,7 @@ on:
       - ".github/workflows/web-e2e.yml"
   push:
     branches:
+      - main
       - feature/ade-10x-competitive-certification
     paths:
       - "apps/web/**"
@@ -92,6 +93,18 @@ jobs:
             http://127.0.0.1:3000/api/ade/api/v1/overview > /tmp/overview.json
           curl -fsS --connect-timeout 2 --max-time 30 \
             http://127.0.0.1:3000/api/ade/api/v1/competitive/status > /tmp/competitive.json
+          curl -fsS --connect-timeout 2 --max-time 30 \
+            http://127.0.0.1:3000/api/ade/api/v1/domains > /tmp/domains.json
+
+          curl -fsS --connect-timeout 2 --max-time 30 \
+            -H 'Content-Type: application/json' \
+            -d '{"args":{}}' \
+            http://127.0.0.1:3000/api/ade/api/v1/dbt-next/agents-schema > /tmp/dbt-next-agents-schema.json
+
+          curl -fsS --connect-timeout 2 --max-time 30 \
+            -H 'Content-Type: application/json' \
+            -d '{"args":{"source":"/tmp/orders.parquet","source_type":"parquet","limit":5}}' \
+            http://127.0.0.1:3000/api/ade/api/v1/dbt-next/lake-plan > /tmp/dbt-next-lake-plan.json
 
           python - <<'PY'
           import json
@@ -101,8 +114,23 @@ jobs:
           assert overview["counts"]["airflow_dags"] >= 57
           assert overview["counts"]["dbt_models"] == 70
           assert overview["counts"]["tools"] >= 50
+
           competitive = json.load(open("/tmp/competitive.json"))
           assert competitive["status"] == "PASS", competitive
+
+          domains = json.load(open("/tmp/domains.json"))
+          assert "dbt-next" in domains, domains
+          assert "agents-schema" in domains["dbt-next"], domains["dbt-next"]
+          assert "lake-plan" in domains["dbt-next"], domains["dbt-next"]
+
+          schema = json.load(open("/tmp/dbt-next-agents-schema.json"))
+          assert schema["status"] == "PASS", schema
+          assert schema["schema_version"] == "ade-agents/1.0", schema
+
+          lake = json.load(open("/tmp/dbt-next-lake-plan.json"))
+          assert lake["status"] == "PLAN", lake
+          assert lake["engine"] == "duckdb", lake
+          assert "read_parquet" in lake["sql"], lake
           PY
 
           for endpoint in \
@@ -114,7 +142,6 @@ jobs:
             /api/v1/providers \
             /api/v1/skills/catalog \
             /api/v1/training/status \
-            /api/v1/domains \
             /api/v1/certification/coco \
             /api/v1/competitive/status \
             /api/v1/knowledge/status; do
@@ -126,6 +153,7 @@ jobs:
             http://127.0.0.1:3000/certification > /tmp/certification.html
           grep -q "ADE OS" /tmp/home.html
           grep -q "Agentic" /tmp/home.html
+          grep -q "dbt Next" /tmp/home.html
           grep -q "Certification" /tmp/certification.html
 
       - name: Show logs on failure
