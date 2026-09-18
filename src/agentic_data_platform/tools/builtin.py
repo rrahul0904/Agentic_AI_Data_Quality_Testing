@@ -50,6 +50,7 @@ from agentic_data_platform.dbt.nextgen import (
     explore_plan as dbt_next_explore_plan_impl,
     lake_compute_plan as dbt_next_lake_compute_plan_impl,
     lake_compute_run as dbt_next_lake_compute_run_impl,
+    model_compute_plan as dbt_next_model_compute_plan_impl,
     state_plan as dbt_next_state_plan_impl,
     wizard_plan as dbt_next_wizard_plan_impl,
 )
@@ -1136,6 +1137,13 @@ def build_tool_registry() -> ToolRegistry:
         Capability.GENERATE,
         dbt_next_chart_compile_impl,
         "Compile dashboard YAML into provider-neutral contracts for ADE web, Power BI, Excel and AI consumers.",
+        platforms=frozenset({Platform.LOCAL, Platform.DBT}),
+    )
+    add(
+        "dbt_next_model_compute_plan",
+        Capability.PLAN,
+        dbt_next_model_compute_plan_impl,
+        "Route individual dbt models between warehouse and DuckDB lake compute while exposing cross-engine materialization boundaries.",
         platforms=frozenset({Platform.LOCAL, Platform.DBT}),
     )
     add(
