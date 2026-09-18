@@ -154,8 +154,112 @@ def state_plan(args: dict[str, Any]) -> dict[str, Any]:
         "counts": {"build": len(build), "clone": len(clone), "defer": len(defer), "skip": len(skip)},
         "actions": actions,
         "selector": " ".join(new_nodes[n].get("name", n) for n in build if n in new_nodes),
+        "selectors": {
+            "build": [str(new_nodes[n].get("name") or n) for n in build if n in new_nodes],
+            "clone": [str(new_nodes[n].get("name") or n) for n in clone if n in new_nodes],
+            "defer": [str(new_nodes[n].get("name") or n) for n in defer if n in new_nodes],
+            "skip": [str(new_nodes[n].get("name") or n) for n in skip if n in new_nodes],
+        },
         "fingerprint": _fingerprint(actions),
     }
+
+
+def state_execution_contract(args: dict[str, Any]) -> dict[str, Any]:
+    """Compile a state plan into deterministic dbt CLI commands without executing them."""
+    plan = dict(args["plan"]) if isinstance(args.get("plan"), dict) else state_plan(args)
+    selectors = dict(plan.get("selectors") or {})
+    if not selectors:
+        by_action: dict[str, list[str]] = {"build": [], "clone": [], "defer": [], "skip": []}
+        for item in plan.get("actions") or []:
+            action = str(item.get("action") or "").casefold()
+            if action in by_action:
+                by_action[action].append(str(item.get("node") or ""))
+        selectors = by_action
+
+    project_dir = Path(str(args.get("project_dir") or args.get("project") or ".")).expanduser().resolve()
+    executable = str(args.get("executable") or "dbt")
+    state_dir_raw = args.get("state_dir")
+    if not state_dir_raw:
+        previous = args.get("previous_manifest_path") or args.get("state_manifest_path")
+        if previous:
+            state_dir_raw = str(Path(str(previous)).expanduser().resolve().parent)
+    state_dir = str(Path(str(state_dir_raw)).expanduser().resolve()) if state_dir_raw else ""
+
+    build = [str(item) for item in selectors.get("build") or [] if str(item)]
+    clone = [str(item) for item in selectors.get("clone") or [] if str(item)]
+    defer = [str(item) for item in selectors.get("defer") or [] if str(item)]
+    skip = [str(item) for item in selectors.get("skip") or [] if str(item)]
+    if (clone or defer) and not state_dir:
+        raise ValueError("state_dir or previous_manifest_path is required for CLONE/DEFER execution contracts")
+
+    commands: list[dict[str, Any]] = []
+    if clone:
+        commands.append({
+            "phase": "clone",
+            "argv": [executable, "clone", "--project-dir", str(project_dir), "--state", state_dir, "--select", " ".join(clone)],
+            "selectors": clone,
+        })
+    if build:
+        argv = [executable, "build", "--project-dir", str(project_dir), "--select", " ".join(build)]
+        if defer:
+            argv.extend(["--defer", "--state", state_dir])
+        commands.append({"phase": "build", "argv": argv, "selectors": build, "defer_selectors": defer})
+
+    payload = {
+        "plan_fingerprint": str(plan.get("fingerprint") or ""),
+        "project_dir": str(project_dir),
+        "state_dir": state_dir or None,
+        "commands": commands,
+        "skipped_selectors": skip,
+        "deferred_selectors": defer,
+    }
+    return {
+        "status": "PLAN",
+        **payload,
+        "fingerprint": _fingerprint(payload),
+        "mutation_policy": "Dry-run by default. Live execution requires the exact contract fingerprint and ADE mutation approval.",
+    }
+
+
+def state_execute(args: dict[str, Any]) -> dict[str, Any]:
+    """Execute a fingerprint-approved state contract without shell interpolation."""
+    contract = state_execution_contract(args)
+    if bool(args.get("dry_run", True)):
+        return {**contract, "status": "DRY_RUN", "executed": False, "results": []}
+
+    approved = str(args.get("approved_fingerprint") or "")
+    if not approved or approved != contract["fingerprint"]:
+        raise ValueError("live state execution requires approved_fingerprint matching the exact execution contract")
+
+    executable = str(args.get("executable") or "dbt")
+    resolved = shutil.which(executable)
+    if not resolved:
+        return {**contract, "status": "SKIP_EXTERNAL", "executed": False, "reason": f"dbt executable not found: {executable}", "results": []}
+
+    timeout = max(1, min(int(args.get("timeout_seconds", 1800)), 7200))
+    results: list[dict[str, Any]] = []
+    for command in contract["commands"]:
+        argv = list(command["argv"])
+        argv[0] = resolved
+        completed = subprocess.run(
+            argv,
+            cwd=contract["project_dir"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        item = {
+            "phase": command["phase"],
+            "argv": argv,
+            "returncode": completed.returncode,
+            "stdout": (completed.stdout or "")[-20000:],
+            "stderr": (completed.stderr or "")[-20000:],
+        }
+        results.append(item)
+        if completed.returncode != 0:
+            return {**contract, "status": "FAIL", "executed": True, "results": results}
+    return {**contract, "status": "PASS", "executed": bool(contract["commands"]), "results": results}
 
 
 def _manifest_summary(manifest: dict[str, Any]) -> dict[str, Any]:
