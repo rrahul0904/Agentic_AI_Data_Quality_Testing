@@ -7,7 +7,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from typing import Callable
 
 try:
     from scripts.rga_testbed import compile_semantic_manifest as manifest_mod
