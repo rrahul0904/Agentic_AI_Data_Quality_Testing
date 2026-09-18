@@ -61,5 +61,6 @@ def test_materialization_sql_is_template_and_not_auto_deploy(tmp_path: Path):
     sync_sql = (tmp_path / "sync_semantic_materializations.template.sql").read_text(encoding="utf-8")
     desired = (tmp_path / "semantic_materializations.yml").read_text(encoding="utf-8")
     assert "SYSTEM$MANAGE_SEMANTIC_VIEW_MATERIALIZATIONS_FROM_YAML" in sync_sql
+    assert sync_sql.count("$") == 2
     assert "materializations:" in desired
     assert "<MATERIALIZATION_WAREHOUSE>" in desired
