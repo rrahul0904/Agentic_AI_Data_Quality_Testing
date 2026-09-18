@@ -138,7 +138,8 @@ jobs:
           grep -q 'materializations:' /tmp/rga-acceleration/semantic_materializations.yml
           grep -q 'manifest_sha256' /tmp/rga-manifest/semantic_manifest.json
           grep -q 'ceded_loss_ratio' /tmp/rga-interchange/rga_reinsurance_performance.ossie.yml
-          grep -q 'vendor: snowflake' /tmp/rga-interchange/rga_reinsurance_performance.ossie.yml
+          grep -q 'semantic_model:' /tmp/rga-interchange/rga_reinsurance_performance.ossie.yml
+          grep -q 'vendor_name: SNOWFLAKE' /tmp/rga-interchange/rga_reinsurance_performance.ossie.yml
           grep -q 'snowflake_semantic_view' /tmp/rga-parity/parity_manifest.json
           grep -q 'cortex_agent_mcp' /tmp/rga-parity/parity_manifest.json
           grep -q 'power_bi' /tmp/rga-parity/parity_manifest.json
