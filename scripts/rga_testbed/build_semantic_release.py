@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 
 try:
+    from scripts.rga_testbed import classify_semantic_change as change_mod
     from scripts.rga_testbed import compile_semantic_manifest as manifest_mod
     from scripts.rga_testbed import export_ossie as ossie_mod
     from scripts.rga_testbed import generate_acceleration_plan as acceleration_mod
@@ -21,6 +22,7 @@ try:
     from scripts.rga_testbed import report_interchange_compatibility as compatibility_mod
     from scripts.rga_testbed.semantic_contract import DEFAULT_CONTRACT
 except ModuleNotFoundError:
+    import classify_semantic_change as change_mod
     import compile_semantic_manifest as manifest_mod
     import export_ossie as ossie_mod
     import generate_acceleration_plan as acceleration_mod
@@ -82,10 +84,19 @@ def build_release(
     manifest_mod.write_manifest(current_manifest, manifest_path)
 
     diff = None
+    change_risk = {
+        "risk": "initial_build",
+        "approval_required": True,
+        "reasons": ["No baseline manifest supplied; initial governed release requires review."],
+        "changed_sections": [],
+        "impacted_artifacts": [],
+    }
     if baseline_path:
         baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
         diff = manifest_mod.diff_manifests(baseline, current_manifest)
         manifest_mod.write_manifest(diff, output / "manifest" / "semantic_diff.json")
+        change_risk = change_mod.classify(diff)
+        manifest_mod.write_manifest(change_risk, output / "manifest" / "semantic_change_risk.json")
 
     semantic_mod.generate(output / "semantic", database, contract_path)
     ai_mod.generate(output / "ai", database, contract_path)
@@ -114,6 +125,7 @@ def build_release(
         "semantic_view": current_manifest["semantic_view"],
         "semantic_manifest_sha256": current_manifest["manifest_sha256"],
         "change_status": diff["status"] if diff else "FULL_BUILD",
+        "change_risk": change_risk,
         "impacted_artifacts": impacted,
         "generated_file_count": len(files),
         "files": files,
