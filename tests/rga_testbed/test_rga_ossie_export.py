@@ -20,10 +20,12 @@ def test_ossie_export_preserves_governed_metrics_and_grain(tmp_path: Path):
     module = load_module("rga_ossie_test", ROOT / "scripts" / "rga_testbed" / "export_ossie.py")
     model = module.build_ossie_model("RGA_SYNTHETIC_TESTBED")
     assert model["version"] == "0.2.0.dev0"
-    dataset = model["datasets"][0]
+    assert len(model["semantic_model"]) == 1
+    semantic_model = model["semantic_model"][0]
+    dataset = semantic_model["datasets"][0]
     assert dataset["source"] == "RGA_SYNTHETIC_TESTBED.MART.REINSURANCE_PERFORMANCE"
     assert dataset["primary_key"] == ["cedant_id", "treaty_id", "period_month"]
-    metrics = {item["name"]: item for item in model["metrics"]}
+    metrics = {item["name"]: item for item in semantic_model["metrics"]}
     assert "ceded_loss_ratio" in metrics
     expression = metrics["ceded_loss_ratio"]["expression"]["dialects"][0]
     assert expression["dialect"] == "SNOWFLAKE"
@@ -35,9 +37,11 @@ def test_ossie_export_preserves_snowflake_only_capabilities_as_extension(tmp_pat
     output = tmp_path / "model.ossie.yml"
     module.generate(output, "RGA_SYNTHETIC_TESTBED")
     model = yaml.safe_load(output.read_text(encoding="utf-8"))
-    ext = model["custom_extensions"][0]
-    assert ext["vendor"] == "snowflake"
-    assert ext["name"] == "governed_semantic_runtime"
-    assert len(ext["value"]["verified_queries"]) >= 3
-    assert ext["value"]["consumers"]["ai"]["allow_unrestricted_sql"] is False
-    assert "semantic_sql" in ext["value"]["acceleration"]
+    semantic_model = model["semantic_model"][0]
+    ext = semantic_model["custom_extensions"][0]
+    assert ext["vendor_name"] == "SNOWFLAKE"
+    import json
+    payload = json.loads(ext["data"])
+    assert len(payload["verified_queries"]) >= 3
+    assert payload["consumers"]["ai"]["allow_unrestricted_sql"] is False
+    assert "semantic_sql" in payload["acceleration"]
