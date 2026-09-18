@@ -211,7 +211,7 @@ type SqlProposal = {
 };
 
 const NAV = [
-  "Overview", "Investigations", "Agent", "Assets", "Lineage", "SQL Intelligence", "dbt", "Airflow",
+  "Overview", "Investigations", "Agent", "Assets", "Lineage", "SQL Intelligence", "dbt", "dbt Next", "Airflow",
   "Data Quality", "Reconciliation", "Warehouses", "Connections", "Metadata", "Data Diff",
   "Semantic Layer", "Cortex Agents", "Teams", "Hosted Runner", "Notebooks", "Browser", "Apps",
   "ML Registry", "AI Workflows", "Desktop / IDE", "Rules & Context", "Advanced Workbench",
@@ -438,6 +438,7 @@ export default function OperatorConsole() {
             {active === "Lineage" && <LineageView node={lineageNode} setNode={setLineageNode} run={() => void runLineage()} busy={lineageBusy} lineage={lineage} impact={impact} />}
             {active === "SQL Intelligence" && <SqlView sql={sql} setSql={setSql} dialect={dialect} setDialect={setDialect} run={() => void runSql()} busy={sqlBusy} review={sqlReview} lineage={sqlLineage} proposal={sqlProposal} />}
             {active === "dbt" && <DbtView summary={dbtSummary} coverage={dbtCoverage} docs={dbtDocs} />}
+            {active === "dbt Next" && <CapabilityWorkbench domain="dbt-next" title="dbt Next Intelligence" eyebrow="STATE · WIZARD · EXPLORE · BI-AS-CODE · LAKE COMPUTE · CONTEXT" description="Reverse-engineered open equivalents of the dbt 2026 launch patterns: state-aware planning, project-aware analytics engineering, governed conversational Explore, YAML dashboards, DuckDB lake compute, unified enterprise context, and agent/MCP contracts." defaultArgs={{ manifest_path: "tests/fixtures/dbt/manifest.json", semantic_database: ".ade/semantic.db" }} />}
             {active === "Airflow" && <AirflowView airflow={airflow} operations={airflowOperations} failureLab={airflowFailureLab} />}
             {active === "Data Quality" && <QualityView quality={quality} />}
             {active === "Reconciliation" && <ReconciliationView source={sourceCount} target={targetCount} setSource={setSourceCount} setTarget={setTargetCount} run={() => void runReconciliation()} result={reconcile} history={quality?.recent_reconciliations ?? []} dataDiff={dataDiff} />}

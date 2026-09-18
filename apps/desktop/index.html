@@ -15,6 +15,7 @@
       <nav>
         <button class="nav active" data-view="agent">Agent</button>
         <button class="nav" data-view="sql">SQL</button>
+        <button class="nav" data-view="dbt-next">dbt Next</button>
         <button class="nav" data-view="evidence">Evidence</button>
         <button class="nav" data-view="runtime">Runtime</button>
       </nav>
@@ -57,6 +58,25 @@
           <textarea id="sql-input" class="editor" spellcheck="false">SELECT * FROM orders o CROSS JOIN customers c;</textarea>
           <div class="row"><button id="sql-review">Review SQL</button></div>
           <pre id="sql-output">Ready.</pre>
+        </div>
+      </section>
+
+      <section id="view-dbt-next" class="panel view">
+        <div class="grid two">
+          <div class="card tall">
+            <div class="card-head"><strong>dbt Next assistant</strong><span>state · wizard · explore · context</span></div>
+            <textarea id="dbt-next-question" class="editor" rows="5" spellcheck="false">What depends on the changed revenue model, and which governed metric should I use?</textarea>
+            <div class="row">
+              <button id="dbt-next-wizard">Plan with project context</button>
+              <button id="dbt-next-schema" class="secondary">Agent schema</button>
+            </div>
+            <pre id="dbt-next-output">Ready.</pre>
+          </div>
+          <div class="card">
+            <div class="card-head"><strong>Open capability set</strong><span>reverse-engineered · governed</span></div>
+            <p>State-aware builds, semantic Explore, YAML dashboards, DuckDB lake compute, unified context, and MCP are available through the same control plane.</p>
+            <p>Use <strong>Open full console</strong> for argument-level access to every dbt Next operation.</p>
+          </div>
         </div>
       </section>
 

@@ -1,5 +1,19 @@
 # Agentic Data Engineering OS
 
+## dbt Next / 2026 capability wave
+
+The project now includes a clean-room, provider-neutral implementation of the dbt 2026 product patterns described in the project brief: state-aware build planning, project-aware Wizard planning, governed semantic Explore, dashboards-as-code, per-model warehouse/lake routing, DuckDB Parquet/Iceberg compute, enterprise context bundles, and a read-only MCP v2 server.
+
+Start with [docs/DBT_2026_REVERSE_ENGINEERING.md](docs/DBT_2026_REVERSE_ENGINEERING.md), or run:
+
+```bash
+ade dbt-next agents-schema --args '{}'
+ade-dbt-mcp
+```
+
+The implementation consumes public dbt artifacts/runtime contracts and does not claim to reimplement dbt's proprietary Rust engine or private-beta services.
+
+
 **Agentic Data Engineering OS** is a local-first, evidence-driven operating system for modern data engineering.
 
 It brings repository discovery, SQL intelligence, dbt engineering, Airflow analysis, cross-system lineage, data quality, source-target reconciliation, scalable Data Diff, migration engineering, governance, FinOps, AI-assisted investigation, GitHub/GitLab review automation, model-provider integrations, MCP, skills, training, traces, and session replay into one governed control plane.

@@ -40,6 +40,20 @@ from agentic_data_platform.dbt.advanced import (
     source_freshness_configuration as dbt_source_freshness_impl,
     state_compare as dbt_state_compare_impl,
 )
+from agentic_data_platform.dbt.nextgen import (
+    agents_schema as dbt_next_agents_schema_impl,
+    chart_compile as dbt_next_chart_compile_impl,
+    chart_validate as dbt_next_chart_validate_impl,
+    context_bundle as dbt_next_context_bundle_impl,
+    context_search as dbt_next_context_search_impl,
+    engine_readiness as dbt_next_engine_readiness_impl,
+    explore_plan as dbt_next_explore_plan_impl,
+    lake_compute_plan as dbt_next_lake_compute_plan_impl,
+    lake_compute_run as dbt_next_lake_compute_run_impl,
+    model_compute_plan as dbt_next_model_compute_plan_impl,
+    state_plan as dbt_next_state_plan_impl,
+    wizard_plan as dbt_next_wizard_plan_impl,
+)
 from agentic_data_platform.platform.airflow_ops import (
     backfill_analysis as airflow_backfill_analysis_impl,
     connection_analysis as airflow_connection_analysis_impl,
@@ -1067,6 +1081,91 @@ def build_tool_registry() -> ToolRegistry:
         "Remove an installed ADE plugin bundle package.",
         platforms=frozenset({Platform.LOCAL}),
         risk=Risk.MUTATING,
+    )
+
+    add(
+        "dbt_next_engine_readiness",
+        Capability.DISCOVER,
+        dbt_next_engine_readiness_impl,
+        "Inspect dbt runtime readiness and advertise ADE's artifact-compatible v2/Fusion-equivalent intelligence.",
+        platforms=frozenset({Platform.LOCAL, Platform.DBT}),
+    )
+    add(
+        "dbt_next_state_plan",
+        Capability.PLAN,
+        dbt_next_state_plan_impl,
+        "Plan BUILD/SKIP/CLONE/DEFER work from current and previous dbt manifests without mutating a warehouse.",
+        platforms=frozenset({Platform.LOCAL, Platform.DBT}),
+    )
+    add(
+        "dbt_next_context_bundle",
+        Capability.DISCOVER,
+        dbt_next_context_bundle_impl,
+        "Build an evidence-bounded context bundle from dbt artifacts, semantic resources, and selected enterprise documents.",
+        platforms=frozenset({Platform.LOCAL, Platform.DBT}),
+    )
+    add(
+        "dbt_next_context_search",
+        Capability.DISCOVER,
+        dbt_next_context_search_impl,
+        "Search unified structured and unstructured dbt project context with deterministic evidence.",
+        platforms=frozenset({Platform.LOCAL, Platform.DBT}),
+    )
+    add(
+        "dbt_next_wizard_plan",
+        Capability.PLAN,
+        dbt_next_wizard_plan_impl,
+        "Create a project-aware governed analytics-engineering plan over dbt, semantic, lineage, BI-as-code and state tools.",
+        platforms=frozenset({Platform.LOCAL, Platform.DBT}),
+    )
+    add(
+        "dbt_next_explore_plan",
+        Capability.PLAN,
+        dbt_next_explore_plan_impl,
+        "Ground a natural-language business question in semantic metrics, dimensions and verified queries before SQL execution.",
+        platforms=frozenset({Platform.LOCAL, Platform.DBT, Platform.SNOWFLAKE}),
+    )
+    add(
+        "dbt_next_chart_validate",
+        Capability.VERIFY,
+        dbt_next_chart_validate_impl,
+        "Validate version-controlled dashboard YAML with read-only SQL and governed metric contracts.",
+        platforms=frozenset({Platform.LOCAL, Platform.DBT}),
+    )
+    add(
+        "dbt_next_chart_compile",
+        Capability.GENERATE,
+        dbt_next_chart_compile_impl,
+        "Compile dashboard YAML into provider-neutral contracts for ADE web, Power BI, Excel and AI consumers.",
+        platforms=frozenset({Platform.LOCAL, Platform.DBT}),
+    )
+    add(
+        "dbt_next_model_compute_plan",
+        Capability.PLAN,
+        dbt_next_model_compute_plan_impl,
+        "Route individual dbt models between warehouse and DuckDB lake compute while exposing cross-engine materialization boundaries.",
+        platforms=frozenset({Platform.LOCAL, Platform.DBT}),
+    )
+    add(
+        "dbt_next_lake_compute_plan",
+        Capability.PLAN,
+        dbt_next_lake_compute_plan_impl,
+        "Plan DuckDB execution over Parquet or Apache Iceberg without silently installing external extensions.",
+        platforms=frozenset({Platform.LOCAL, Platform.DBT}),
+    )
+    add(
+        "dbt_next_lake_compute_run",
+        Capability.EXECUTE,
+        dbt_next_lake_compute_run_impl,
+        "Execute read-only DuckDB lake queries over Parquet or locally enabled Iceberg data.",
+        platforms=frozenset({Platform.LOCAL, Platform.DBT}),
+    )
+    add(
+        "dbt_next_agents_schema",
+        Capability.DISCOVER,
+        dbt_next_agents_schema_impl,
+        "Export the open ADE agent/MCP resource contract for dbt project context, semantic Explore, state, charts and lake compute.",
+        platforms=frozenset({Platform.LOCAL, Platform.DBT}),
     )
 
     add(

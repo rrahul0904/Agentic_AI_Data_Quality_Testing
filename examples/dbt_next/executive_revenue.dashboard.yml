@@ -1,0 +1,18 @@
+dashboard:
+  name: executive_revenue
+  description: Version-controlled revenue dashboard contract for ADE dbt Next.
+  charts:
+    - name: revenue_by_month
+      title: Revenue by month
+      type: line
+      metric: revenue
+      dimension: order_month
+    - name: revenue_by_region
+      title: Revenue by region
+      type: bar
+      metric: revenue
+      dimension: region
+    - name: booking_count
+      title: Booking count
+      type: metric
+      metric: bookings
