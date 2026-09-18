@@ -67,6 +67,10 @@ jobs:
         run: python scripts/rga_testbed/generate_dbt_project.py --output /tmp/rga-dbt
       - name: Generate Snowflake semantic view contract
         run: python scripts/rga_testbed/generate_semantic_view.py --output /tmp/rga-semantic
+      - name: Compile canonical semantic manifest
+        run: python scripts/rga_testbed/compile_semantic_manifest.py --output /tmp/rga-manifest/semantic_manifest.json
+      - name: Export Apache Ossie interchange model
+        run: python scripts/rga_testbed/export_ossie.py --output /tmp/rga-interchange/rga_reinsurance_performance.ossie.yml
       - name: Generate governed AI contracts
         run: python scripts/rga_testbed/generate_ai_integration.py --output /tmp/rga-ai
       - name: Generate Microsoft consumer contracts
@@ -126,6 +130,11 @@ jobs:
           grep -q 'ADD MATERIALIZATION' /tmp/rga-acceleration/semantic_materializations.template.sql
           grep -q '<MATERIALIZATION_WAREHOUSE>' /tmp/rga-acceleration/semantic_materializations.template.sql
           grep -q 'underlying_mart_optimization' /tmp/rga-acceleration/acceleration_plan.json
+          grep -q 'SYSTEM$MANAGE_SEMANTIC_VIEW_MATERIALIZATIONS_FROM_YAML' /tmp/rga-acceleration/sync_semantic_materializations.template.sql
+          grep -q 'materializations:' /tmp/rga-acceleration/semantic_materializations.yml
+          grep -q 'manifest_sha256' /tmp/rga-manifest/semantic_manifest.json
+          grep -q 'ceded_loss_ratio' /tmp/rga-interchange/rga_reinsurance_performance.ossie.yml
+          grep -q 'vendor: snowflake' /tmp/rga-interchange/rga_reinsurance_performance.ossie.yml
           grep -q 'snowflake_semantic_view' /tmp/rga-parity/parity_manifest.json
           grep -q 'cortex_agent_mcp' /tmp/rga-parity/parity_manifest.json
           grep -q 'power_bi' /tmp/rga-parity/parity_manifest.json
