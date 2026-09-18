@@ -129,10 +129,7 @@ def readiness_status(
         "rga_ci_workflow": (repo_root / ".github" / "workflows" / "rga-synthetic-data.yml").exists(),
     }
     snowflake_ready = not missing_snowflake and dependencies["snowflake_connector"]
-    dbt_auth_ready = bool(
-        env.get("SNOWFLAKE_PASSWORD")
-        or env.get("SNOWFLAKE_AUTHENTICATOR")
-    )
+    dbt_auth_ready = bool(env.get("SNOWFLAKE_PASSWORD"))
     dbt_live_ready = bool(snowflake_ready and tools["dbt"] and dbt_auth_ready)
     xmla_endpoint = env.get("RGA_XMLA_ENDPOINT") or env.get("SNOWFLAKE_XMLA_ENDPOINT")
     return {
@@ -144,7 +141,7 @@ def readiness_status(
             "snowflake_live_ready": bool(snowflake_ready),
             "snowflake_missing": missing_snowflake,
             "dbt_live_ready": dbt_live_ready,
-            "dbt_auth_note": "Generated dbt profile supports password/authenticator-based Snowflake authentication.",
+            "dbt_auth_note": "Generated dbt profile is currently certified for password-based Snowflake authentication.",
             "xmla_endpoint_configured": bool(xmla_endpoint),
             "xmla_endpoint": xmla_endpoint,
             "power_bi_excel_live_parity_ready": bool(xmla_endpoint and snowflake_ready),
@@ -282,7 +279,7 @@ def snowflake_demo(
     if not status["external"]["snowflake_live_ready"]:
         raise RuntimeError("Snowflake live execution is not ready: " + ", ".join(status["external"]["snowflake_missing"]))
     if not status["external"]["dbt_live_ready"]:
-        raise RuntimeError("dbt live execution is not ready; install dbt and configure password/authenticator-based Snowflake authentication")
+        raise RuntimeError("dbt live execution is not ready; install dbt and configure password-based Snowflake authentication")
 
     sql_dir = workspace / "snowflake"
     dbt_dir = workspace / "dbt"
