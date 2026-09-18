@@ -16,13 +16,16 @@ RGA synthetic domain YAML
         |
         +--> MART.REINSURANCE_PERFORMANCE
         |
-        +--> Snowflake Semantic View
+        +--> canonical semantic contract
+        |       +--> Snowflake Semantic View
         |       +--> server-side verify SQL
         |       +--> gated deploy SQL
         |
         +--> Cortex Agent -> managed MCP server
         |
         +--> Power BI / Excel XMLA consumer contract (feature-gated)
+        |
+        +--> Snowflake / AI / Power BI / Excel parity suite
         |
         +--> direct-MART vs Semantic View concurrency benchmark
         |
@@ -45,6 +48,7 @@ python scripts/rga_testbed/generate_dbt_project.py
 python scripts/rga_testbed/generate_semantic_view.py
 python scripts/rga_testbed/generate_ai_integration.py
 python scripts/rga_testbed/generate_microsoft_consumer_pack.py
+python scripts/rga_testbed/generate_parity_suite.py
 python scripts/rga_testbed/generate_benchmark_pack.py
 python scripts/rga_testbed/generate_airflow_dag.py
 ```
@@ -91,6 +95,12 @@ The fixtures have stable event IDs and a manifest so they can become inputs for 
 
 `generate_dbt_project.py` creates RAW source declarations, one STAGING view per entity, `DIM_CEDANT`, `DIM_TREATY`, `DIM_POLICY`, `FCT_PREMIUM`, `FCT_CLAIM`, `FCT_EXPOSURE`, and `MART.REINSURANCE_PERFORMANCE` at cedant + treaty + month grain. Premium, claim, and exposure facts are independently aggregated before joining to prevent fact-to-fact fan-out from inflating financial measures.
 
+## Canonical semantic contract
+
+`config/rga_semantic_contract.yml` is the single source of truth for governed dimensions, facts, metrics, verified questions, consumer rules, and performance acceptance metadata. The Snowflake Semantic View, Cortex Agent resource binding, Microsoft consumer contract, parity suite, and direct-versus-semantic benchmark all compile from this contract.
+
+This prevents a metric change from requiring separate edits in Snowflake, AI, Power BI/Excel validation, and benchmark code.
+
 ## Governed Semantic View
 
 `generate_semantic_view.py` creates the Snowflake Semantic View YAML plus separate verification and create-or-alter deployment SQL. Governed metrics include total gross/ceded premium, gross/ceded claims, exposure, claim count, ceded loss ratio, and ceded premium rate. Verified query examples are stored with the semantic definition.
@@ -104,6 +114,12 @@ The fixtures have stable event IDs and a manifest so they can become inputs for 
 `generate_microsoft_consumer_pack.py` generates a shared Microsoft consumer contract, XMLA setup template, and parity checklist. The live consumption path is explicitly marked `private_preview_feature_gate` because governed Power BI and Excel access to Snowflake Semantic Views depends on the Snowflake Semantic Views XMLA Endpoint powered by AtScale being enabled in the target account.
 
 The acceptance rule is stricter than connectivity: Power BI and Excel must use the governed semantic model and match Snowflake/AI results at the same dimensional grain and security context. Recreating `CEDED_LOSS_RATIO` or `CEDED_PREMIUM_RATE` in local DAX or spreadsheet formulas does not count as semantic parity.
+
+## Cross-consumer parity suite
+
+`generate_parity_suite.py` compiles every canonical verified question into a certification case spanning Snowflake Semantic View, Cortex Agent/MCP, Power BI, and Excel. Each case carries the same metric list, dimensional grain, filter/security-context requirements, and a Snowflake Semantic View reference query.
+
+The suite treats Power BI and Excel connectivity as insufficient by itself: client-side recreation of governed measures is explicitly disallowed for semantic certification.
 
 ## Performance benchmark
 
