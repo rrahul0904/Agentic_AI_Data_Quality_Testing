@@ -19,6 +19,7 @@ from agentic_data_platform.dbt.nextgen import (
     context_search,
     explore_plan,
     lake_compute_plan,
+    model_compute_plan,
     state_plan,
     wizard_plan,
 )
@@ -101,6 +102,19 @@ def dbt_state_plan(
 def dbt_chart_compile(yaml_text: str) -> dict[str, Any]:
     """Validate and compile a dashboard YAML contract for governed downstream consumers."""
     return chart_compile({"yaml": yaml_text})
+
+
+@mcp.tool(title="Plan per-model dbt compute routing", annotations=READ_ONLY)
+def dbt_model_compute_plan(
+    default_engine: str = "warehouse",
+    model_engines: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Route individual dbt models to warehouse or lake compute and expose cross-engine boundaries."""
+    return model_compute_plan({
+        **_defaults(),
+        "default_engine": default_engine,
+        "model_engines": model_engines or {},
+    })
 
 
 @mcp.tool(title="Plan read-only lake compute", annotations=READ_ONLY)
