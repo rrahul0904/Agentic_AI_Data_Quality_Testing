@@ -414,7 +414,7 @@ def wizard_plan(args: dict[str, Any]) -> dict[str, Any]:
     tools = {
         "lineage-impact": ["dbt_lineage", "dbt_impact"],
         "bi-as-code": ["dbt_next_chart_validate", "dbt_next_chart_compile"],
-        "state-optimization": ["dbt_next_state_plan"],
+        "state-optimization": ["dbt_next_state_plan", "dbt_next_state_execution_contract"],
         "semantic-explore": ["dbt_next_explore_plan", "semantic_verified_search"],
         "project-context": ["dbt_next_context_search"],
     }
@@ -673,6 +673,7 @@ def agents_schema(args: dict[str, Any] | None = None) -> dict[str, Any]:
             {"name": "semantic_explore", "tool": "dbt_next_explore_plan", "read_only": True},
             {"name": "bi_as_code", "tool": "dbt_next_chart_compile", "read_only": True},
             {"name": "state_plan", "tool": "dbt_next_state_plan", "read_only": True},
+            {"name": "state_execution_contract", "tool": "dbt_next_state_execution_contract", "read_only": True},
             {"name": "model_compute_plan", "tool": "dbt_next_model_compute_plan", "read_only": True},
             {"name": "lake_compute", "tool": "dbt_next_lake_compute_run", "read_only": True},
         ],
