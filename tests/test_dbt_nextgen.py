@@ -1,6 +1,9 @@
+import asyncio
 from pathlib import Path
 
 import yaml
+from fastapi.testclient import TestClient
+from mcp import Client
 
 from agentic_data_platform.dbt.nextgen import (
     agents_schema,
@@ -11,9 +14,13 @@ from agentic_data_platform.dbt.nextgen import (
     engine_readiness,
     explore_plan,
     lake_compute_plan,
+    model_compute_plan,
     state_plan,
     wizard_plan,
 )
+from agentic_data_platform.api.app import create_app
+from agentic_data_platform.cli import DOMAIN_CLI_TOOLS
+from agentic_data_platform.dbt.mcp_server import mcp
 from agentic_data_platform.semantic.registry import SemanticRegistry
 from agentic_data_platform.tools.builtin import build_tool_registry
 
@@ -120,6 +127,73 @@ def test_lake_compute_plan_and_agent_schema():
     assert any(item["name"] == "semantic_explore" for item in schema["resources"])
 
 
+def test_model_compute_plan_preserves_cross_engine_boundary():
+    manifest = _manifest()
+    result = model_compute_plan({
+        "manifest": manifest,
+        "model_engines": {"a": "lake", "b": "warehouse"},
+    })
+    assert result["status"] == "PASS"
+    assert result["counts"]["lake"] == 1
+    assert result["counts"]["warehouse"] == 1
+    assert result["counts"]["cross_engine_boundaries"] == 1
+    boundary = result["cross_engine_boundaries"][0]
+    assert boundary["upstream"] == "model.demo.a"
+    assert boundary["downstream"] == "model.demo.b"
+    assert boundary["contract"] == "materialized-relation-boundary"
+
+
+def test_context_accepts_adapter_fed_unstructured_records():
+    bundle = context_bundle({
+        "manifest": _manifest(),
+        "records": [{
+            "id": "jira-123",
+            "source": "jira",
+            "type": "ticket",
+            "text": "Revenue metric changed because premium bookings now exclude refunds.",
+            "metadata": {"project": "finance"},
+        }],
+    })
+    assert bundle["counts"]["records"] == 1
+    hits = context_search({"bundle": bundle["bundle"], "query": "premium refunds"})
+    assert hits["count"] == 1
+    assert hits["results"][0]["source"] == "record:jira"
+    assert hits["results"][0]["record_id"] == "jira-123"
+
+
+def test_api_and_cli_publish_complete_dbt_next_domain():
+    expected = {
+        "engine-readiness", "state-plan", "context-bundle", "context-search",
+        "wizard-plan", "explore-plan", "chart-validate", "chart-compile",
+        "model-compute-plan", "lake-plan", "lake-run", "agents-schema",
+    }
+    assert expected.issubset(DOMAIN_CLI_TOOLS["dbt-next"])
+    client = TestClient(create_app())
+    domains = client.get("/api/v1/domains")
+    assert domains.status_code == 200
+    assert expected.issubset(domains.json()["dbt-next"])
+    schema = client.post("/api/v1/dbt-next/agents-schema", json={"args": {}})
+    assert schema.status_code == 200
+    assert schema.json()["schema_version"] == "ade-agents/1.0"
+
+
+def test_mcp_server_discovers_dbt_context_tools_and_resource():
+    async def probe():
+        async with Client(mcp) as client:
+            tool_page = await client.list_tools()
+            tool_names = {tool.name for tool in tool_page.tools}
+            assert {
+                "dbt_context_search", "dbt_context_bundle", "dbt_wizard_plan",
+                "dbt_explore_plan", "dbt_state_plan", "dbt_chart_compile",
+                "dbt_model_compute_plan", "dbt_lake_compute_plan",
+            }.issubset(tool_names)
+            resource_page = await client.list_resources()
+            uris = {str(resource.uri) for resource in resource_page.resources}
+            assert "ade://dbt/agents-schema" in uris
+
+    asyncio.run(probe())
+
+
 def test_engine_readiness_override_and_registry_surface():
     readiness = engine_readiness({"version_output": "dbt 2.0.0 fusion"})
     assert readiness["status"] == "PASS"
@@ -127,7 +201,7 @@ def test_engine_readiness_override_and_registry_surface():
     registry = build_tool_registry()
     for name in (
         "dbt_next_state_plan", "dbt_next_wizard_plan", "dbt_next_explore_plan",
-        "dbt_next_chart_compile", "dbt_next_lake_compute_plan", "dbt_next_context_bundle",
-        "dbt_next_agents_schema",
+        "dbt_next_chart_compile", "dbt_next_model_compute_plan", "dbt_next_lake_compute_plan",
+        "dbt_next_context_bundle", "dbt_next_agents_schema",
     ):
         assert registry.describe(name).name == name
