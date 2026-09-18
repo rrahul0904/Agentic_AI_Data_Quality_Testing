@@ -122,6 +122,21 @@ consumers:
     protocol: XMLA
     duplicate_metric_logic_allowed: false
 
+acceleration:
+  semantic_sql:
+    max_staleness_sec: 3600
+    warehouse_env: SNOWFLAKE_MATERIALIZATION_WAREHOUSE
+    refresh_mode: AUTO
+  ai_physical_sql:
+    strategy: underlying_mart_optimization
+    candidate_mechanisms:
+      - dynamic_table_or_aggregate_table
+      - clustering
+      - search_optimization
+      - query_acceleration_service
+      - warehouse_concurrency
+    note: Cortex Analyst and Agents may execute physical SQL that does not use Semantic View materializations.
+
 performance:
   concurrency: [1, 5, 10, 25, 50]
   target_p95_ms: 5000
