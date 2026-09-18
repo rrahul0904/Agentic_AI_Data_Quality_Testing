@@ -199,10 +199,26 @@ def context_bundle(args: dict[str, Any]) -> dict[str, Any]:
         registry = SemanticRegistry(semantic_db)
         semantic_resources = [registry.show(item["resource_id"]) for item in registry.list()]
 
+    records = []
+    for index, raw in enumerate(args.get("records") or []):
+        if not isinstance(raw, dict):
+            continue
+        text = str(raw.get("text") or raw.get("content") or "")
+        if not text:
+            continue
+        records.append({
+            "id": str(raw.get("id") or f"record-{index + 1}"),
+            "source": str(raw.get("source") or raw.get("provider") or "external"),
+            "type": str(raw.get("type") or "text"),
+            "text": text[: int(args.get("record_char_limit", 12000))],
+            "metadata": dict(raw.get("metadata") or {}),
+        })
+
     payload = {
         "dbt": _manifest_summary(manifest),
         "semantic_resources": semantic_resources,
         "documents": documents,
+        "records": records,
     }
     return {
         "status": "PASS",
@@ -214,6 +230,7 @@ def context_bundle(args: dict[str, Any]) -> dict[str, Any]:
             "semantic_models": len(payload["dbt"]["semantic_models"]),
             "semantic_resources": len(semantic_resources),
             "documents": len(documents),
+            "records": len(records),
         },
         "fingerprint": _fingerprint(payload),
     }
@@ -249,7 +266,19 @@ def context_search(args: dict[str, Any]) -> dict[str, Any]:
         score = len(q & _terms(text[:50000]))
         if score:
             hits.append({"score": score, "source": "document", "path": document.get("path"), "excerpt": text[:1000]})
-    hits.sort(key=lambda x: (-int(x["score"]), str(x.get("name") or x.get("path") or "")))
+    for record in bundle.get("records", []):
+        text = str(record.get("text") or "")
+        score = len(q & _terms(text[:50000]))
+        if score:
+            hits.append({
+                "score": score,
+                "source": f"record:{record.get('source') or 'external'}",
+                "record_id": record.get("id"),
+                "record_type": record.get("type"),
+                "metadata": record.get("metadata") or {},
+                "excerpt": text[:1000],
+            })
+    hits.sort(key=lambda x: (-int(x["score"]), str(x.get("name") or x.get("path") or x.get("record_id") or "")))
     limit = max(1, min(int(args.get("limit", 20)), 100))
     return {"status": "PASS", "query": query, "count": min(len(hits), limit), "results": hits[:limit]}
 
@@ -408,6 +437,71 @@ def chart_compile(args: dict[str, Any]) -> dict[str, Any]:
         "targets": ["ade-web", "power-bi-contract", "excel-contract", "ai-agent-contract"],
     }
     return {"status": "PASS", "compiled": compiled, "fingerprint": _fingerprint(compiled)}
+
+
+def model_compute_plan(args: dict[str, Any]) -> dict[str, Any]:
+    """Route dbt models to warehouse or local lake compute while preserving ref dependencies."""
+    manifest, manifest_path = _manifest_from_args(args)
+    nodes = _node_map(manifest)
+    overrides = {str(k): str(v).casefold() for k, v in dict(args.get("model_engines") or {}).items()}
+    default_engine = str(args.get("default_engine") or "warehouse").casefold()
+    if default_engine not in {"warehouse", "lake"}:
+        raise ValueError("default_engine must be warehouse or lake")
+
+    assignments: dict[str, str] = {}
+    for node_id, node in nodes.items():
+        if node.get("resource_type") != "model":
+            continue
+        name = str(node.get("name") or node_id)
+        meta = node.get("config", {}).get("meta", {}) or node.get("meta", {}) or {}
+        requested = overrides.get(node_id) or overrides.get(name) or str(meta.get("ade_compute") or default_engine).casefold()
+        if requested in {"duckdb", "iceberg", "lake-compute"}:
+            requested = "lake"
+        if requested not in {"warehouse", "lake"}:
+            raise ValueError(f"unsupported compute engine for {name}: {requested}")
+        assignments[node_id] = requested
+
+    boundaries = []
+    for node_id, engine in assignments.items():
+        node = nodes[node_id]
+        for parent in node.get("depends_on", {}).get("nodes", ()):
+            parent_engine = assignments.get(parent)
+            if parent_engine and parent_engine != engine:
+                boundaries.append({
+                    "upstream": parent,
+                    "upstream_engine": parent_engine,
+                    "downstream": node_id,
+                    "downstream_engine": engine,
+                    "contract": "materialized-relation-boundary",
+                })
+
+    models = []
+    for node_id in sorted(assignments):
+        node = nodes[node_id]
+        engine = assignments[node_id]
+        models.append({
+            "unique_id": node_id,
+            "name": node.get("name"),
+            "engine": engine,
+            "depends_on": list(node.get("depends_on", {}).get("nodes", ())),
+            "execution": "warehouse-dbt" if engine == "warehouse" else "duckdb-lake",
+            "ref_contract": "preserved-via-materialized-relation",
+        })
+    return {
+        "status": "PASS",
+        "manifest": str(manifest_path) if manifest_path else "inline",
+        "default_engine": default_engine,
+        "counts": {
+            "models": len(models),
+            "warehouse": sum(item["engine"] == "warehouse" for item in models),
+            "lake": sum(item["engine"] == "lake" for item in models),
+            "cross_engine_boundaries": len(boundaries),
+        },
+        "models": models,
+        "cross_engine_boundaries": boundaries,
+        "fingerprint": _fingerprint({"models": models, "boundaries": boundaries}),
+        "note": "Cross-engine refs require upstream materialization into a relation visible to the downstream engine; ADE does not claim zero-copy interoperability.",
+    }
 
 
 def lake_compute_plan(args: dict[str, Any]) -> dict[str, Any]:
