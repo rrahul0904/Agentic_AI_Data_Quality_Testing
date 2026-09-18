@@ -151,14 +151,15 @@ def declarative_materializations(plan: dict[str, Any]) -> dict[str, Any]:
 
 
 def render_declarative_sync_sql(plan: dict[str, Any], yaml_text: str) -> str:
+    dollar_quote = "$" * 2
     return (
         "-- Declarative materialization reconciliation. Review warehouse placeholder before live execution.\n"
         f"ALTER SEMANTIC VIEW {plan['semantic_view']} SET MAX_STALENESS = {plan['max_staleness_sec']};\n"
         "CALL SYSTEM$MANAGE_SEMANTIC_VIEW_MATERIALIZATIONS_FROM_YAML(\n"
         f"  '{plan['semantic_view']}',\n"
-        "  $\n"
+        f"  {dollar_quote}\n"
         f"{yaml_text.rstrip()}\n"
-        "  $\n"
+        f"  {dollar_quote}\n"
         ");\n"
     )
 
