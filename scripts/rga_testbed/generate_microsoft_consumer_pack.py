@@ -88,7 +88,7 @@ Canonical source: config/rga_semantic_contract.yml
 ## Power BI
 
 - Confirm the governed endpoint is enabled for the Snowflake account.
-- Connect using the endpoint URL and verify the required live connection mode.
+- Connect using the endpoint URL and verify Power BI reports Live Connection using the required live connection mode.
 - Confirm governed metrics are visible without recreating {forbidden} in DAX.
 - Execute every canonical verified-query slice defined in the semantic contract.
 - Record result evidence and corresponding Snowflake query IDs.
