@@ -48,6 +48,7 @@ from agentic_data_platform.dbt.nextgen import (
     context_search as dbt_next_context_search_impl,
     engine_readiness as dbt_next_engine_readiness_impl,
     explore_plan as dbt_next_explore_plan_impl,
+    explore_query_contract as dbt_next_explore_query_contract_impl,
     lake_compute_plan as dbt_next_lake_compute_plan_impl,
     lake_compute_run as dbt_next_lake_compute_run_impl,
     model_compute_plan as dbt_next_model_compute_plan_impl,
@@ -1141,6 +1142,47 @@ def build_tool_registry() -> ToolRegistry:
         dbt_next_explore_plan_impl,
         "Ground a natural-language business question in semantic metrics, dimensions and verified queries before SQL execution.",
         platforms=frozenset({Platform.LOCAL, Platform.DBT, Platform.SNOWFLAKE}),
+    )
+    add(
+        "dbt_next_explore_query_contract",
+        Capability.PLAN,
+        dbt_next_explore_query_contract_impl,
+        "Resolve governed Explore questions to sufficiently matched verified read-only SQL without synthesizing new SQL.",
+        platforms=frozenset({Platform.LOCAL, Platform.DBT, Platform.SNOWFLAKE, Platform.BIGQUERY, Platform.REDSHIFT, Platform.DATABRICKS, Platform.POSTGRES, Platform.DUCKDB}),
+    )
+
+    def dbt_next_explore_execute_handler(a: dict[str, Any]) -> dict[str, Any]:
+        contract = dbt_next_explore_query_contract_impl(a)
+        if contract.get("status") != "READY":
+            return contract
+        try:
+            connector = connector_from_args(a)
+        except ExternalConnectionUnavailable as exc:
+            return {
+                **contract,
+                "status": "SKIP_EXTERNAL",
+                "reason": str(exc),
+                "execution": None,
+            }
+        execution = sql_execute_impl(
+            connector,
+            str(contract["sql"]),
+            a.get("dialect") or a.get("platform") or contract.get("dialect_hint"),
+            row_limit=max(1, min(int(a.get("row_limit", 1000)), 5000)),
+        )
+        return {
+            "status": execution.get("status", "PASS"),
+            "question": contract["question"],
+            "contract": contract,
+            "execution": execution,
+        }
+
+    add(
+        "dbt_next_explore_execute",
+        Capability.EXECUTE,
+        dbt_next_explore_execute_handler,
+        "Execute only sufficiently matched verified read-only Explore SQL through an ADE connector.",
+        platforms=frozenset({Platform.LOCAL, Platform.DBT, Platform.SNOWFLAKE, Platform.BIGQUERY, Platform.REDSHIFT, Platform.DATABRICKS, Platform.POSTGRES, Platform.DUCKDB}),
     )
     add(
         "dbt_next_chart_validate",
