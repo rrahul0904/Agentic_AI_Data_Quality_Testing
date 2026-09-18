@@ -36,6 +36,7 @@ def validate_semantic_contract(contract: dict[str, Any]) -> None:
         "metrics",
         "verified_queries",
         "consumers",
+        "acceleration",
         "performance",
     }
     missing = sorted(required - set(contract))
