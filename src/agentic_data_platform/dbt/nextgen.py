@@ -237,7 +237,13 @@ def context_bundle(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _terms(text: str) -> set[str]:
-    return {token.casefold() for token in _TOKEN.findall(text) if len(token) > 2}
+    # Split qualified identifiers (for example model.package.fact_orders) into
+    # searchable components while retaining ordinary words and short dbt names.
+    return {
+        token.casefold()
+        for token in re.findall(r"[A-Za-z0-9_]+", text)
+        if token
+    }
 
 
 def context_search(args: dict[str, Any]) -> dict[str, Any]:
