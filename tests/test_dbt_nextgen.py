@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 
 import yaml
+import pytest
 from fastapi.testclient import TestClient
 from mcp import Client
 
@@ -15,6 +16,8 @@ from agentic_data_platform.dbt.nextgen import (
     explore_plan,
     lake_compute_plan,
     model_compute_plan,
+    state_execution_contract,
+    state_execute,
     state_plan,
     wizard_plan,
 )
@@ -81,6 +84,51 @@ def test_chart_yaml_is_versionable_and_read_only():
 
     blocked = chart_validate({"spec": {"dashboard": {"name": "bad", "charts": [{"name": "x", "sql": "delete from t"}]}}})
     assert blocked["status"] == "FAIL"
+
+
+def test_state_execution_contract_is_deterministic_and_guarded(tmp_path: Path):
+    plan = {
+        "fingerprint": "plan-123",
+        "selectors": {
+            "build": ["fact_orders"],
+            "clone": ["dim_customer"],
+            "defer": ["stg_orders"],
+            "skip": ["dim_date"],
+        },
+        "actions": [],
+    }
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    args = {
+        "plan": plan,
+        "project_dir": str(tmp_path),
+        "state_dir": str(state_dir),
+        "executable": "dbt-definitely-missing",
+    }
+    first = state_execution_contract(args)
+    second = state_execution_contract(args)
+    assert first["status"] == "PLAN"
+    assert first["fingerprint"] == second["fingerprint"]
+    assert [item["phase"] for item in first["commands"]] == ["clone", "build"]
+    build = first["commands"][1]["argv"]
+    assert "--defer" in build
+    assert "--state" in build
+    assert first["skipped_selectors"] == ["dim_date"]
+
+    dry = state_execute({**args, "dry_run": True})
+    assert dry["status"] == "DRY_RUN"
+    assert dry["executed"] is False
+
+    with pytest.raises(ValueError, match="approved_fingerprint"):
+        state_execute({**args, "dry_run": False, "approved_fingerprint": "stale"})
+
+    unavailable = state_execute({
+        **args,
+        "dry_run": False,
+        "approved_fingerprint": first["fingerprint"],
+    })
+    assert unavailable["status"] == "SKIP_EXTERNAL"
+    assert unavailable["executed"] is False
 
 
 def test_context_and_wizard_use_manifest_evidence():
@@ -163,7 +211,7 @@ def test_context_accepts_adapter_fed_unstructured_records():
 
 def test_api_and_cli_publish_complete_dbt_next_domain():
     expected = {
-        "engine-readiness", "state-plan", "context-bundle", "context-search",
+        "engine-readiness", "state-plan", "state-contract", "state-execute", "context-bundle", "context-search",
         "wizard-plan", "explore-plan", "chart-validate", "chart-compile",
         "model-compute-plan", "lake-plan", "lake-run", "agents-schema",
     }
@@ -184,7 +232,7 @@ def test_mcp_server_discovers_dbt_context_tools_and_resource():
             tool_names = {tool.name for tool in tool_page.tools}
             assert {
                 "dbt_context_search", "dbt_context_bundle", "dbt_wizard_plan",
-                "dbt_explore_plan", "dbt_state_plan", "dbt_chart_compile",
+                "dbt_explore_plan", "dbt_state_plan", "dbt_state_execution_contract", "dbt_chart_compile",
                 "dbt_model_compute_plan", "dbt_lake_compute_plan",
             }.issubset(tool_names)
             resource_page = await client.list_resources()
@@ -200,7 +248,8 @@ def test_engine_readiness_override_and_registry_surface():
     assert readiness["engine_family"] == "dbt-v2-or-fusion"
     registry = build_tool_registry()
     for name in (
-        "dbt_next_state_plan", "dbt_next_wizard_plan", "dbt_next_explore_plan",
+        "dbt_next_state_plan", "dbt_next_state_execution_contract", "dbt_next_state_execute",
+        "dbt_next_wizard_plan", "dbt_next_explore_plan",
         "dbt_next_chart_compile", "dbt_next_model_compute_plan", "dbt_next_lake_compute_plan",
         "dbt_next_context_bundle", "dbt_next_agents_schema",
     ):

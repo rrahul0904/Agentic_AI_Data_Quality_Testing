@@ -20,6 +20,7 @@ from agentic_data_platform.dbt.nextgen import (
     explore_plan,
     lake_compute_plan,
     model_compute_plan,
+    state_execution_contract,
     state_plan,
     wizard_plan,
 )
@@ -96,6 +97,22 @@ def dbt_state_plan(
         args["manifest_path"] = current_manifest_path
     args["previous_manifest_path"] = previous_manifest_path
     return state_plan(args)
+
+
+@mcp.tool(title="Compile state-aware dbt execution contract", annotations=READ_ONLY)
+def dbt_state_execution_contract(
+    previous_manifest_path: str,
+    current_manifest_path: str = "",
+    state_dir: str = "",
+) -> dict[str, Any]:
+    """Compile deterministic dbt clone/build commands without executing them."""
+    args = _defaults()
+    if current_manifest_path:
+        args["manifest_path"] = current_manifest_path
+    args["previous_manifest_path"] = previous_manifest_path
+    if state_dir:
+        args["state_dir"] = state_dir
+    return state_execution_contract(args)
 
 
 @mcp.tool(title="Compile BI-as-code dashboard YAML", annotations=READ_ONLY)

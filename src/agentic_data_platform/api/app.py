@@ -726,6 +726,8 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
         "dbt-next": {
             "engine-readiness": "dbt_next_engine_readiness",
             "state-plan": "dbt_next_state_plan",
+            "state-contract": "dbt_next_state_execution_contract",
+            "state-execute": "dbt_next_state_execute",
             "context-bundle": "dbt_next_context_bundle",
             "context-search": "dbt_next_context_search",
             "wizard-plan": "dbt_next_wizard_plan",
