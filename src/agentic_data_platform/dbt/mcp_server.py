@@ -18,6 +18,7 @@ from agentic_data_platform.dbt.nextgen import (
     context_bundle,
     context_search,
     explore_plan,
+    explore_query_contract,
     lake_compute_plan,
     model_compute_plan,
     state_execution_contract,
@@ -84,6 +85,25 @@ def dbt_explore_plan(question: str, limit: int = 25) -> dict[str, Any]:
             "question": question,
         }
     return explore_plan({**args, "question": question, "limit": limit})
+
+
+@mcp.tool(title="Compile governed Explore verified-query contract", annotations=READ_ONLY)
+def dbt_explore_query_contract(
+    question: str,
+    verified_query_name: str = "",
+) -> dict[str, Any]:
+    """Resolve a question to sufficiently matched verified read-only SQL without executing it."""
+    args = _defaults()
+    if not args.get("semantic_database"):
+        return {
+            "status": "CONFIGURATION_REQUIRED",
+            "required": "ADE_MCP_SEMANTIC_DATABASE",
+            "question": question,
+        }
+    payload: dict[str, Any] = {**args, "question": question}
+    if verified_query_name:
+        payload["verified_query_name"] = verified_query_name
+    return explore_query_contract(payload)
 
 
 @mcp.tool(title="Plan state-aware dbt work", annotations=READ_ONLY)
