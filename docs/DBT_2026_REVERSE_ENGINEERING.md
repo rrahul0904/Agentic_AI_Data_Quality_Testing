@@ -11,7 +11,7 @@ This document records the clean-room capability mapping implemented from the sup
 | Wizard | `wizard_plan` + existing governed ToolRegistry/AgentRuntime | Tool, API, CLI, web, desktop, MCP | Planner is deterministic by default; mutations remain handled by ADE's existing approval gates. |
 | Wizard CLI | `ade dbt-next wizard-plan` | CLI | Uses the same tool implementation as API/UI. |
 | Wizard Desktop | Native Electron dbt Next view | Desktop | Uses the same FastAPI control plane; full argument-level workbench remains available through the web console. |
-| Wizard Explore | `explore_plan` | Tool, API, CLI, web, MCP | Resolves questions to governed metrics/dimensions/verified queries before SQL execution. |
+| Wizard Explore | `explore_plan`, `explore_query_contract`, verified `explore_execute` | Tool, API, CLI, web; read-only contract over MCP | Resolves questions to governed metrics/dimensions/verified queries and executes only sufficiently matched verified read-only SQL. ADE does not synthesize unverified SQL for governed Explore execution. |
 | dbt Charts | `chart_validate` + `chart_compile` | Tool, API, CLI, web, MCP | YAML dashboards are versionable contracts; ADE does not claim dbt Charts rendering compatibility. |
 | Lake Compute | `model_compute_plan`, `lake_compute_plan`, `lake_compute_run` | Tool, API, CLI, web, MCP | DuckDB/Parquet works locally; Iceberg requires an available DuckDB Iceberg extension. Cross-engine refs require materialized relation boundaries. |
 | Context Layer | `context_bundle` + `context_search` | Tool, API, CLI, web, MCP | Combines dbt artifacts, semantic registry, selected files, and adapter-fed records. External connectors can feed records without being hard-coded here. |
@@ -104,6 +104,12 @@ Explore is deliberately two-stage:
 
 This prevents the product from treating free-form LLM SQL as governed semantics.
 
+### Verified Explore execution
+
+`dbt_next_explore_query_contract` converts a business question into an executable contract only when a sufficiently matched verified query exists in the semantic registry. The contract includes the source resource, verified-query identity, verifier metadata, read-only SQL and a deterministic fingerprint.
+
+`dbt_next_explore_execute` then routes that exact SQL through ADE's existing bounded read-only connector execution layer. It does not generate SQL. If no verified query matches strongly enough, the result is `NEEDS_VERIFIED_QUERY`; if the selected registry SQL is mutating, execution is `BLOCKED`.
+
 ## BI-as-code contract
 
 Dashboard YAML is validated for:
@@ -156,6 +162,8 @@ ade dbt-next state-contract --args '{"manifest_path":"target/manifest.json","pre
 ade dbt-next state-execute --args '{"manifest_path":"target/manifest.json","previous_manifest_path":"state/manifest.json","project_dir":".","dry_run":true}'
 ade dbt-next wizard-plan --args '{"manifest_path":"target/manifest.json","question":"what changed downstream of revenue?"}'
 ade dbt-next explore-plan --args '{"semantic_database":".ade/semantic.db","question":"revenue by region"}'
+ade dbt-next explore-contract --args '{"semantic_database":".ade/semantic.db","question":"revenue by region"}'
+ade dbt-next explore-execute --args '{"semantic_database":".ade/semantic.db","question":"revenue by region","platform":"duckdb","database":":memory:"}'
 ade dbt-next chart-compile --args '{"path":"examples/dbt_next/executive_revenue.dashboard.yml"}'
 ade dbt-next model-compute-plan --args '{"manifest_path":"target/manifest.json","model_engines":{"stg_large_iceberg":"lake"}}'
 ade dbt-next lake-plan --args '{"source":"s3://bucket/table","source_type":"iceberg"}'
@@ -187,6 +195,7 @@ The dedicated test slice is `tests/test_dbt_nextgen.py`. It certifies:
 - dashboard YAML validation and mutating-SQL rejection,
 - structured/unstructured context search,
 - semantic Explore grounding and verified-query use,
+- verified Explore execution, no-match refusal, and mutating-SQL blocking,
 - API and CLI domain publication,
 - MCP tool/resource discovery,
 - tool-registry registration,

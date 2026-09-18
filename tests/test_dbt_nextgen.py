@@ -14,6 +14,7 @@ from agentic_data_platform.dbt.nextgen import (
     context_search,
     engine_readiness,
     explore_plan,
+    explore_query_contract,
     lake_compute_plan,
     model_compute_plan,
     state_execution_contract,
@@ -166,6 +167,77 @@ def test_semantic_explore_is_grounded(tmp_path: Path):
     assert result["verified_queries"]
 
 
+
+def test_explore_contract_and_execute_use_only_verified_sql(tmp_path: Path):
+    semantic_yaml = tmp_path / "semantic-exec.yml"
+    semantic_yaml.write_text(yaml.safe_dump({
+        "name": "revenue_exec",
+        "tables": [{
+            "name": "orders",
+            "dimensions": [{"name": "region", "description": "sales region"}],
+            "metrics": [{"name": "revenue", "description": "premium revenue"}],
+        }],
+        "verified_queries": [
+            {
+                "name": "revenue_by_region",
+                "question": "What is revenue by region?",
+                "sql": "select 'east' as region, 42 as revenue",
+                "verified_by": "analytics-governance",
+            },
+            {
+                "name": "unsafe_revenue_delete",
+                "question": "Delete revenue by region",
+                "sql": "delete from orders",
+                "verified_by": "bad-fixture",
+            },
+        ],
+    }))
+    db = tmp_path / "semantic-exec.db"
+    SemanticRegistry(db).ingest_yaml(semantic_yaml)
+
+    contract = explore_query_contract({
+        "semantic_database": str(db),
+        "question": "What is revenue by region?",
+    })
+    assert contract["status"] == "READY"
+    assert contract["verified_query"]["name"] == "revenue_by_region"
+    assert contract["sql"] == "select 'east' as region, 42 as revenue"
+    assert contract["fingerprint"]
+
+    no_match = explore_query_contract({
+        "semantic_database": str(db),
+        "question": "What is churn by cohort?",
+    })
+    assert no_match["status"] == "NEEDS_VERIFIED_QUERY"
+    assert no_match["sql"] is None
+
+    blocked = explore_query_contract({
+        "semantic_database": str(db),
+        "question": "Delete revenue by region",
+        "verified_query_name": "unsafe_revenue_delete",
+    })
+    assert blocked["status"] == "BLOCKED"
+    assert blocked["sql"] is None
+
+    client = TestClient(create_app())
+    response = client.post("/api/v1/dbt-next/explore-execute", json={
+        "args": {
+            "semantic_database": str(db),
+            "question": "What is revenue by region?",
+            "platform": "duckdb",
+            "database": ":memory:",
+            "row_limit": 10,
+        }
+    })
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "PASS"
+    assert payload["contract"]["verified_query"]["name"] == "revenue_by_region"
+    assert payload["execution"]["row_count"] == 1
+    assert payload["execution"]["columns"] == ["region", "revenue"]
+
+
+
 def test_lake_compute_plan_and_agent_schema():
     plan = lake_compute_plan({"source": "/tmp/orders.parquet", "source_type": "parquet", "limit": 25})
     assert plan["engine"] == "duckdb"
@@ -212,7 +284,7 @@ def test_context_accepts_adapter_fed_unstructured_records():
 def test_api_and_cli_publish_complete_dbt_next_domain():
     expected = {
         "engine-readiness", "state-plan", "state-contract", "state-execute", "context-bundle", "context-search",
-        "wizard-plan", "explore-plan", "chart-validate", "chart-compile",
+        "wizard-plan", "explore-plan", "explore-contract", "explore-execute", "chart-validate", "chart-compile",
         "model-compute-plan", "lake-plan", "lake-run", "agents-schema",
     }
     assert expected.issubset(DOMAIN_CLI_TOOLS["dbt-next"])
@@ -232,7 +304,7 @@ def test_mcp_server_discovers_dbt_context_tools_and_resource():
             tool_names = {tool.name for tool in tool_page.tools}
             assert {
                 "dbt_context_search", "dbt_context_bundle", "dbt_wizard_plan",
-                "dbt_explore_plan", "dbt_state_plan", "dbt_state_execution_contract", "dbt_chart_compile",
+                "dbt_explore_plan", "dbt_explore_query_contract", "dbt_state_plan", "dbt_state_execution_contract", "dbt_chart_compile",
                 "dbt_model_compute_plan", "dbt_lake_compute_plan",
             }.issubset(tool_names)
             resource_page = await client.list_resources()
@@ -249,7 +321,7 @@ def test_engine_readiness_override_and_registry_surface():
     registry = build_tool_registry()
     for name in (
         "dbt_next_state_plan", "dbt_next_state_execution_contract", "dbt_next_state_execute",
-        "dbt_next_wizard_plan", "dbt_next_explore_plan",
+        "dbt_next_wizard_plan", "dbt_next_explore_plan", "dbt_next_explore_query_contract", "dbt_next_explore_execute",
         "dbt_next_chart_compile", "dbt_next_model_compute_plan", "dbt_next_lake_compute_plan",
         "dbt_next_context_bundle", "dbt_next_agents_schema",
     ):

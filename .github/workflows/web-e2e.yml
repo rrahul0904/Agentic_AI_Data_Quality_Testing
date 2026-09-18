@@ -129,6 +129,8 @@ jobs:
           assert "lake-plan" in domains["dbt-next"], domains["dbt-next"]
           assert "state-contract" in domains["dbt-next"], domains["dbt-next"]
           assert "state-execute" in domains["dbt-next"], domains["dbt-next"]
+          assert "explore-contract" in domains["dbt-next"], domains["dbt-next"]
+          assert "explore-execute" in domains["dbt-next"], domains["dbt-next"]
 
           schema = json.load(open("/tmp/dbt-next-agents-schema.json"))
           assert schema["status"] == "PASS", schema

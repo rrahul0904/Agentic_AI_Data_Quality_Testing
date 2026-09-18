@@ -415,7 +415,7 @@ def wizard_plan(args: dict[str, Any]) -> dict[str, Any]:
         "lineage-impact": ["dbt_lineage", "dbt_impact"],
         "bi-as-code": ["dbt_next_chart_validate", "dbt_next_chart_compile"],
         "state-optimization": ["dbt_next_state_plan", "dbt_next_state_execution_contract"],
-        "semantic-explore": ["dbt_next_explore_plan", "semantic_verified_search"],
+        "semantic-explore": ["dbt_next_explore_plan", "dbt_next_explore_query_contract", "semantic_verified_search"],
         "project-context": ["dbt_next_context_search"],
     }
     ordered_tools: list[str] = []
@@ -458,6 +458,85 @@ def explore_plan(args: dict[str, Any]) -> dict[str, Any]:
         "verified_queries": verified,
         "confidence": round(confidence, 3),
         "execution_policy": "Generate/execute SQL only after semantic selection is unambiguous or a verified query matches.",
+    }
+
+
+def explore_query_contract(args: dict[str, Any]) -> dict[str, Any]:
+    """Resolve a question to verified read-only SQL; never synthesize SQL."""
+    plan = explore_plan(args)
+    question = str(plan["question"])
+    candidates = list(plan.get("verified_queries") or [])
+    requested_name = str(args.get("verified_query_name") or "").strip()
+
+    chosen: dict[str, Any] | None = None
+    if requested_name:
+        for candidate in candidates:
+            if str(candidate.get("name") or "") == requested_name:
+                chosen = candidate
+                break
+        if chosen is None:
+            return {
+                **plan,
+                "status": "NEEDS_VERIFIED_QUERY",
+                "reason": f"verified query not found for this question: {requested_name}",
+                "sql": None,
+                "fingerprint": _fingerprint({"question": question, "requested_name": requested_name, "candidates": candidates}),
+            }
+    else:
+        question_terms = {term for term in _terms(question) if len(term) > 2}
+        normalized_question = " ".join(question.casefold().split())
+        for candidate in candidates:
+            candidate_question = str(candidate.get("question") or "")
+            candidate_terms = {term for term in _terms(candidate_question) if len(term) > 2}
+            overlap = len(question_terms & candidate_terms)
+            coverage = overlap / max(1, len(question_terms))
+            exact = normalized_question == " ".join(candidate_question.casefold().split())
+            if exact or (overlap >= 2 and coverage >= 0.5):
+                chosen = candidate
+                break
+
+    if chosen is None:
+        return {
+            **plan,
+            "status": "NEEDS_VERIFIED_QUERY",
+            "reason": "No sufficiently matched verified query exists; ADE will not synthesize SQL for governed Explore execution.",
+            "sql": None,
+            "fingerprint": _fingerprint({"question": question, "candidates": candidates}),
+        }
+
+    sql = str(chosen.get("sql") or "").strip()
+    if not sql or not _READ_ONLY_SQL.match(sql):
+        return {
+            **plan,
+            "status": "BLOCKED",
+            "reason": "The selected verified query is missing SQL or is not read-only.",
+            "sql": None,
+            "verified_query": chosen,
+            "fingerprint": _fingerprint({"question": question, "verified_query": chosen, "blocked": True}),
+        }
+
+    metadata = dict(chosen.get("metadata") or {})
+    payload = {
+        "question": question,
+        "verified_query": {
+            "resource_id": chosen.get("resource_id"),
+            "resource_name": chosen.get("resource_name"),
+            "provider": chosen.get("provider"),
+            "name": chosen.get("name"),
+            "question": chosen.get("question"),
+            "verified_by": chosen.get("verified_by"),
+            "verified_at": chosen.get("verified_at"),
+            "metadata": metadata,
+        },
+        "sql": sql,
+        "dialect_hint": args.get("dialect") or metadata.get("dialect"),
+    }
+    return {
+        **plan,
+        "status": "READY",
+        **payload,
+        "fingerprint": _fingerprint(payload),
+        "execution_policy": "Only verified read-only SQL may execute. Free-form SQL synthesis is intentionally disabled.",
     }
 
 
@@ -671,6 +750,7 @@ def agents_schema(args: dict[str, Any] | None = None) -> dict[str, Any]:
         "resources": [
             {"name": "dbt_project_context", "tool": "dbt_next_context_bundle", "read_only": True},
             {"name": "semantic_explore", "tool": "dbt_next_explore_plan", "read_only": True},
+            {"name": "semantic_explore_contract", "tool": "dbt_next_explore_query_contract", "read_only": True},
             {"name": "bi_as_code", "tool": "dbt_next_chart_compile", "read_only": True},
             {"name": "state_plan", "tool": "dbt_next_state_plan", "read_only": True},
             {"name": "state_execution_contract", "tool": "dbt_next_state_execution_contract", "read_only": True},
