@@ -7,6 +7,8 @@ on:
     paths:
       - "config/rga_domain.yml"
       - "config/rga_semantic_contract.yml"
+      - "pyproject.toml"
+      - "src/agentic_data_platform/semantic_platform_cli.py"
       - "scripts/rga_testbed/**"
       - "tests/rga_testbed/**"
       - "docs/RGA_SYNTHETIC_DATA_PACK.md"
@@ -19,6 +21,8 @@ on:
     paths:
       - "config/rga_domain.yml"
       - "config/rga_semantic_contract.yml"
+      - "pyproject.toml"
+      - "src/agentic_data_platform/semantic_platform_cli.py"
       - "scripts/rga_testbed/**"
       - "tests/rga_testbed/**"
       - "docs/RGA_SYNTHETIC_DATA_PACK.md"
@@ -49,6 +53,22 @@ jobs:
         run: python -m compileall -q scripts/rga_testbed tests/rga_testbed
       - name: Run RGA tests
         run: python -m pytest -q -p no:cacheprovider tests/rga_testbed
+      - name: Certify installed semantic-platform operator CLI
+        run: |
+          semantic-platform about >/tmp/semantic-platform-about.json
+          grep -q 'Snowflake Semantic Views are the governed semantic runtime' /tmp/semantic-platform-about.json
+          semantic-platform status >/tmp/semantic-platform-status.json
+          grep -q 'READY_FOR_LOCAL_BUILD' /tmp/semantic-platform-status.json
+          semantic-platform demo-build --workspace /tmp/semantic-platform-demo --preset tiny --policies 120 --seed 42 >/tmp/semantic-platform-demo.json
+          grep -q '"status": "PASS"' /tmp/semantic-platform-demo.json
+          test -f /tmp/semantic-platform-demo/data/manifest.json
+          test -f /tmp/semantic-platform-demo/snowflake/001_raw_tables.sql
+          test -f /tmp/semantic-platform-demo/dbt/dbt_project.yml
+          test -f /tmp/semantic-platform-demo/release/release_manifest.json
+          test -f /tmp/semantic-platform-demo/airflow/rga_synthetic_pipeline.py
+          semantic-platform benchmark --workspace /tmp/semantic-platform-demo --mode both --concurrency 10 --iterations 2 --dry-run >/tmp/semantic-platform-benchmark.json
+          grep -q '"status": "DRY_RUN"' /tmp/semantic-platform-benchmark.json
+          grep -q '"task_count": 12' /tmp/semantic-platform-benchmark.json
       - name: Generate bounded smoke dataset
         run: python scripts/rga_testbed/generate_data.py --preset tiny --policies 120 --seed 42 --output /tmp/rga-smoke
       - name: Validate generated dataset
