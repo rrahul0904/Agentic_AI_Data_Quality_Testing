@@ -11,6 +11,7 @@ on:
       - "tests/rga_testbed/**"
       - "docs/RGA_SYNTHETIC_DATA_PACK.md"
       - "docs/GOVERNED_SEMANTIC_PLATFORM_REQUIREMENTS.md"
+      - "docs/SEMANTIC_PLATFORM_EXTERNAL_RESEARCH.md"
       - ".github/workflows/rga-synthetic-data.yml"
   push:
     branches:
@@ -22,6 +23,7 @@ on:
       - "tests/rga_testbed/**"
       - "docs/RGA_SYNTHETIC_DATA_PACK.md"
       - "docs/GOVERNED_SEMANTIC_PLATFORM_REQUIREMENTS.md"
+      - "docs/SEMANTIC_PLATFORM_EXTERNAL_RESEARCH.md"
       - ".github/workflows/rga-synthetic-data.yml"
 
 permissions:
