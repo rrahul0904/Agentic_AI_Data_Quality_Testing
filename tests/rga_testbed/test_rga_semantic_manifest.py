@@ -39,7 +39,7 @@ def test_manifest_diff_identifies_metric_change_and_impacts():
     assert diff["status"] == "CHANGED"
     assert diff["changed_sections"] == ["metrics"]
     assert "CEDED_LOSS_RATIO" in diff["details"]["metrics"]["modified"]
-    assert {"semantic_view", "ai", "microsoft", "benchmark", "parity", "ossie"} <= set(diff["impacted_artifacts"])
+    assert {"semantic_view", "ai", "microsoft", "benchmark", "parity", "multi_fact", "ossie"} <= set(diff["impacted_artifacts"])
 
 
 def test_manifest_diff_can_be_unchanged():
