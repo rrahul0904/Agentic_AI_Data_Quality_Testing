@@ -131,14 +131,56 @@ def render_materialization_sql(plan: dict[str, Any]) -> str:
     return "\n".join(line for line in lines if line != "" or True)
 
 
+def declarative_materializations(plan: dict[str, Any]) -> dict[str, Any]:
+    materializations = []
+    for item in plan["semantic_sql"]["materializations"]:
+        materializations.append(
+            {
+                "name": item["name"],
+                "warehouse": "<MATERIALIZATION_WAREHOUSE>",
+                "dimensions": [
+                    {"table": "REINSURANCE_PERFORMANCE", "name": name}
+                    for name in item["dimensions"]
+                ],
+                "metrics": [
+                    {"table": "REINSURANCE_PERFORMANCE", "name": name}
+                    for name in item["metrics"]
+                ],
+            }
+        )
+    return {"materializations": materializations}
+
+
+def render_declarative_sync_sql(plan: dict[str, Any], yaml_text: str) -> str:
+    return (
+        "-- Declarative materialization reconciliation. Review warehouse placeholder before live execution.\n"
+        f"ALTER SEMANTIC VIEW {plan['semantic_view']} SET MAX_STALENESS = {plan['max_staleness_sec']};\n"
+        "CALL SYSTEM$MANAGE_SEMANTIC_VIEW_MATERIALIZATIONS_FROM_YAML(\n"
+        f"  '{plan['semantic_view']}',\n"
+        "  $\n"
+        f"{yaml_text.rstrip()}\n"
+        "  $\n"
+        ");\n"
+    )
+
+
 def generate(output: Path, database: str, contract_path: Path = DEFAULT_CONTRACT) -> list[Path]:
+    import yaml
+
     output.mkdir(parents=True, exist_ok=True)
     plan = build_plan(database, contract_path)
     plan_path = output / "acceleration_plan.json"
     sql_path = output / "semantic_materializations.template.sql"
+    yaml_path = output / "semantic_materializations.yml"
+    sync_path = output / "sync_semantic_materializations.template.sql"
+
+    desired = declarative_materializations(plan)
+    yaml_text = yaml.safe_dump(desired, sort_keys=False, width=120)
     plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
     sql_path.write_text(render_materialization_sql(plan), encoding="utf-8")
-    return [plan_path, sql_path]
+    yaml_path.write_text(yaml_text, encoding="utf-8")
+    sync_path.write_text(render_declarative_sync_sql(plan, yaml_text), encoding="utf-8")
+    return [plan_path, sql_path, yaml_path, sync_path]
 
 
 def main() -> int:
