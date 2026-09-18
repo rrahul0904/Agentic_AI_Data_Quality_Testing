@@ -6,18 +6,22 @@ on:
       - feature/snowflake-pipeline-testing
     paths:
       - "config/rga_domain.yml"
+      - "config/rga_semantic_contract.yml"
       - "scripts/rga_testbed/**"
       - "tests/rga_testbed/**"
       - "docs/RGA_SYNTHETIC_DATA_PACK.md"
+      - "docs/GOVERNED_SEMANTIC_PLATFORM_REQUIREMENTS.md"
       - ".github/workflows/rga-synthetic-data.yml"
   push:
     branches:
       - feature/rga-synthetic-domain-pack
     paths:
       - "config/rga_domain.yml"
+      - "config/rga_semantic_contract.yml"
       - "scripts/rga_testbed/**"
       - "tests/rga_testbed/**"
       - "docs/RGA_SYNTHETIC_DATA_PACK.md"
+      - "docs/GOVERNED_SEMANTIC_PLATFORM_REQUIREMENTS.md"
       - ".github/workflows/rga-synthetic-data.yml"
 
 permissions:
