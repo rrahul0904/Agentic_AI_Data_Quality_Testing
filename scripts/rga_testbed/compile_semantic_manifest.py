@@ -88,7 +88,7 @@ def impacted_artifacts(changed_sections: list[str]) -> list[str]:
     impacts: set[str] = set()
     semantic_sections = {"grain", "dimensions", "time_dimensions", "facts", "metrics", "verified_queries"}
     if semantic_sections & set(changed_sections):
-        impacts.update({"semantic_view", "ai", "microsoft", "benchmark", "parity", "ossie"})
+        impacts.update({"semantic_view", "ai", "microsoft", "benchmark", "parity", "multi_fact", "ossie"})
     if "consumers" in changed_sections:
         impacts.update({"ai", "microsoft", "parity"})
     if "acceleration" in changed_sections:
