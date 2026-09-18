@@ -15,6 +15,7 @@ try:
     from scripts.rga_testbed import generate_ai_integration as ai_mod
     from scripts.rga_testbed import generate_benchmark_pack as benchmark_mod
     from scripts.rga_testbed import generate_microsoft_consumer_pack as microsoft_mod
+    from scripts.rga_testbed import generate_multi_fact_certification as multi_fact_mod
     from scripts.rga_testbed import generate_parity_suite as parity_mod
     from scripts.rga_testbed import generate_semantic_view as semantic_mod
     from scripts.rga_testbed import report_interchange_compatibility as compatibility_mod
@@ -26,6 +27,7 @@ except ModuleNotFoundError:
     import generate_ai_integration as ai_mod
     import generate_benchmark_pack as benchmark_mod
     import generate_microsoft_consumer_pack as microsoft_mod
+    import generate_multi_fact_certification as multi_fact_mod
     import generate_parity_suite as parity_mod
     import generate_semantic_view as semantic_mod
     import report_interchange_compatibility as compatibility_mod
@@ -90,6 +92,7 @@ def build_release(
     microsoft_mod.generate(output / "microsoft", database, contract_path)
     benchmark_mod.generate(output / "benchmarks", database, contract_path)
     parity_mod.generate(output / "parity", database, contract_path)
+    multi_fact_mod.generate(output / "multi_fact")
     acceleration_mod.generate(output / "acceleration", database, contract_path)
 
     ossie_path = output / "interchange" / "rga_reinsurance_performance.ossie.yml"
@@ -101,7 +104,7 @@ def build_release(
     impacted = (
         diff["impacted_artifacts"]
         if diff is not None
-        else ["acceleration", "ai", "benchmark", "microsoft", "ossie", "parity", "semantic_view"]
+        else ["acceleration", "ai", "benchmark", "microsoft", "multi_fact", "ossie", "parity", "semantic_view"]
     )
     files = _generated_files(output)
     release = {
