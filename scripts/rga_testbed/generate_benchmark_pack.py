@@ -6,12 +6,10 @@ import argparse
 import json
 from pathlib import Path
 
-from scripts.rga_testbed.semantic_contract import (
-    DEFAULT_CONTRACT,
-    load_semantic_contract,
-    mart_fqn,
-    semantic_view_fqn,
-)
+try:
+    from scripts.rga_testbed.semantic_contract import DEFAULT_CONTRACT, load_semantic_contract, mart_fqn, semantic_view_fqn
+except ModuleNotFoundError:
+    from semantic_contract import DEFAULT_CONTRACT, load_semantic_contract, mart_fqn, semantic_view_fqn
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT = ROOT / "rga-snowflake-data-platform" / "benchmarks"
