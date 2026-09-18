@@ -93,6 +93,13 @@ def _snowflake_auth_present(env: dict[str, str]) -> bool:
     )
 
 
+def _has_module(name: str) -> bool:
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ModuleNotFoundError, AttributeError):
+        return False
+
+
 def readiness_status(
     *,
     env: dict[str, str] | None = None,
@@ -112,8 +119,8 @@ def readiness_status(
         "git": shutil.which("git"),
     }
     dependencies = {
-        "yaml": importlib.util.find_spec("yaml") is not None,
-        "snowflake_connector": importlib.util.find_spec("snowflake.connector") is not None,
+        "yaml": _has_module("yaml"),
+        "snowflake_connector": _has_module("snowflake.connector"),
     }
     local = {
         "contract": (repo_root / "config" / "rga_semantic_contract.yml").exists(),
@@ -122,6 +129,11 @@ def readiness_status(
         "rga_ci_workflow": (repo_root / ".github" / "workflows" / "rga-synthetic-data.yml").exists(),
     }
     snowflake_ready = not missing_snowflake and dependencies["snowflake_connector"]
+    dbt_auth_ready = bool(
+        env.get("SNOWFLAKE_PASSWORD")
+        or env.get("SNOWFLAKE_AUTHENTICATOR")
+    )
+    dbt_live_ready = bool(snowflake_ready and tools["dbt"] and dbt_auth_ready)
     xmla_endpoint = env.get("RGA_XMLA_ENDPOINT") or env.get("SNOWFLAKE_XMLA_ENDPOINT")
     return {
         "status": "READY_FOR_LOCAL_BUILD" if all((local["contract"], local["domain_contract"], dependencies["yaml"])) else "BLOCKED",
@@ -131,6 +143,8 @@ def readiness_status(
         "external": {
             "snowflake_live_ready": bool(snowflake_ready),
             "snowflake_missing": missing_snowflake,
+            "dbt_live_ready": dbt_live_ready,
+            "dbt_auth_note": "Generated dbt profile supports password/authenticator-based Snowflake authentication.",
             "xmla_endpoint_configured": bool(xmla_endpoint),
             "xmla_endpoint": xmla_endpoint,
             "power_bi_excel_live_parity_ready": bool(xmla_endpoint and snowflake_ready),
@@ -138,6 +152,7 @@ def readiness_status(
         "boundaries": {
             "repository_build": "available",
             "snowflake_live": "available" if snowflake_ready else "credentials_or_connector_required",
+            "dbt_live": "available" if dbt_live_ready else "dbt_or_compatible_auth_required",
             "power_bi_excel_live": "available" if xmla_endpoint and snowflake_ready else "feature_gate_or_endpoint_required",
         },
     }
@@ -266,6 +281,8 @@ def snowflake_demo(
     status = readiness_status(release_dir=workspace / "release")
     if not status["external"]["snowflake_live_ready"]:
         raise RuntimeError("Snowflake live execution is not ready: " + ", ".join(status["external"]["snowflake_missing"]))
+    if not status["external"]["dbt_live_ready"]:
+        raise RuntimeError("dbt live execution is not ready; install dbt and configure password/authenticator-based Snowflake authentication")
 
     sql_dir = workspace / "snowflake"
     dbt_dir = workspace / "dbt"
