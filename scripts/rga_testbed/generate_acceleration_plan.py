@@ -43,7 +43,6 @@ def _materialization_name(query_id: str) -> str:
 
 def build_plan(database: str, contract_path: Path = DEFAULT_CONTRACT) -> dict[str, Any]:
     contract = load_semantic_contract(contract_path, database)
-    table = contract["table_alias"]
     metrics = _metric_map(contract)
     semantic_cfg = contract["acceleration"]["semantic_sql"]
     candidates = []
