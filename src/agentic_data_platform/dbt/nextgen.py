@@ -563,6 +563,7 @@ def agents_schema(args: dict[str, Any] | None = None) -> dict[str, Any]:
             {"name": "semantic_explore", "tool": "dbt_next_explore_plan", "read_only": True},
             {"name": "bi_as_code", "tool": "dbt_next_chart_compile", "read_only": True},
             {"name": "state_plan", "tool": "dbt_next_state_plan", "read_only": True},
+            {"name": "model_compute_plan", "tool": "dbt_next_model_compute_plan", "read_only": True},
             {"name": "lake_compute", "tool": "dbt_next_lake_compute_run", "read_only": True},
         ],
         "principles": [
