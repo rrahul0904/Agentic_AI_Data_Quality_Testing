@@ -89,6 +89,42 @@ document.querySelector('#sql-review').addEventListener('click', async () => {
   }
 });
 
+document.querySelector('#dbt-next-wizard').addEventListener('click', async () => {
+  const output = document.querySelector('#dbt-next-output');
+  const question = document.querySelector('#dbt-next-question').value.trim();
+  if (!question) return;
+  output.textContent = 'Planning with governed dbt context…';
+  try {
+    const result = await api('/api/v1/dbt-next/wizard-plan', {
+      method: 'POST',
+      body: JSON.stringify({
+        args: {
+          manifest_path: 'tests/fixtures/dbt/manifest.json',
+          semantic_database: '.ade/semantic.db',
+          question,
+        },
+      }),
+    });
+    output.textContent = pretty(result);
+  } catch (error) {
+    output.textContent = error.message;
+  }
+});
+
+document.querySelector('#dbt-next-schema').addEventListener('click', async () => {
+  const output = document.querySelector('#dbt-next-output');
+  output.textContent = 'Loading agent contract…';
+  try {
+    const result = await api('/api/v1/dbt-next/agents-schema', {
+      method: 'POST',
+      body: JSON.stringify({ args: {} }),
+    });
+    output.textContent = pretty(result);
+  } catch (error) {
+    output.textContent = error.message;
+  }
+});
+
 document.querySelector('#restart-api').addEventListener('click', async () => {
   await window.adeDesktop.restartApi();
   setTimeout(refreshRuntime, 1000);
