@@ -51,6 +51,8 @@ from agentic_data_platform.dbt.nextgen import (
     lake_compute_plan as dbt_next_lake_compute_plan_impl,
     lake_compute_run as dbt_next_lake_compute_run_impl,
     model_compute_plan as dbt_next_model_compute_plan_impl,
+    state_execution_contract as dbt_next_state_execution_contract_impl,
+    state_execute as dbt_next_state_execute_impl,
     state_plan as dbt_next_state_plan_impl,
     wizard_plan as dbt_next_wizard_plan_impl,
 )
@@ -1096,6 +1098,21 @@ def build_tool_registry() -> ToolRegistry:
         dbt_next_state_plan_impl,
         "Plan BUILD/SKIP/CLONE/DEFER work from current and previous dbt manifests without mutating a warehouse.",
         platforms=frozenset({Platform.LOCAL, Platform.DBT}),
+    )
+    add(
+        "dbt_next_state_execution_contract",
+        Capability.PLAN,
+        dbt_next_state_execution_contract_impl,
+        "Compile a state-aware dbt plan into deterministic clone/build commands without executing them.",
+        platforms=frozenset({Platform.LOCAL, Platform.DBT}),
+    )
+    add(
+        "dbt_next_state_execute",
+        Capability.EXECUTE,
+        dbt_next_state_execute_impl,
+        "Execute an exact fingerprint-approved dbt state contract; dry-run is the default.",
+        platforms=frozenset({Platform.LOCAL, Platform.DBT}),
+        risk=Risk.MUTATING,
     )
     add(
         "dbt_next_context_bundle",
