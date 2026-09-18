@@ -7,7 +7,7 @@ This document records the clean-room capability mapping implemented from the sup
 | Launch pattern | ADE implementation | Surface | Truth boundary |
 | --- | --- | --- | --- |
 | dbt v2 / Fusion SQL-aware engine | Existing SQL parser/review/lineage plus `dbt_next_engine_readiness` | Tool, API, CLI, web | ADE does not reimplement dbt's proprietary Rust engine. It consumes public dbt artifacts/runtime contracts. |
-| dbt State | `state_plan` | Tool, API, CLI, web, MCP | Deterministic manifest diff classifies BUILD/SKIP and caller-evidenced CLONE/DEFER candidates. |
+| dbt State | `state_plan`, `state_execution_contract`, guarded `state_execute` | Tool, API, CLI, web; read-only contract over MCP | Deterministic manifest diff classifies BUILD/SKIP and caller-evidenced CLONE/DEFER candidates. Execution is dry-run by default and live runs require the exact contract fingerprint. |
 | Wizard | `wizard_plan` + existing governed ToolRegistry/AgentRuntime | Tool, API, CLI, web, desktop, MCP | Planner is deterministic by default; mutations remain handled by ADE's existing approval gates. |
 | Wizard CLI | `ade dbt-next wizard-plan` | CLI | Uses the same tool implementation as API/UI. |
 | Wizard Desktop | Native Electron dbt Next view | Desktop | Uses the same FastAPI control plane; full argument-level workbench remains available through the web console. |
@@ -62,6 +62,19 @@ This document records the clean-room capability mapping implemented from the sup
 - Every plan carries a deterministic fingerprint.
 
 The planner does not pretend to know warehouse clone/defer availability. That evidence must be supplied by an adapter/caller.
+
+### State execution contract
+
+`dbt_next_state_execution_contract` compiles the state plan into explicit argv arrays for dbt clone/build phases. It never invokes a shell and does not execute anything.
+
+`dbt_next_state_execute` is fail-closed:
+
+- dry-run is the default;
+- live execution requires `approved_fingerprint` to match the exact execution contract;
+- the executable is resolved explicitly and commands are launched without shell interpolation;
+- stdout/stderr are bounded in returned evidence;
+- the tool is registered as mutating so ADE approval policy still applies;
+- MCP exposes only the read-only execution contract, not the mutating executor.
 
 ## Multi-engine compute contract
 
@@ -138,6 +151,9 @@ The MCP surface is intentionally read-only.
 ```bash
 ade dbt-next engine-readiness --args '{}'
 ade dbt-next state-plan --args '{"manifest_path":"target/manifest.json","previous_manifest_path":"state/manifest.json"}'
+ade dbt-next state-contract --args '{"manifest_path":"target/manifest.json","previous_manifest_path":"state/manifest.json","project_dir":"."}'
+# Live execution is intentionally fingerprint-gated:
+ade dbt-next state-execute --args '{"manifest_path":"target/manifest.json","previous_manifest_path":"state/manifest.json","project_dir":".","dry_run":true}'
 ade dbt-next wizard-plan --args '{"manifest_path":"target/manifest.json","question":"what changed downstream of revenue?"}'
 ade dbt-next explore-plan --args '{"semantic_database":".ade/semantic.db","question":"revenue by region"}'
 ade dbt-next chart-compile --args '{"path":"examples/dbt_next/executive_revenue.dashboard.yml"}'
@@ -166,6 +182,7 @@ The dedicated test slice is `tests/test_dbt_nextgen.py`. It certifies:
 
 - state selection and downstream propagation,
 - clone/defer classification,
+- deterministic state execution contracts, stale-approval rejection, and fail-closed live execution,
 - multi-engine boundary reporting,
 - dashboard YAML validation and mutating-SQL rejection,
 - structured/unstructured context search,
