@@ -732,6 +732,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             "explore-plan": "dbt_next_explore_plan",
             "chart-validate": "dbt_next_chart_validate",
             "chart-compile": "dbt_next_chart_compile",
+            "model-compute-plan": "dbt_next_model_compute_plan",
             "lake-plan": "dbt_next_lake_compute_plan",
             "lake-run": "dbt_next_lake_compute_run",
             "agents-schema": "dbt_next_agents_schema",
