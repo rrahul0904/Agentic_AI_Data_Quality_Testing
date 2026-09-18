@@ -39,6 +39,7 @@ def build_semantic_spec(database: str, contract_path: Path = DEFAULT_CONTRACT) -
     return {
         "name": contract["name"],
         "description": contract["description"],
+        "max_staleness": int(contract.get("acceleration", {}).get("semantic_sql", {}).get("max_staleness_sec", 3600)),
         "tables": [
             {
                 "name": contract["table_alias"],
