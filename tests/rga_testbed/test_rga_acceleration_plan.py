@@ -52,9 +52,14 @@ def test_materialization_sql_is_template_and_not_auto_deploy(tmp_path: Path):
         ROOT / "scripts" / "rga_testbed" / "generate_acceleration_plan.py",
     )
     files = module.generate(tmp_path, "RGA_SYNTHETIC_TESTBED")
-    assert len(files) == 2
+    assert len(files) == 4
     sql = (tmp_path / "semantic_materializations.template.sql").read_text(encoding="utf-8")
     assert "ALTER SEMANTIC VIEW RGA_SYNTHETIC_TESTBED.SEMANTIC.RGA_REINSURANCE_PERFORMANCE SET MAX_STALENESS" in sql
     assert "ADD MATERIALIZATION" in sql
     assert "<MATERIALIZATION_WAREHOUSE>" in sql
     assert "SHOW MATERIALIZATIONS IN SEMANTIC VIEW" in sql
+    sync_sql = (tmp_path / "sync_semantic_materializations.template.sql").read_text(encoding="utf-8")
+    desired = (tmp_path / "semantic_materializations.yml").read_text(encoding="utf-8")
+    assert "SYSTEM$MANAGE_SEMANTIC_VIEW_MATERIALIZATIONS_FROM_YAML" in sync_sql
+    assert "materializations:" in desired
+    assert "<MATERIALIZATION_WAREHOUSE>" in desired
