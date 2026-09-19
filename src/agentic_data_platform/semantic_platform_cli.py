@@ -15,6 +15,7 @@ import os
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -374,6 +375,189 @@ def benchmark(
     return payload
 
 
+def parse_concurrency_sweep(value: str) -> list[int]:
+    try:
+        values = [int(item.strip()) for item in value.split(",") if item.strip()]
+    except ValueError as exc:
+        raise ValueError("concurrency sweep must be a comma-separated list of integers") from exc
+    if not values:
+        raise ValueError("concurrency sweep cannot be empty")
+    if any(item < 1 or item > 100 for item in values):
+        raise ValueError("every concurrency value must be between 1 and 100")
+    return sorted(set(values))
+
+
+def certification_plan(
+    workspace: Path,
+    *,
+    concurrency: list[int],
+    iterations: int,
+    deploy_ai: bool,
+) -> dict[str, Any]:
+    if iterations < 1 or iterations > 100:
+        raise ValueError("iterations must be between 1 and 100")
+    required = {
+        "data_manifest": workspace / "data" / "manifest.json",
+        "snowflake_ddl": workspace / "snowflake" / "001_raw_tables.sql",
+        "snowflake_load": workspace / "snowflake" / "002_load_raw.sql",
+        "dbt_project": workspace / "dbt" / "dbt_project.yml",
+        "release_manifest": workspace / "release" / "release_manifest.json",
+        "semantic_verify": workspace / "release" / "semantic" / "verify_semantic_view.sql",
+        "semantic_deploy": workspace / "release" / "semantic" / "deploy_semantic_view.sql",
+        "benchmark_manifest": workspace / "release" / "benchmarks" / "manifest.json",
+    }
+    return {
+        "workspace": str(workspace),
+        "workspace_ready": all(path.exists() for path in required.values()),
+        "required_artifacts": {
+            name: {"path": str(path), "exists": path.exists()}
+            for name, path in required.items()
+        },
+        "deployment": {
+            "bootstrap_snowflake": True,
+            "load_raw": True,
+            "dbt_build": True,
+            "server_verify_semantic_view": True,
+            "deploy_semantic_view": True,
+            "deploy_ai": deploy_ai,
+        },
+        "benchmark": {
+            "mode": "both",
+            "concurrency": concurrency,
+            "iterations": iterations,
+            "requires_result_parity": True,
+            "requires_query_history_telemetry": True,
+        },
+        "evidence": {
+            "directory": str(workspace / "evidence"),
+            "workload_analysis": str(workspace / "evidence" / "workload_analysis.json"),
+            "certification_manifest": str(workspace / "evidence" / "certification_manifest.json"),
+        },
+        "scope": "Snowflake semantic runtime certification; Power BI/Excel XMLA and interactive AI answer evidence remain separate.",
+    }
+
+
+def certify_live(
+    workspace: Path,
+    *,
+    confirm: bool,
+    dry_run: bool,
+    concurrency: list[int],
+    iterations: int,
+    deploy_ai: bool,
+) -> dict[str, Any]:
+    plan = certification_plan(
+        workspace,
+        concurrency=concurrency,
+        iterations=iterations,
+        deploy_ai=deploy_ai,
+    )
+    if dry_run:
+        return {"status": "DRY_RUN", **plan}
+
+    _require_confirm(confirm, "live Snowflake semantic certification")
+    if not plan["workspace_ready"]:
+        missing = [
+            name
+            for name, item in plan["required_artifacts"].items()
+            if not item["exists"]
+        ]
+        raise RuntimeError(
+            "certification workspace is incomplete; run semantic-platform demo-build first. Missing: "
+            + ", ".join(missing)
+        )
+
+    deployment = snowflake_demo(
+        workspace,
+        confirm=True,
+        deploy_semantic=True,
+        deploy_ai=deploy_ai,
+    )
+
+    evidence_dir = workspace / "evidence"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    benchmark_runs: list[dict[str, Any]] = []
+    report_paths: list[Path] = []
+    for level in concurrency:
+        payload = benchmark(
+            workspace,
+            dry_run=False,
+            confirm_live=True,
+            concurrency=level,
+            iterations=iterations,
+            mode="both",
+        )
+        report_path = evidence_dir / f"benchmark-c{level}-both.json"
+        if not report_path.exists():
+            raise RuntimeError(f"benchmark evidence file was not created: {report_path}")
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        report_paths.append(report_path)
+        benchmark_runs.append(
+            {
+                "concurrency": level,
+                "status": payload.get("status"),
+                "result_parity": report.get("result_parity", {}).get("status"),
+                "summary": report.get("summary", {}),
+                "report": str(report_path),
+            }
+        )
+
+    workload_output = evidence_dir / "workload_analysis.json"
+    workload_args = [
+        "--manifest",
+        str(workspace / "release" / "benchmarks" / "manifest.json"),
+    ]
+    for report_path in report_paths:
+        workload_args += ["--report", str(report_path)]
+    workload_args += ["--output", str(workload_output)]
+    _run_checked(_python_script("analyze_workload.py", *workload_args))
+    workload = json.loads(workload_output.read_text(encoding="utf-8"))
+
+    all_benchmarks_pass = all(item["status"] == "PASS" for item in benchmark_runs)
+    all_parity_pass = all(item["result_parity"] == "PASS" for item in benchmark_runs)
+    telemetry_complete = all(
+        int(variant.get("telemetry_missing", 0)) == 0
+        for item in benchmark_runs
+        for variant in item.get("summary", {}).get("variants", {}).values()
+    )
+    certification_pass = all_benchmarks_pass and all_parity_pass and telemetry_complete
+
+    release_manifest_path = workspace / "release" / "release_manifest.json"
+    release_manifest = json.loads(release_manifest_path.read_text(encoding="utf-8"))
+    manifest = {
+        "certification_version": 1,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "status": "PASS" if certification_pass else "INCOMPLETE",
+        "scope": "snowflake_semantic_runtime",
+        "workspace": str(workspace),
+        "source_sha": release_manifest.get("source_sha"),
+        "semantic_manifest_sha256": release_manifest.get("semantic_manifest_sha256"),
+        "environment": {
+            "account": os.environ.get("SNOWFLAKE_ACCOUNT"),
+            "warehouse": os.environ.get("SNOWFLAKE_WAREHOUSE"),
+            "role": os.environ.get("SNOWFLAKE_ROLE", "SYSADMIN"),
+            "database": os.environ.get("RGA_SNOWFLAKE_DATABASE", "RGA_SYNTHETIC_TESTBED"),
+        },
+        "acceptance": {
+            "deployment_pass": deployment.get("status") == "PASS",
+            "all_benchmarks_pass": all_benchmarks_pass,
+            "all_direct_semantic_result_parity_pass": all_parity_pass,
+            "query_history_telemetry_complete": telemetry_complete,
+        },
+        "benchmark_runs": benchmark_runs,
+        "workload_analysis": str(workload_output),
+        "acceleration_recommendation_count": len(workload.get("recommendations", [])),
+        "external_remaining": [
+            "Cortex Agent/MCP interactive answer evidence" if deploy_ai else "Cortex Agent/MCP live deployment and interactive answer evidence",
+            "Power BI XMLA governed parity",
+            "Excel XMLA governed parity",
+        ],
+    }
+    certification_path = evidence_dir / "certification_manifest.json"
+    certification_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    return manifest
+
+
 def release(
     output: Path,
     *,
@@ -438,6 +622,17 @@ def build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--dry-run", action="store_true")
     bench.add_argument("--confirm-live", action="store_true")
 
+    certify = sub.add_parser(
+        "certify-live",
+        help="Run or plan end-to-end Snowflake semantic runtime certification.",
+    )
+    certify.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE)
+    certify.add_argument("--concurrency", default="1,5,10,25,50")
+    certify.add_argument("--iterations", type=int, default=3)
+    certify.add_argument("--deploy-ai", action="store_true")
+    certify.add_argument("--confirm", action="store_true")
+    certify.add_argument("--dry-run", action="store_true")
+
     return parser
 
 
@@ -493,6 +688,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
             return 0
+        if args.command == "certify-live":
+            result = certify_live(
+                args.workspace,
+                confirm=args.confirm,
+                dry_run=args.dry_run,
+                concurrency=parse_concurrency_sweep(args.concurrency),
+                iterations=args.iterations,
+                deploy_ai=args.deploy_ai,
+            )
+            print(_json(result))
+            return 0 if result["status"] in {"PASS", "DRY_RUN"} else 1
     except (RuntimeError, ValueError, FileNotFoundError) as exc:
         print(_json({"status": "FAIL", "error": str(exc)}))
         return 2
