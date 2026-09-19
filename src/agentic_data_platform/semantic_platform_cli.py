@@ -710,6 +710,65 @@ def certify_live(
     return manifest
 
 
+def prepare_consumer_evidence(
+    workspace: Path,
+    *,
+    evidence_dir: Path,
+    security_context: str,
+    overwrite: bool = False,
+) -> dict[str, Any]:
+    if not security_context.strip():
+        raise ValueError("security_context is required")
+    manifest_path = workspace / "release" / "parity" / "parity_manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"parity manifest not found: {manifest_path}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+
+    instructions = {
+        "snowflake_semantic_view": "Run the generated reference SQL for this case against the governed Snowflake Semantic View and capture the returned rows.",
+        "cortex_agent_mcp": "Ask the governed Cortex Agent/MCP the case business question and capture the analytical result rows, not only final prose.",
+        "power_bi": "Use the governed live/XMLA semantic connection and capture the visual/query rows at the exact case grain without local metric reimplementation.",
+        "excel": "Use the governed live XMLA PivotTable/query path and capture the returned rows at the exact case grain without spreadsheet metric reimplementation.",
+    }
+
+    written: list[str] = []
+    skipped: list[str] = []
+    for case in manifest.get("cases", []):
+        for consumer in manifest.get("required_consumers", []):
+            path = evidence_dir / f"{case['id']}.{consumer}.json"
+            if path.exists() and not overwrite:
+                skipped.append(str(path))
+                continue
+            payload = {
+                "case_id": case["id"],
+                "business_question": case.get("business_question"),
+                "consumer": consumer,
+                "security_context": security_context,
+                "capture_status": "PENDING",
+                "expected_dimensions": case.get("dimensions", []),
+                "expected_metrics": case.get("metrics", []),
+                "capture_instructions": instructions.get(consumer, "Capture governed consumer rows for this case."),
+                "rows": [],
+            }
+            path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+            written.append(str(path))
+
+    return {
+        "status": "PASS",
+        "evidence_dir": str(evidence_dir),
+        "security_context": security_context,
+        "written_count": len(written),
+        "skipped_count": len(skipped),
+        "written": written,
+        "skipped": skipped,
+        "next": (
+            "Replace PENDING with CAPTURED only after real governed rows are recorded, "
+            "then run semantic-platform certify-consumers."
+        ),
+    }
+
+
 def consumer_parity_plan(
     workspace: Path,
     evidence_dir: Path,
@@ -871,6 +930,15 @@ def build_parser() -> argparse.ArgumentParser:
     certify.add_argument("--confirm", action="store_true")
     certify.add_argument("--dry-run", action="store_true")
 
+    prepare_consumers = sub.add_parser(
+        "prepare-consumer-evidence",
+        help="Create non-certifiable Snowflake/AI/Power BI/Excel evidence templates.",
+    )
+    prepare_consumers.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE)
+    prepare_consumers.add_argument("--evidence-dir", type=Path, required=True)
+    prepare_consumers.add_argument("--security-context", required=True)
+    prepare_consumers.add_argument("--overwrite", action="store_true")
+
     consumers = sub.add_parser(
         "certify-consumers",
         help="Plan or validate Snowflake/AI/Power BI/Excel parity evidence.",
@@ -945,6 +1013,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             print(_json(result))
             return 0 if result["status"] in {"PASS", "DRY_RUN"} else 1
+        if args.command == "prepare-consumer-evidence":
+            result = prepare_consumer_evidence(
+                args.workspace,
+                evidence_dir=args.evidence_dir,
+                security_context=args.security_context,
+                overwrite=args.overwrite,
+            )
+            print(_json(result))
+            return 0
         if args.command == "certify-consumers":
             result = certify_consumers(
                 args.workspace,
