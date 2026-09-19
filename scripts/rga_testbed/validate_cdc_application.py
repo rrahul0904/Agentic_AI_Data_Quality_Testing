@@ -149,9 +149,9 @@ def validate(events: list[dict[str, Any]], database: str, env: dict[str, str]) -
                 f"""
 select EVENT_ID, STATUS, COUNT(*) AS ROW_COUNT
 from AUDIT.CDC_EVENT_APPLICATIONS
-where EVENT_ID in (placeholders)
+where EVENT_ID in ({placeholders})
 group by EVENT_ID, STATUS
-""".replace("$placeholders", placeholders),
+""",
                 tuple(event_ids),
             )
             for row in cursor.fetchall():
