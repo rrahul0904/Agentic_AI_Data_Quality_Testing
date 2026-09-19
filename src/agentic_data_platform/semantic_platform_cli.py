@@ -440,7 +440,39 @@ def apply_cdc(
     events_file = workspace / "cdc" / "change_events.jsonl"
     semantic_verify = workspace / "release" / "semantic" / "verify_semantic_view.sql"
     database = os.environ.get("RGA_SNOWFLAKE_DATABASE", "RGA_SYNTHETIC_TESTBED")
+    evidence_dir = workspace / "evidence"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    semantic_baseline = evidence_dir / "cdc_semantic_baseline.json"
     stages: list[dict[str, Any]] = []
+
+    baseline_capture = _run(
+        _python_script(
+            "validate_cdc_semantic_effects.py",
+            "--events",
+            str(events_file),
+            "--database",
+            database,
+            "--baseline",
+            str(semantic_baseline),
+            "--mode",
+            "capture",
+            "--confirm",
+        ),
+        capture=True,
+    )
+    try:
+        baseline_capture_report = json.loads(baseline_capture.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            baseline_capture.stdout.strip()
+            or baseline_capture.stderr.strip()
+            or "CDC semantic baseline capture returned invalid output"
+        ) from exc
+    if baseline_capture.returncode != 0 or baseline_capture_report.get("status") != "PASS":
+        raise RuntimeError(
+            "CDC semantic baseline capture failed: "
+            + (baseline_capture_report.get("error") or json.dumps(baseline_capture_report))
+        )
 
     def execute_apply_cycle(label: str) -> dict[str, Any]:
         stages.append(
@@ -500,7 +532,46 @@ def apply_cdc(
                 f"{label} CDC validation failed: "
                 + (validation.get("error") or json.dumps(validation))
             )
-        return validation
+
+        semantic_validator = _run(
+            _python_script(
+                "validate_cdc_semantic_effects.py",
+                "--events",
+                str(events_file),
+                "--database",
+                database,
+                "--baseline",
+                str(semantic_baseline),
+                "--mode",
+                "validate",
+                "--confirm",
+            ),
+            capture=True,
+        )
+        try:
+            semantic_validation = json.loads(semantic_validator.stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                semantic_validator.stdout.strip()
+                or semantic_validator.stderr.strip()
+                or "CDC semantic-effect validator returned invalid output"
+            ) from exc
+        if (
+            semantic_validator.returncode != 0
+            or semantic_validation.get("status") != "PASS"
+        ):
+            raise RuntimeError(
+                f"{label} CDC semantic-effect validation failed: "
+                + (
+                    semantic_validation.get("error")
+                    or json.dumps(semantic_validation)
+                )
+            )
+
+        return {
+            "raw_and_audit": validation,
+            "semantic_effects": semantic_validation,
+        }
 
     first_validation = execute_apply_cycle("initial")
     second_validation = None
@@ -517,6 +588,8 @@ def apply_cdc(
         "verify_idempotency": verify_idempotency,
         "source_event_count": cdc_manifest.get("event_count"),
         "source_scenario_counts": cdc_manifest.get("scenario_counts"),
+        "semantic_baseline": str(semantic_baseline),
+        "semantic_baseline_capture": baseline_capture_report,
         "validation": first_validation,
         "idempotency_validation": second_validation,
         "stages": [
