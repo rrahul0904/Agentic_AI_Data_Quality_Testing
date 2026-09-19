@@ -62,6 +62,7 @@ def build_events(input_root: Path, events_per_type: int, effective_date: date) -
                 "business_key": row["policy_id"],
                 "effective_at": effective_date.isoformat(),
                 "scenario": "policy_status_change",
+                "semantic_grain": None,
                 "before": row,
                 "after": after,
             }
@@ -81,6 +82,11 @@ def build_events(input_root: Path, events_per_type: int, effective_date: date) -
                 "business_key": row["premium_txn_id"],
                 "effective_at": effective_date.isoformat(),
                 "scenario": "premium_correction",
+                "semantic_grain": {
+                    "cedant_id": row["cedant_id"],
+                    "treaty_id": row["treaty_id"],
+                    "period_month": row["accounting_date"][:7] + "-01",
+                },
                 "before": row,
                 "after": after,
             }
@@ -117,6 +123,11 @@ def build_events(input_root: Path, events_per_type: int, effective_date: date) -
                 "business_key": claim_id,
                 "effective_at": effective_date.isoformat(),
                 "scenario": "late_arriving_claim",
+                "semantic_grain": {
+                    "cedant_id": policy["cedant_id"],
+                    "treaty_id": policy["treaty_id"],
+                    "period_month": event_date.replace(day=1).isoformat(),
+                },
                 "before": None,
                 "after": after,
             }
