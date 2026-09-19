@@ -20,6 +20,7 @@ def _write_evidence(evidence_dir: Path, case: dict, consumer: str, rows: list[di
         "case_id": case["id"],
         "consumer": consumer,
         "security_context": security_context,
+        "capture_status": "CAPTURED",
         "rows": rows,
     }
     (evidence_dir / f"{case['id']}.{consumer}.json").write_text(json.dumps(payload), encoding="utf-8")
@@ -101,6 +102,39 @@ def test_parity_evidence_validator_requires_same_security_context(tmp_path: Path
     assert report["status"] == "FAIL"
     assert any(
         "excel: security_context mismatch" in error
+        for result in report["results"]
+        for error in result["errors"]
+    )
+
+
+def test_parity_evidence_validator_rejects_placeholder_empty_evidence(tmp_path: Path):
+    generator = load_module("rga_parity_gen_empty_test", ROOT / "scripts" / "rga_testbed" / "generate_parity_suite.py")
+    validator = load_module("rga_parity_validator_empty_test", ROOT / "scripts" / "rga_testbed" / "validate_parity_evidence.py")
+
+    parity_dir = tmp_path / "parity"
+    evidence_dir = tmp_path / "evidence"
+    evidence_dir.mkdir()
+    generator.generate(parity_dir, "RGA_SYNTHETIC_TESTBED")
+    manifest = json.loads((parity_dir / "parity_manifest.json").read_text(encoding="utf-8"))
+
+    for case in manifest["cases"]:
+        for consumer in validator.CONSUMERS:
+            payload = {
+                "case_id": case["id"],
+                "consumer": consumer,
+                "security_context": "ROLE_ANALYST",
+                "capture_status": "PENDING",
+                "rows": [],
+            }
+            (evidence_dir / f"{case['id']}.{consumer}.json").write_text(
+                json.dumps(payload),
+                encoding="utf-8",
+            )
+
+    report = validator.validate(parity_dir / "parity_manifest.json", evidence_dir)
+    assert report["status"] == "FAIL"
+    assert any(
+        "capture_status must be CAPTURED" in error or "rows must not be empty" in error
         for result in report["results"]
         for error in result["errors"]
     )
