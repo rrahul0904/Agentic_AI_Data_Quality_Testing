@@ -133,3 +133,66 @@ def test_live_certification_refuses_without_confirm(tmp_path: Path):
         assert "without --confirm" in str(exc)
     else:
         raise AssertionError("live certification must be fail-closed")
+
+
+def test_agent_smoke_cli_dry_run_uses_workspace_database(tmp_path: Path):
+    workspace = tmp_path / "demo"
+    release = workspace / "release"
+    release.mkdir(parents=True)
+    (release / "release_manifest.json").write_text(
+        json.dumps({"database": "CUSTOM_RGA_DB"}),
+        encoding="utf-8",
+    )
+    result = cli.agent_smoke(
+        workspace,
+        confirm=False,
+        dry_run=True,
+    )
+    assert result["status"] == "DRY_RUN"
+    assert result["agent"] == "CUSTOM_RGA_DB.AI.RGA_REINSURANCE_AGENT"
+    assert result["task_count"] >= 3
+    assert any("Reinsurance_Analyst" in item for item in result["acceptance"])
+
+
+def test_certification_plan_requires_ai_artifacts_when_ai_is_enabled(tmp_path: Path):
+    workspace = tmp_path / "demo"
+    common = [
+        workspace / "data" / "manifest.json",
+        workspace / "snowflake" / "001_raw_tables.sql",
+        workspace / "snowflake" / "002_load_raw.sql",
+        workspace / "dbt" / "dbt_project.yml",
+        workspace / "release" / "release_manifest.json",
+        workspace / "release" / "semantic" / "verify_semantic_view.sql",
+        workspace / "release" / "semantic" / "deploy_semantic_view.sql",
+        workspace / "release" / "benchmarks" / "manifest.json",
+    ]
+    for path in common:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+
+    plan = cli.certification_plan(
+        workspace,
+        concurrency=[1],
+        iterations=1,
+        deploy_ai=True,
+    )
+    assert plan["workspace_ready"] is False
+    assert plan["deployment"]["agent_runtime_smoke"] is True
+    assert "agent_create" in plan["required_artifacts"]
+    assert "mcp_create" in plan["required_artifacts"]
+
+    for path in (
+        workspace / "release" / "ai" / "create_agent.sql",
+        workspace / "release" / "ai" / "create_mcp_server.sql",
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("-- generated", encoding="utf-8")
+
+    plan = cli.certification_plan(
+        workspace,
+        concurrency=[1],
+        iterations=1,
+        deploy_ai=True,
+    )
+    assert plan["workspace_ready"] is True
+    assert plan["evidence"]["agent_smoke"].endswith("agent_smoke.json")
