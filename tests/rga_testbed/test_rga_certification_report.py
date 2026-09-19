@@ -65,6 +65,7 @@ def test_certification_report_is_truthful_when_only_repository_release_exists(tm
     assert report["release"]["status"] == "PASS"
     assert report["live_runtime"]["status"] == "PENDING"
     assert report["consumer_parity"]["status"] == "PENDING"
+    assert report["change_data"]["status"] == "PENDING"
     assert report["consumer_parity"]["evidence"]["expected"] == 4
     assert report["consumer_parity"]["evidence"]["captured"] == 0
     assert any("live Snowflake" in blocker for blocker in report["blockers"])
@@ -118,6 +119,14 @@ def test_certification_report_marks_production_only_after_all_surfaces_pass(tmp_
         workspace / "evidence" / "workload_analysis.json",
         {"status": "ANALYZED", "recommendations": [{"candidate": "materialization"}]},
     )
+    _write(
+        workspace / "evidence" / "cdc_application.json",
+        {
+            "status": "PASS",
+            "verify_idempotency": True,
+            "source_event_count": 15,
+        },
+    )
 
     for consumer in _parity_manifest()["required_consumers"]:
         _write(
@@ -140,6 +149,9 @@ def test_certification_report_marks_production_only_after_all_surfaces_pass(tmp_
     assert report["consumer_parity"]["evidence"]["captured"] == 4
     assert report["consumer_parity"]["evidence"]["status"] == "COMPLETE"
     assert report["workload_analysis"]["recommendation_count"] == 1
+    assert report["change_data"]["status"] == "PASS"
+    assert report["change_data"]["verify_idempotency"] is True
+    assert report["change_data"]["source_event_count"] == 15
 
     generated = module.generate(
         workspace,
@@ -175,3 +187,20 @@ def test_certification_report_does_not_count_pending_files_as_captured(tmp_path:
     assert evidence["pending"] == 4
     assert report["end_to_end_certified"] is False
     assert report["production_rollout_certified"] is False
+
+
+def test_certification_report_blocks_when_existing_cdc_evidence_failed(tmp_path: Path):
+    module = _module()
+    workspace = tmp_path / "demo"
+    evidence_dir = workspace / "external-evidence"
+
+    _write(workspace / "release" / "release_manifest.json", {"source_sha": "abc"})
+    _write(workspace / "release" / "parity" / "parity_manifest.json", _parity_manifest())
+    _write(
+        workspace / "evidence" / "cdc_application.json",
+        {"status": "FAIL", "verify_idempotency": True, "source_event_count": 15},
+    )
+
+    report = module.build_report(workspace, evidence_dir)
+    assert report["change_data"]["status"] == "FAIL"
+    assert any("CDC correction/late-arrival" in blocker for blocker in report["blockers"])
