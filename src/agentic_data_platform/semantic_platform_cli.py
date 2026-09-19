@@ -1134,6 +1134,46 @@ def certify_consumers(
     return report
 
 
+def ingest_consumer_evidence(
+    workspace: Path,
+    *,
+    evidence_dir: Path,
+    case_id: str,
+    consumer: str,
+    input_path: Path,
+    security_context: str,
+    overwrite: bool = False,
+) -> dict[str, Any]:
+    manifest = workspace / "release" / "parity" / "parity_manifest.json"
+    if not manifest.exists():
+        raise FileNotFoundError(f"parity manifest not found: {manifest}")
+    args = [
+        "--manifest",
+        str(manifest),
+        "--evidence-dir",
+        str(evidence_dir),
+        "--case-id",
+        case_id,
+        "--consumer",
+        consumer,
+        "--input",
+        str(input_path),
+        "--security-context",
+        security_context,
+    ]
+    if overwrite:
+        args.append("--overwrite")
+    result = _run(_python_script("ingest_consumer_evidence.py", *args), capture=True)
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(result.stdout.strip() or result.stderr.strip() or "consumer evidence ingest returned invalid output") from exc
+    if result.returncode != 0:
+        raise RuntimeError(payload.get("error") or result.stdout.strip() or result.stderr.strip())
+    payload["consumer_evidence"] = consumer_parity_plan(workspace, evidence_dir)
+    return payload
+
+
 def certification_report(
     workspace: Path,
     *,
@@ -1257,6 +1297,18 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_consumers.add_argument("--security-context", required=True)
     prepare_consumers.add_argument("--overwrite", action="store_true")
 
+    ingest = sub.add_parser(
+        "ingest-consumer-evidence",
+        help="Import captured Power BI or Excel CSV/JSON rows into parity evidence.",
+    )
+    ingest.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE)
+    ingest.add_argument("--evidence-dir", type=Path, required=True)
+    ingest.add_argument("--case-id", required=True)
+    ingest.add_argument("--consumer", choices=("power_bi", "excel"), required=True)
+    ingest.add_argument("--input", type=Path, required=True)
+    ingest.add_argument("--security-context", required=True)
+    ingest.add_argument("--overwrite", action="store_true")
+
     report = sub.add_parser(
         "certification-report",
         help="Build one truthful certification summary across repository, live runtime, and consumer evidence.",
@@ -1355,6 +1407,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             result = prepare_consumer_evidence(
                 args.workspace,
                 evidence_dir=args.evidence_dir,
+                security_context=args.security_context,
+                overwrite=args.overwrite,
+            )
+            print(_json(result))
+            return 0
+        if args.command == "ingest-consumer-evidence":
+            result = ingest_consumer_evidence(
+                args.workspace,
+                evidence_dir=args.evidence_dir,
+                case_id=args.case_id,
+                consumer=args.consumer,
+                input_path=args.input,
                 security_context=args.security_context,
                 overwrite=args.overwrite,
             )
