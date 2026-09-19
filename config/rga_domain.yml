@@ -1,0 +1,169 @@
+version: 1
+domain: rga_life_health_reinsurance
+presets:
+  tiny: {cedants: 3, treaties: 6, policies: 500, rows_per_file: 5000}
+  small: {cedants: 10, treaties: 50, policies: 50000, rows_per_file: 50000}
+  medium: {cedants: 25, treaties: 200, policies: 1000000, rows_per_file: 100000}
+  large: {cedants: 50, treaties: 1000, policies: 10000000, rows_per_file: 250000}
+  stress: {cedants: 100, treaties: 5000, policies: 100000000, rows_per_file: 500000}
+entities:
+  cedants:
+    target: RAW.CEDANTS
+    business_key: cedant_id
+    columns:
+      cedant_id: VARCHAR
+      cedant_name: VARCHAR
+      country_code: VARCHAR
+      currency_code: VARCHAR
+      market_segment: VARCHAR
+      active: BOOLEAN
+  treaties:
+    target: RAW.TREATIES
+    business_key: treaty_id
+    foreign_keys: {cedant_id: cedants.cedant_id}
+    columns:
+      treaty_id: VARCHAR
+      cedant_id: VARCHAR
+      treaty_name: VARCHAR
+      treaty_type: VARCHAR
+      effective_date: DATE
+      expiry_date: DATE
+      retention_amount: NUMBER(18,2)
+      ceded_share_pct: NUMBER(7,4)
+      currency_code: VARCHAR
+      status: VARCHAR
+  products:
+    target: RAW.PRODUCTS
+    business_key: product_id
+    columns:
+      product_id: VARCHAR
+      product_name: VARCHAR
+      product_type: VARCHAR
+      benefit_basis: VARCHAR
+      currency_code: VARCHAR
+  insured_lives:
+    target: RAW.INSURED_LIVES
+    business_key: insured_id
+    columns:
+      insured_id: VARCHAR
+      synthetic_name: VARCHAR
+      birth_date: DATE
+      sex_code: VARCHAR
+      country_code: VARCHAR
+      smoker_flag: BOOLEAN
+      bmi: NUMBER(5,2)
+  policies:
+    target: RAW.POLICIES
+    business_key: policy_id
+    foreign_keys:
+      treaty_id: treaties.treaty_id
+      cedant_id: cedants.cedant_id
+      product_id: products.product_id
+      insured_id: insured_lives.insured_id
+    columns:
+      policy_id: VARCHAR
+      treaty_id: VARCHAR
+      cedant_id: VARCHAR
+      product_id: VARCHAR
+      insured_id: VARCHAR
+      issue_date: DATE
+      policy_status: VARCHAR
+      sum_assured: NUMBER(18,2)
+      annual_premium: NUMBER(18,2)
+      currency_code: VARCHAR
+  coverages:
+    target: RAW.COVERAGES
+    business_key: coverage_id
+    foreign_keys: {policy_id: policies.policy_id}
+    columns:
+      coverage_id: VARCHAR
+      policy_id: VARCHAR
+      coverage_type: VARCHAR
+      benefit_amount: NUMBER(18,2)
+      effective_date: DATE
+      expiry_date: DATE
+  underwriting_cases:
+    target: RAW.UNDERWRITING_CASES
+    business_key: underwriting_case_id
+    foreign_keys:
+      policy_id: policies.policy_id
+      insured_id: insured_lives.insured_id
+    columns:
+      underwriting_case_id: VARCHAR
+      policy_id: VARCHAR
+      insured_id: VARCHAR
+      decision_date: DATE
+      risk_class: VARCHAR
+      decision: VARCHAR
+      risk_score: NUMBER(8,3)
+  premiums:
+    target: RAW.PREMIUMS
+    business_key: premium_txn_id
+    foreign_keys:
+      policy_id: policies.policy_id
+      treaty_id: treaties.treaty_id
+      cedant_id: cedants.cedant_id
+    columns:
+      premium_txn_id: VARCHAR
+      policy_id: VARCHAR
+      treaty_id: VARCHAR
+      cedant_id: VARCHAR
+      accounting_date: DATE
+      gross_premium: NUMBER(18,2)
+      ceded_premium: NUMBER(18,2)
+      currency_code: VARCHAR
+  claims:
+    target: RAW.CLAIMS
+    business_key: claim_id
+    foreign_keys:
+      policy_id: policies.policy_id
+      treaty_id: treaties.treaty_id
+      insured_id: insured_lives.insured_id
+    columns:
+      claim_id: VARCHAR
+      policy_id: VARCHAR
+      treaty_id: VARCHAR
+      insured_id: VARCHAR
+      event_date: DATE
+      reported_date: DATE
+      claim_status: VARCHAR
+      cause_code: VARCHAR
+      claim_amount: NUMBER(18,2)
+      ceded_claim_amount: NUMBER(18,2)
+      currency_code: VARCHAR
+  claim_payments:
+    target: RAW.CLAIM_PAYMENTS
+    business_key: claim_payment_id
+    foreign_keys: {claim_id: claims.claim_id}
+    columns:
+      claim_payment_id: VARCHAR
+      claim_id: VARCHAR
+      payment_date: DATE
+      payment_amount: NUMBER(18,2)
+      currency_code: VARCHAR
+  claim_reserves:
+    target: RAW.CLAIM_RESERVES
+    business_key: reserve_id
+    foreign_keys: {claim_id: claims.claim_id}
+    columns:
+      reserve_id: VARCHAR
+      claim_id: VARCHAR
+      valuation_date: DATE
+      case_reserve_amount: NUMBER(18,2)
+      currency_code: VARCHAR
+  exposure_monthly:
+    target: RAW.EXPOSURE_MONTHLY
+    business_key: exposure_id
+    foreign_keys:
+      policy_id: policies.policy_id
+      treaty_id: treaties.treaty_id
+      cedant_id: cedants.cedant_id
+    columns:
+      exposure_id: VARCHAR
+      policy_id: VARCHAR
+      treaty_id: VARCHAR
+      cedant_id: VARCHAR
+      exposure_month: DATE
+      exposed_amount: NUMBER(18,2)
+      exposure_fraction: NUMBER(8,6)
+      currency_code: VARCHAR
