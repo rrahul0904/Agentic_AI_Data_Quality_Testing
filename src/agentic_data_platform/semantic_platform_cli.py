@@ -372,6 +372,166 @@ def snowflake_demo(
     }
 
 
+def cdc_plan(workspace: Path) -> dict[str, Any]:
+    required = {
+        "cdc_manifest": workspace / "cdc" / "manifest.json",
+        "cdc_events": workspace / "cdc" / "change_events.jsonl",
+        "cdc_apply_sql": workspace / "snowflake" / "003_apply_cdc.sql",
+        "dbt_project": workspace / "dbt" / "dbt_project.yml",
+        "semantic_verify": workspace / "release" / "semantic" / "verify_semantic_view.sql",
+    }
+    return {
+        "workspace": str(workspace),
+        "workspace_ready": all(path.exists() for path in required.values()),
+        "required_artifacts": {
+            name: {"path": str(path), "exists": path.exists()}
+            for name, path in required.items()
+        },
+        "steps": [
+            "execute idempotent CDC MERGE SQL",
+            "rebuild dbt CORE/MART models",
+            "server-verify the governed Semantic View",
+            "validate audit ledger and changed RAW rows",
+        ],
+    }
+
+
+def apply_cdc(
+    workspace: Path,
+    *,
+    confirm: bool,
+    dry_run: bool = False,
+    verify_idempotency: bool = False,
+) -> dict[str, Any]:
+    plan = cdc_plan(workspace)
+    if dry_run:
+        return {
+            "status": "DRY_RUN",
+            "verify_idempotency": verify_idempotency,
+            **plan,
+        }
+
+    _require_confirm(confirm, "live CDC application")
+    if not plan["workspace_ready"]:
+        missing = [
+            name
+            for name, value in plan["required_artifacts"].items()
+            if not value["exists"]
+        ]
+        raise RuntimeError(
+            "CDC workspace is incomplete; run semantic-platform demo-build first. Missing: "
+            + ", ".join(missing)
+        )
+
+    status = readiness_status(release_dir=workspace / "release")
+    if not status["external"]["snowflake_live_ready"]:
+        raise RuntimeError(
+            "Snowflake live execution is not ready: "
+            + ", ".join(status["external"]["snowflake_missing"])
+        )
+    if not status["external"]["dbt_live_ready"]:
+        raise RuntimeError(
+            "dbt live execution is not ready; install dbt and configure password-based Snowflake authentication"
+        )
+
+    dbt_dir = workspace / "dbt"
+    _dbt_profiles(dbt_dir)
+    sql_file = workspace / "snowflake" / "003_apply_cdc.sql"
+    events_file = workspace / "cdc" / "change_events.jsonl"
+    semantic_verify = workspace / "release" / "semantic" / "verify_semantic_view.sql"
+    database = os.environ.get("RGA_SNOWFLAKE_DATABASE", "RGA_SYNTHETIC_TESTBED")
+    stages: list[dict[str, Any]] = []
+
+    def execute_apply_cycle(label: str) -> dict[str, Any]:
+        stages.append(
+            _run_checked(
+                _python_script(
+                    "execute_snowflake_sql.py",
+                    "--sql-file",
+                    str(sql_file),
+                    "--confirm",
+                )
+            )
+        )
+        stages.append(
+            _run_checked(
+                [
+                    shutil.which("dbt") or "dbt",
+                    "build",
+                    "--project-dir",
+                    str(dbt_dir),
+                    "--profiles-dir",
+                    str(dbt_dir),
+                ],
+                cwd=dbt_dir,
+            )
+        )
+        stages.append(
+            _run_checked(
+                _python_script(
+                    "execute_snowflake_sql.py",
+                    "--sql-file",
+                    str(semantic_verify),
+                    "--confirm",
+                )
+            )
+        )
+        validator = _run(
+            _python_script(
+                "validate_cdc_application.py",
+                "--events",
+                str(events_file),
+                "--database",
+                database,
+                "--confirm",
+            ),
+            capture=True,
+        )
+        try:
+            validation = json.loads(validator.stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                validator.stdout.strip()
+                or validator.stderr.strip()
+                or "CDC validator returned invalid output"
+            ) from exc
+        if validator.returncode != 0 or validation.get("status") != "PASS":
+            raise RuntimeError(
+                f"{label} CDC validation failed: "
+                + (validation.get("error") or json.dumps(validation))
+            )
+        return validation
+
+    first_validation = execute_apply_cycle("initial")
+    second_validation = None
+    if verify_idempotency:
+        second_validation = execute_apply_cycle("idempotency")
+
+    cdc_manifest = json.loads(
+        (workspace / "cdc" / "manifest.json").read_text(encoding="utf-8")
+    )
+    report = {
+        "status": "PASS",
+        "workspace": str(workspace),
+        "database": database,
+        "verify_idempotency": verify_idempotency,
+        "source_event_count": cdc_manifest.get("event_count"),
+        "source_scenario_counts": cdc_manifest.get("scenario_counts"),
+        "validation": first_validation,
+        "idempotency_validation": second_validation,
+        "stages": [
+            {"command": item["command"], "returncode": item["returncode"]}
+            for item in stages
+        ],
+        "semantic_reverified": True,
+    }
+    evidence_path = workspace / "evidence" / "cdc_application.json"
+    evidence_path.parent.mkdir(parents=True, exist_ok=True)
+    evidence_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    report["report"] = str(evidence_path)
+    return report
+
+
 def benchmark(
     workspace: Path,
     *,
@@ -1281,6 +1441,15 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--deploy-semantic", action="store_true")
     live.add_argument("--deploy-ai", action="store_true")
 
+    cdc = sub.add_parser(
+        "apply-cdc",
+        help="Plan or execute the idempotent CDC correction/late-arrival cycle.",
+    )
+    cdc.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE)
+    cdc.add_argument("--confirm", action="store_true")
+    cdc.add_argument("--dry-run", action="store_true")
+    cdc.add_argument("--verify-idempotency", action="store_true")
+
     bench = sub.add_parser("benchmark", help="Run or dry-run direct-vs-semantic Snowflake benchmarks.")
     bench.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE)
     bench.add_argument("--mode", choices=("direct", "semantic", "both"), default="both")
@@ -1402,6 +1571,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
             return 0
+        if args.command == "apply-cdc":
+            result = apply_cdc(
+                args.workspace,
+                confirm=args.confirm,
+                dry_run=args.dry_run,
+                verify_idempotency=args.verify_idempotency,
+            )
+            print(_json(result))
+            return 0 if result["status"] in {"PASS", "DRY_RUN"} else 1
         if args.command == "benchmark":
             print(
                 _json(
