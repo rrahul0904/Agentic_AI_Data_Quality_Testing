@@ -437,6 +437,39 @@ def certification_plan(
     }
 
 
+def agent_smoke(
+    workspace: Path,
+    *,
+    confirm: bool,
+    dry_run: bool,
+    agent: str | None = None,
+    questions: list[str] | None = None,
+) -> dict[str, Any]:
+    release_manifest_path = workspace / "release" / "release_manifest.json"
+    database = "RGA_SYNTHETIC_TESTBED"
+    if release_manifest_path.exists():
+        release_manifest = json.loads(release_manifest_path.read_text(encoding="utf-8"))
+        database = release_manifest.get("database") or database
+    agent_name = agent or f"{database}.AI.RGA_REINSURANCE_AGENT"
+    output = workspace / "evidence" / "agent_smoke.json"
+    args = ["--agent", agent_name, "--output", str(output)]
+    for question in questions or []:
+        args += ["--question", question]
+    if dry_run:
+        args.append("--dry-run")
+    elif confirm:
+        args.append("--confirm")
+
+    result = _run(_python_script("run_agent_smoke.py", *args), capture=True)
+    if result.returncode != 0:
+        raise RuntimeError(result.stdout.strip() or result.stderr.strip())
+    payload = json.loads(result.stdout)
+    if output.exists() and not dry_run:
+        payload = json.loads(output.read_text(encoding="utf-8"))
+        payload["report"] = str(output)
+    return payload
+
+
 def certify_live(
     workspace: Path,
     *,
@@ -475,6 +508,14 @@ def certify_live(
     )
 
     evidence_dir = workspace / "evidence"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    agent_runtime = None
+    if deploy_ai:
+        agent_runtime = agent_smoke(
+            workspace,
+            confirm=True,
+            dry_run=False,
+        )
     evidence_dir.mkdir(parents=True, exist_ok=True)
     benchmark_runs: list[dict[str, Any]] = []
     report_paths: list[Path] = []
@@ -520,7 +561,13 @@ def certify_live(
         for item in benchmark_runs
         for variant in item.get("summary", {}).get("variants", {}).values()
     )
-    certification_pass = all_benchmarks_pass and all_parity_pass and telemetry_complete
+    agent_runtime_pass = True if not deploy_ai else bool(agent_runtime and agent_runtime.get("status") == "PASS")
+    certification_pass = (
+        all_benchmarks_pass
+        and all_parity_pass
+        and telemetry_complete
+        and agent_runtime_pass
+    )
 
     release_manifest_path = workspace / "release" / "release_manifest.json"
     release_manifest = json.loads(release_manifest_path.read_text(encoding="utf-8"))
@@ -543,12 +590,27 @@ def certify_live(
             "all_benchmarks_pass": all_benchmarks_pass,
             "all_direct_semantic_result_parity_pass": all_parity_pass,
             "query_history_telemetry_complete": telemetry_complete,
+            "agent_runtime_smoke_pass": agent_runtime_pass if deploy_ai else None,
         },
+        "agent_runtime": (
+            {
+                "status": agent_runtime.get("status"),
+                "passed": agent_runtime.get("passed"),
+                "failed": agent_runtime.get("failed"),
+                "report": agent_runtime.get("report"),
+            }
+            if agent_runtime
+            else None
+        ),
         "benchmark_runs": benchmark_runs,
         "workload_analysis": str(workload_output),
         "acceleration_recommendation_count": len(workload.get("recommendations", [])),
         "external_remaining": [
-            "Cortex Agent/MCP interactive answer evidence" if deploy_ai else "Cortex Agent/MCP live deployment and interactive answer evidence",
+            (
+                "Cortex Agent numerical/answer parity against canonical query results"
+                if deploy_ai
+                else "Cortex Agent/MCP live deployment and governed runtime smoke"
+            ),
             "Power BI XMLA governed parity",
             "Excel XMLA governed parity",
         ],
@@ -622,6 +684,16 @@ def build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--dry-run", action="store_true")
     bench.add_argument("--confirm-live", action="store_true")
 
+    agent = sub.add_parser(
+        "agent-smoke",
+        help="Dry-run or execute governed Cortex Agent runtime smoke questions.",
+    )
+    agent.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE)
+    agent.add_argument("--agent")
+    agent.add_argument("--question", action="append")
+    agent.add_argument("--confirm", action="store_true")
+    agent.add_argument("--dry-run", action="store_true")
+
     certify = sub.add_parser(
         "certify-live",
         help="Run or plan end-to-end Snowflake semantic runtime certification.",
@@ -688,6 +760,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
             return 0
+        if args.command == "agent-smoke":
+            result = agent_smoke(
+                args.workspace,
+                confirm=args.confirm,
+                dry_run=args.dry_run,
+                agent=args.agent,
+                questions=args.question,
+            )
+            print(_json(result))
+            return 0 if result["status"] in {"PASS", "DRY_RUN"} else 1
         if args.command == "certify-live":
             result = certify_live(
                 args.workspace,
