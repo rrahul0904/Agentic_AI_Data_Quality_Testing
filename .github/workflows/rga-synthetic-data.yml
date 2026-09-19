@@ -187,6 +187,19 @@ jobs:
           set -e
           test "$cdc_validation_code" -eq 2
           grep -q 'without --confirm' /tmp/rga-cdc-validation-refusal.json
+      - name: Certify CDC semantic-effect plan
+        run: |
+          python scripts/rga_testbed/validate_cdc_semantic_effects.py --events /tmp/rga-cdc/change_events.jsonl --baseline /tmp/rga-cdc/semantic-baseline.json --mode capture --dry-run >/tmp/rga-cdc-semantic-dry-run.json
+          grep -q '"status": "DRY_RUN"' /tmp/rga-cdc-semantic-dry-run.json
+          grep -q 'Premium corrections assert exact gross/ceded premium deltas' /tmp/rga-cdc-semantic-dry-run.json
+          grep -q 'Late claims assert exact gross/ceded claim and claim-count deltas' /tmp/rga-cdc-semantic-dry-run.json
+          grep -q '"semantic_grain"' /tmp/rga-cdc/change_events.jsonl
+          set +e
+          python scripts/rga_testbed/validate_cdc_semantic_effects.py --events /tmp/rga-cdc/change_events.jsonl --baseline /tmp/rga-cdc/semantic-baseline.json --mode capture >/tmp/rga-cdc-semantic-refusal.json
+          semantic_cdc_code=$?
+          set -e
+          test "$semantic_cdc_code" -eq 2
+          grep -q 'without --confirm' /tmp/rga-cdc-semantic-refusal.json
       - name: Generate dbt analytics project
         run: python scripts/rga_testbed/generate_dbt_project.py --output /tmp/rga-dbt
       - name: Generate Snowflake semantic view contract
@@ -292,3 +305,5 @@ jobs:
           grep -q 'semantic_deploy_gate' /tmp/rga-airflow/rga_synthetic_pipeline.py
           grep -q 'cdc_apply_gate' /tmp/rga-airflow/rga_synthetic_pipeline.py
           grep -q 'validate_cdc_application' /tmp/rga-airflow/rga_synthetic_pipeline.py
+          grep -q 'capture_cdc_semantic_baseline' /tmp/rga-airflow/rga_synthetic_pipeline.py
+          grep -q 'validate_cdc_semantic_effects' /tmp/rga-airflow/rga_synthetic_pipeline.py
