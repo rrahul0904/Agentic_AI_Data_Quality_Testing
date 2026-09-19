@@ -109,6 +109,16 @@ with DAG(
         python_callable=cdc_apply_enabled,
     )
 
+    capture_cdc_semantic_baseline = BashOperator(
+        task_id="capture_cdc_semantic_baseline",
+        bash_command=(
+            f"cd {REPO} && python scripts/rga_testbed/validate_cdc_semantic_effects.py "
+            f"--events {CDC_DIR}/change_events.jsonl "
+            f"--baseline {CDC_DIR}/semantic_baseline.json "
+            "--mode capture --confirm"
+        ),
+    )
+
     apply_cdc = BashOperator(
         task_id="apply_cdc",
         bash_command=(
@@ -141,6 +151,16 @@ with DAG(
         ),
     )
 
+    validate_cdc_semantic_effects = BashOperator(
+        task_id="validate_cdc_semantic_effects",
+        bash_command=(
+            f"cd {REPO} && python scripts/rga_testbed/validate_cdc_semantic_effects.py "
+            f"--events {CDC_DIR}/change_events.jsonl "
+            f"--baseline {CDC_DIR}/semantic_baseline.json "
+            "--mode validate --confirm"
+        ),
+    )
+
     semantic_deploy_gate = ShortCircuitOperator(
         task_id="semantic_deploy_gate",
         python_callable=semantic_deploy_enabled,
@@ -156,7 +176,8 @@ with DAG(
 
     generate_data >> generate_contracts >> bootstrap_snowflake >> load_raw >> dbt_build >> verify_semantic_view
     verify_semantic_view >> semantic_deploy_gate >> deploy_semantic_view
-    verify_semantic_view >> cdc_apply_gate >> apply_cdc >> dbt_rebuild_after_cdc >> verify_semantic_after_cdc >> validate_cdc_application
+    verify_semantic_view >> cdc_apply_gate >> capture_cdc_semantic_baseline >> apply_cdc
+    apply_cdc >> dbt_rebuild_after_cdc >> verify_semantic_after_cdc >> validate_cdc_application >> validate_cdc_semantic_effects
 '''
 
 
