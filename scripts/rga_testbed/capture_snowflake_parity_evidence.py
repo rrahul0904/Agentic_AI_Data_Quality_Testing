@@ -109,11 +109,17 @@ def run(
     if missing_sql:
         raise FileNotFoundError("Missing parity reference SQL: " + ", ".join(missing_sql))
 
-    role = security_context or env.get("SNOWFLAKE_ROLE", "SYSADMIN")
-    if security_context and env.get("SNOWFLAKE_ROLE") and security_context != env.get("SNOWFLAKE_ROLE"):
-        raise ValueError(
-            f"security_context {security_context!r} does not match SNOWFLAKE_ROLE {env.get('SNOWFLAKE_ROLE')!r}"
-        )
+    configured_role = env.get("SNOWFLAKE_ROLE")
+    if security_context:
+        if not configured_role:
+            raise ValueError(
+                "SNOWFLAKE_ROLE must be explicitly set when --security-context is used"
+            )
+        if security_context != configured_role:
+            raise ValueError(
+                f"security_context {security_context!r} does not match SNOWFLAKE_ROLE {configured_role!r}"
+            )
+    role = configured_role or "SYSADMIN"
 
     evidence_dir.mkdir(parents=True, exist_ok=True)
     connection = snowflake.connector.connect(**connection_kwargs(env))
