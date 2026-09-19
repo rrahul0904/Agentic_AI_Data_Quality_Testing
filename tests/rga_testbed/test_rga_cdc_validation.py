@@ -121,3 +121,20 @@ def test_cdc_validation_dry_run_reports_scenario_counts(tmp_path: Path):
         "late_arriving_claim": 1,
     }
     assert any("audit" in item.lower() for item in report["acceptance"])
+
+
+def test_cdc_audit_cardinality_requires_exactly_one_applied_row():
+    module = _module()
+    assert module.audit_record_errors(None) == ["audit record is missing"]
+    assert module.audit_record_errors({"count": 1, "statuses": {"APPLIED"}}) == []
+
+    duplicate = module.audit_record_errors(
+        {"count": 2, "statuses": {"APPLIED"}}
+    )
+    assert any("row count expected 1" in error for error in duplicate)
+
+    mixed = module.audit_record_errors(
+        {"count": 2, "statuses": {"APPLIED", "FAILED"}}
+    )
+    assert any("row count expected 1" in error for error in mixed)
+    assert any("expected only APPLIED" in error for error in mixed)
