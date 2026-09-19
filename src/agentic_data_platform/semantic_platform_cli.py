@@ -1134,6 +1134,23 @@ def certify_consumers(
     return report
 
 
+def certification_report(
+    workspace: Path,
+    *,
+    evidence_dir: Path | None = None,
+    output_dir: Path | None = None,
+) -> dict[str, Any]:
+    args = ["--workspace", str(workspace)]
+    if evidence_dir:
+        args += ["--evidence-dir", str(evidence_dir)]
+    if output_dir:
+        args += ["--output-dir", str(output_dir)]
+    result = _run(_python_script("build_certification_report.py", *args), capture=True)
+    if result.returncode != 0:
+        raise RuntimeError(result.stdout.strip() or result.stderr.strip())
+    return json.loads(result.stdout)
+
+
 def release(
     output: Path,
     *,
@@ -1240,6 +1257,14 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_consumers.add_argument("--security-context", required=True)
     prepare_consumers.add_argument("--overwrite", action="store_true")
 
+    report = sub.add_parser(
+        "certification-report",
+        help="Build one truthful certification summary across repository, live runtime, and consumer evidence.",
+    )
+    report.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE)
+    report.add_argument("--evidence-dir", type=Path)
+    report.add_argument("--output-dir", type=Path)
+
     consumers = sub.add_parser(
         "certify-consumers",
         help="Plan or validate Snowflake/AI/Power BI/Excel parity evidence.",
@@ -1332,6 +1357,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 evidence_dir=args.evidence_dir,
                 security_context=args.security_context,
                 overwrite=args.overwrite,
+            )
+            print(_json(result))
+            return 0
+        if args.command == "certification-report":
+            result = certification_report(
+                args.workspace,
+                evidence_dir=args.evidence_dir,
+                output_dir=args.output_dir,
             )
             print(_json(result))
             return 0
