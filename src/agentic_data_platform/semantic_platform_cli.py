@@ -455,6 +455,7 @@ def agent_smoke(
     dry_run: bool,
     agent: str | None = None,
     questions: list[str] | None = None,
+    max_rows: int = 10000,
 ) -> dict[str, Any]:
     release_manifest_path = workspace / "release" / "release_manifest.json"
     database = "RGA_SYNTHETIC_TESTBED"
@@ -463,7 +464,7 @@ def agent_smoke(
         database = release_manifest.get("database") or database
     agent_name = agent or f"{database}.AI.RGA_REINSURANCE_AGENT"
     output = workspace / "evidence" / "agent_smoke.json"
-    args = ["--agent", agent_name, "--output", str(output)]
+    args = ["--agent", agent_name, "--output", str(output), "--max-rows", str(max_rows)]
     for question in questions or []:
         args += ["--question", question]
     if dry_run:
@@ -710,6 +711,268 @@ def certify_live(
     return manifest
 
 
+def agent_consumer_evidence(
+    manifest: dict[str, Any],
+    agent_report: dict[str, Any],
+    *,
+    evidence_dir: Path,
+    security_context: str,
+    overwrite: bool = False,
+) -> dict[str, Any]:
+    cases = {str(case["id"]): case for case in manifest.get("cases", [])}
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    results: list[dict[str, Any]] = []
+
+    for item in agent_report.get("results", []):
+        case_id = str(item.get("business_query_id") or "")
+        case = cases.get(case_id)
+        if not case:
+            continue
+        output = evidence_dir / f"{case_id}.cortex_agent_mcp.json"
+        if output.exists() and not overwrite:
+            try:
+                existing = json.loads(output.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                existing = {}
+            if existing.get("capture_status") == "CAPTURED":
+                results.append(
+                    {
+                        "case_id": case_id,
+                        "status": "SKIPPED",
+                        "error": "captured evidence already exists; use --overwrite to replace it",
+                        "output": str(output),
+                    }
+                )
+                continue
+
+        expected = [
+            str(name).upper()
+            for name in (case.get("dimensions", []) + case.get("metrics", []))
+        ]
+        candidates = []
+        for execution in item.get("analytical_executions", []) or []:
+            captured = execution.get("result_rows")
+            if not isinstance(captured, dict):
+                continue
+            columns = [str(name).upper() for name in captured.get("columns", [])]
+            rows = captured.get("rows")
+            if execution.get("status") not in (None, "success"):
+                continue
+            if captured.get("truncated"):
+                continue
+            if sorted(columns) != sorted(expected):
+                continue
+            if not isinstance(rows, list) or not rows:
+                continue
+            candidates.append(execution)
+
+        if not candidates:
+            results.append(
+                {
+                    "case_id": case_id,
+                    "status": "FAIL",
+                    "error": f"no complete Agent analytical result matched expected columns {expected}",
+                    "output": str(output),
+                }
+            )
+            continue
+
+        execution = candidates[-1]
+        captured = execution["result_rows"]
+        payload = {
+            "case_id": case_id,
+            "consumer": "cortex_agent_mcp",
+            "security_context": security_context,
+            "capture_status": "CAPTURED",
+            "capture_method": "cortex_agent_system_execute_sql",
+            "wrapper_query_id": item.get("wrapper_query_id"),
+            "analytical_query_id": execution.get("query_id"),
+            "analytical_sql": execution.get("sql"),
+            "rows": captured["rows"],
+        }
+        output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        results.append(
+            {
+                "case_id": case_id,
+                "status": "PASS",
+                "row_count": len(captured["rows"]),
+                "query_id": execution.get("query_id"),
+                "output": str(output),
+            }
+        )
+
+    expected_case_ids = set(cases)
+    observed_case_ids = {item["case_id"] for item in results}
+    for missing in sorted(expected_case_ids - observed_case_ids):
+        results.append(
+            {
+                "case_id": missing,
+                "status": "FAIL",
+                "error": "Agent smoke report did not contain this verified parity case",
+                "output": str(evidence_dir / f"{missing}.cortex_agent_mcp.json"),
+            }
+        )
+
+    failed = sum(item["status"] == "FAIL" for item in results)
+    skipped = sum(item["status"] == "SKIPPED" for item in results)
+    return {
+        "status": "PASS" if results and failed == 0 else "FAIL",
+        "consumer": "cortex_agent_mcp",
+        "security_context": security_context,
+        "case_count": len(results),
+        "passed": sum(item["status"] == "PASS" for item in results),
+        "skipped": skipped,
+        "failed": failed,
+        "results": results,
+    }
+
+
+def governed_evidence_plan(
+    workspace: Path,
+    *,
+    evidence_dir: Path,
+    security_context: str,
+    max_rows: int,
+) -> dict[str, Any]:
+    if not security_context.strip():
+        raise ValueError("security_context is required")
+    if max_rows < 1 or max_rows > 100000:
+        raise ValueError("max_rows must be between 1 and 100000")
+    manifest_path = workspace / "release" / "parity" / "parity_manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"parity manifest not found: {manifest_path}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    cases = []
+    for case in manifest.get("cases", []):
+        cases.append(
+            {
+                "case_id": case["id"],
+                "question": case.get("business_question"),
+                "expected_columns": case.get("dimensions", []) + case.get("metrics", []),
+                "snowflake_output": str(evidence_dir / f"{case['id']}.snowflake_semantic_view.json"),
+                "agent_output": str(evidence_dir / f"{case['id']}.cortex_agent_mcp.json"),
+            }
+        )
+    return {
+        "manifest": str(manifest_path),
+        "evidence_dir": str(evidence_dir),
+        "security_context": security_context,
+        "max_rows": max_rows,
+        "case_count": len(cases),
+        "captured_consumers": ["snowflake_semantic_view", "cortex_agent_mcp"],
+        "external_consumers_remaining": ["power_bi", "excel"],
+        "cases": cases,
+    }
+
+
+def capture_governed_evidence(
+    workspace: Path,
+    *,
+    evidence_dir: Path,
+    security_context: str,
+    max_rows: int = 10000,
+    confirm: bool = False,
+    dry_run: bool = False,
+    overwrite: bool = False,
+) -> dict[str, Any]:
+    plan = governed_evidence_plan(
+        workspace,
+        evidence_dir=evidence_dir,
+        security_context=security_context,
+        max_rows=max_rows,
+    )
+    if dry_run:
+        return {"status": "DRY_RUN", **plan}
+    _require_confirm(confirm, "live governed consumer evidence capture")
+
+    configured_role = os.environ.get("SNOWFLAKE_ROLE")
+    if configured_role and configured_role != security_context:
+        raise RuntimeError(
+            f"security context mismatch: --security-context={security_context!r} "
+            f"but SNOWFLAKE_ROLE={configured_role!r}"
+        )
+
+    manifest = json.loads(Path(plan["manifest"]).read_text(encoding="utf-8"))
+    prepare_consumer_evidence(
+        workspace,
+        evidence_dir=evidence_dir,
+        security_context=security_context,
+        overwrite=False,
+    )
+
+    protected: list[str] = []
+    for case in manifest.get("cases", []):
+        for consumer in ("snowflake_semantic_view", "cortex_agent_mcp"):
+            path = evidence_dir / f"{case['id']}.{consumer}.json"
+            if not path.exists():
+                continue
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                payload = {}
+            if payload.get("capture_status") == "CAPTURED" and not overwrite:
+                protected.append(str(path))
+    if protected:
+        raise RuntimeError(
+            "captured governed evidence already exists; use --overwrite to replace: "
+            + ", ".join(protected)
+        )
+
+    snowflake = _run(
+        _python_script(
+            "capture_snowflake_parity_evidence.py",
+            "--manifest",
+            plan["manifest"],
+            "--evidence-dir",
+            str(evidence_dir),
+            "--security-context",
+            security_context,
+            "--max-rows",
+            str(max_rows),
+            "--confirm",
+        ),
+        capture=True,
+    )
+    if snowflake.returncode != 0:
+        raise RuntimeError(snowflake.stdout.strip() or snowflake.stderr.strip())
+    snowflake_report = json.loads(snowflake.stdout)
+
+    agent_report = agent_smoke(
+        workspace,
+        confirm=True,
+        dry_run=False,
+        max_rows=max_rows,
+    )
+    if agent_report.get("status") != "PASS":
+        raise RuntimeError("Cortex Agent smoke failed; governed Agent evidence was not certified")
+    agent_capture = agent_consumer_evidence(
+        manifest,
+        agent_report,
+        evidence_dir=evidence_dir,
+        security_context=security_context,
+        overwrite=overwrite,
+    )
+
+    status = (
+        "PASS"
+        if snowflake_report.get("status") == "PASS"
+        and agent_capture.get("status") == "PASS"
+        else "FAIL"
+    )
+    parity_plan = consumer_parity_plan(workspace, evidence_dir)
+    return {
+        "status": status,
+        "security_context": security_context,
+        "snowflake": snowflake_report,
+        "agent": agent_capture,
+        "consumer_evidence": parity_plan,
+        "next": (
+            "Capture the remaining Power BI and Excel PENDING evidence under the same security context, "
+            "then run semantic-platform certify-consumers."
+        ),
+    }
+
+
 def prepare_consumer_evidence(
     workspace: Path,
     *,
@@ -791,6 +1054,25 @@ def consumer_parity_plan(
                 }
             )
     missing = [item for item in expected if not item["exists"]]
+    captured = 0
+    pending = 0
+    invalid = 0
+    for item in expected:
+        path = Path(item["path"])
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            invalid += 1
+            continue
+        status = payload.get("capture_status")
+        if status == "CAPTURED":
+            captured += 1
+        elif status == "PENDING":
+            pending += 1
+        else:
+            invalid += 1
     return {
         "manifest": str(manifest_path),
         "evidence_dir": str(evidence_dir),
@@ -799,6 +1081,9 @@ def consumer_parity_plan(
         "expected_evidence_count": len(expected),
         "present_evidence_count": len(expected) - len(missing),
         "missing_evidence_count": len(missing),
+        "captured_evidence_count": captured,
+        "pending_evidence_count": pending,
+        "invalid_evidence_count": invalid,
         "required_consumers": consumers,
         "missing": missing,
         "evidence_contract": {
@@ -930,6 +1215,18 @@ def build_parser() -> argparse.ArgumentParser:
     certify.add_argument("--confirm", action="store_true")
     certify.add_argument("--dry-run", action="store_true")
 
+    capture_governed = sub.add_parser(
+        "capture-governed-evidence",
+        help="Capture live Snowflake Semantic View and Cortex Agent parity rows.",
+    )
+    capture_governed.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE)
+    capture_governed.add_argument("--evidence-dir", type=Path, required=True)
+    capture_governed.add_argument("--security-context", required=True)
+    capture_governed.add_argument("--max-rows", type=int, default=10000)
+    capture_governed.add_argument("--overwrite", action="store_true")
+    capture_governed.add_argument("--confirm", action="store_true")
+    capture_governed.add_argument("--dry-run", action="store_true")
+
     prepare_consumers = sub.add_parser(
         "prepare-consumer-evidence",
         help="Create non-certifiable Snowflake/AI/Power BI/Excel evidence templates.",
@@ -1010,6 +1307,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 dry_run=args.dry_run,
                 agent=args.agent,
                 questions=args.question,
+            )
+            print(_json(result))
+            return 0 if result["status"] in {"PASS", "DRY_RUN"} else 1
+        if args.command == "capture-governed-evidence":
+            result = capture_governed_evidence(
+                args.workspace,
+                evidence_dir=args.evidence_dir,
+                security_context=args.security_context,
+                max_rows=args.max_rows,
+                confirm=args.confirm,
+                dry_run=args.dry_run,
+                overwrite=args.overwrite,
             )
             print(_json(result))
             return 0 if result["status"] in {"PASS", "DRY_RUN"} else 1
