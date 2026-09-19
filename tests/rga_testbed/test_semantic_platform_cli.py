@@ -72,3 +72,64 @@ def test_cli_status_returns_json(capsys):
     assert "local" in payload
     assert "external" in payload
     assert "boundaries" in payload
+
+
+def test_parse_concurrency_sweep_deduplicates_and_sorts():
+    assert cli.parse_concurrency_sweep("10,1,5,10") == [1, 5, 10]
+
+
+def test_parse_concurrency_sweep_rejects_invalid_values():
+    try:
+        cli.parse_concurrency_sweep("1,0,101")
+    except ValueError as exc:
+        assert "between 1 and 100" in str(exc)
+    else:
+        raise AssertionError("invalid concurrency sweep should be rejected")
+
+
+def test_live_certification_dry_run_exposes_complete_plan(tmp_path: Path):
+    workspace = tmp_path / "demo"
+    required = [
+        workspace / "data" / "manifest.json",
+        workspace / "snowflake" / "001_raw_tables.sql",
+        workspace / "snowflake" / "002_load_raw.sql",
+        workspace / "dbt" / "dbt_project.yml",
+        workspace / "release" / "release_manifest.json",
+        workspace / "release" / "semantic" / "verify_semantic_view.sql",
+        workspace / "release" / "semantic" / "deploy_semantic_view.sql",
+        workspace / "release" / "benchmarks" / "manifest.json",
+    ]
+    for path in required:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+
+    result = cli.certify_live(
+        workspace,
+        confirm=False,
+        dry_run=True,
+        concurrency=[1, 5, 10],
+        iterations=2,
+        deploy_ai=False,
+    )
+    assert result["status"] == "DRY_RUN"
+    assert result["workspace_ready"] is True
+    assert result["benchmark"]["concurrency"] == [1, 5, 10]
+    assert result["benchmark"]["requires_result_parity"] is True
+    assert result["benchmark"]["requires_query_history_telemetry"] is True
+    assert result["deployment"]["deploy_semantic_view"] is True
+
+
+def test_live_certification_refuses_without_confirm(tmp_path: Path):
+    try:
+        cli.certify_live(
+            tmp_path,
+            confirm=False,
+            dry_run=False,
+            concurrency=[1],
+            iterations=1,
+            deploy_ai=False,
+        )
+    except RuntimeError as exc:
+        assert "without --confirm" in str(exc)
+    else:
+        raise AssertionError("live certification must be fail-closed")
