@@ -30,10 +30,15 @@ REPO = os.environ.get("RGA_REPO_ROOT", "/opt/airflow/repo")
 DBT_DIR = f"{REPO}/rga-snowflake-data-platform/dbt"
 SEMANTIC_DIR = f"{REPO}/rga-snowflake-data-platform/semantic"
 SQL_DIR = f"{REPO}/snowflake/rga_testbed"
+CDC_DIR = f"{REPO}/artifacts/rga_cdc"
 
 
 def semantic_deploy_enabled(**context):
     return bool(context["params"].get("deploy_semantic_view", False))
+
+
+def cdc_apply_enabled(**context):
+    return bool(context["params"].get("apply_cdc", False))
 
 
 with DAG(
@@ -42,8 +47,8 @@ with DAG(
     schedule=None,
     catchup=False,
     max_active_runs=1,
-    params={"preset": "tiny", "seed": 42, "deploy_semantic_view": False},
-    tags=["rga", "synthetic", "snowflake", "dbt", "semantic-view"],
+    params={"preset": "tiny", "seed": 42, "deploy_semantic_view": False, "apply_cdc": False},
+    tags=["rga", "synthetic", "snowflake", "dbt", "semantic-view", "cdc"],
 ) as dag:
     generate_data = BashOperator(
         task_id="generate_synthetic_data",
@@ -59,6 +64,8 @@ with DAG(
             f"cd {REPO} && "
             "python scripts/rga_testbed/generate_snowflake_ddl.py && "
             "python scripts/rga_testbed/generate_load_sql.py && "
+            "python scripts/rga_testbed/generate_change_events.py && "
+            "python scripts/rga_testbed/generate_cdc_apply_sql.py && "
             "python scripts/rga_testbed/generate_dbt_project.py && "
             "python scripts/rga_testbed/generate_semantic_view.py && "
             "python scripts/rga_testbed/generate_benchmark_pack.py"
@@ -97,6 +104,43 @@ with DAG(
         ),
     )
 
+    cdc_apply_gate = ShortCircuitOperator(
+        task_id="cdc_apply_gate",
+        python_callable=cdc_apply_enabled,
+    )
+
+    apply_cdc = BashOperator(
+        task_id="apply_cdc",
+        bash_command=(
+            f"cd {REPO} && python scripts/rga_testbed/execute_snowflake_sql.py "
+            f"--sql-file {SQL_DIR}/003_apply_cdc.sql --confirm"
+        ),
+    )
+
+    dbt_rebuild_after_cdc = BashOperator(
+        task_id="dbt_rebuild_after_cdc",
+        bash_command=(
+            f"cd {DBT_DIR} && cp profiles.yml.example profiles.yml && "
+            f"dbt build --project-dir {DBT_DIR} --profiles-dir {DBT_DIR}"
+        ),
+    )
+
+    verify_semantic_after_cdc = BashOperator(
+        task_id="verify_semantic_after_cdc",
+        bash_command=(
+            f"cd {REPO} && python scripts/rga_testbed/execute_snowflake_sql.py "
+            f"--sql-file {SEMANTIC_DIR}/verify_semantic_view.sql --confirm"
+        ),
+    )
+
+    validate_cdc_application = BashOperator(
+        task_id="validate_cdc_application",
+        bash_command=(
+            f"cd {REPO} && python scripts/rga_testbed/validate_cdc_application.py "
+            f"--events {CDC_DIR}/change_events.jsonl --confirm"
+        ),
+    )
+
     semantic_deploy_gate = ShortCircuitOperator(
         task_id="semantic_deploy_gate",
         python_callable=semantic_deploy_enabled,
@@ -112,6 +156,7 @@ with DAG(
 
     generate_data >> generate_contracts >> bootstrap_snowflake >> load_raw >> dbt_build >> verify_semantic_view
     verify_semantic_view >> semantic_deploy_gate >> deploy_semantic_view
+    verify_semantic_view >> cdc_apply_gate >> apply_cdc >> dbt_rebuild_after_cdc >> verify_semantic_after_cdc >> validate_cdc_application
 '''
 
 
