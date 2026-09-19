@@ -91,6 +91,19 @@ jobs:
           grep -q '"written_count": 12' /tmp/semantic-platform-consumer-templates.json
           grep -q 'Replace PENDING with CAPTURED' /tmp/semantic-platform-consumer-templates.json
           grep -q '"capture_status": "PENDING"' /tmp/consumer-evidence/monthly_loss_ratio_by_cedant.power_bi.json
+          semantic-platform capture-governed-evidence --workspace /tmp/semantic-platform-demo --evidence-dir /tmp/consumer-evidence --security-context ROLE_ANALYST --max-rows 1000 --dry-run >/tmp/semantic-platform-governed-capture-plan.json
+          grep -q '"status": "DRY_RUN"' /tmp/semantic-platform-governed-capture-plan.json
+          grep -q '"case_count": 3' /tmp/semantic-platform-governed-capture-plan.json
+          grep -q '"snowflake_semantic_view"' /tmp/semantic-platform-governed-capture-plan.json
+          grep -q '"cortex_agent_mcp"' /tmp/semantic-platform-governed-capture-plan.json
+          grep -q '"power_bi"' /tmp/semantic-platform-governed-capture-plan.json
+          grep -q '"excel"' /tmp/semantic-platform-governed-capture-plan.json
+          set +e
+          semantic-platform capture-governed-evidence --workspace /tmp/semantic-platform-demo --evidence-dir /tmp/consumer-evidence --security-context ROLE_ANALYST >/tmp/semantic-platform-governed-capture-refusal.json
+          governed_code=$?
+          set -e
+          test "$governed_code" -eq 2
+          grep -q 'without --confirm' /tmp/semantic-platform-governed-capture-refusal.json
           semantic-platform certify-consumers --workspace /tmp/semantic-platform-demo --evidence-dir /tmp/consumer-evidence --dry-run >/tmp/semantic-platform-consumer-plan.json
           grep -q '"status": "DRY_RUN"' /tmp/semantic-platform-consumer-plan.json
           grep -q '"expected_evidence_count": 12' /tmp/semantic-platform-consumer-plan.json
@@ -146,6 +159,17 @@ jobs:
         run: python scripts/rga_testbed/generate_parity_suite.py --output /tmp/rga-parity
       - name: Build governed semantic release bundle
         run: python scripts/rga_testbed/build_semantic_release.py --output /tmp/rga-release --source-sha "$GITHUB_SHA"
+      - name: Certify Snowflake governed evidence capture dry-run
+        run: |
+          python scripts/rga_testbed/capture_snowflake_parity_evidence.py --manifest /tmp/rga-parity/parity_manifest.json --evidence-dir /tmp/rga-governed-evidence --security-context ROLE_ANALYST --max-rows 1000 --dry-run >/tmp/snowflake-evidence-dry-run.json
+          grep -q '"status": "DRY_RUN"' /tmp/snowflake-evidence-dry-run.json
+          grep -q '"case_count": 3' /tmp/snowflake-evidence-dry-run.json
+          set +e
+          python scripts/rga_testbed/capture_snowflake_parity_evidence.py --manifest /tmp/rga-parity/parity_manifest.json --evidence-dir /tmp/rga-governed-evidence --security-context ROLE_ANALYST >/tmp/snowflake-evidence-refusal.json
+          evidence_code=$?
+          set -e
+          test "$evidence_code" -eq 2
+          grep -q 'without --confirm' /tmp/snowflake-evidence-refusal.json
       - name: Certify benchmark runner dry-run
         run: |
           set +e
