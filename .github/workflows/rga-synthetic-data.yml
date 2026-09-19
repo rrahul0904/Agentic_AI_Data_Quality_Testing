@@ -91,6 +91,14 @@ jobs:
           grep -q '"written_count": 12' /tmp/semantic-platform-consumer-templates.json
           grep -q 'Replace PENDING with CAPTURED' /tmp/semantic-platform-consumer-templates.json
           grep -q '"capture_status": "PENDING"' /tmp/consumer-evidence/monthly_loss_ratio_by_cedant.power_bi.json
+          cat >/tmp/powerbi-monthly-loss-ratio.csv <<'CSV'
+          CEDANT_NAME,PERIOD_MONTH,CEDED_LOSS_RATIO
+          CEDANT-A,2026-01-01,0.5
+          CSV
+          semantic-platform ingest-consumer-evidence --workspace /tmp/semantic-platform-demo --evidence-dir /tmp/consumer-evidence --case-id monthly_loss_ratio_by_cedant --consumer power_bi --input /tmp/powerbi-monthly-loss-ratio.csv --security-context ROLE_ANALYST >/tmp/semantic-platform-powerbi-ingest.json
+          grep -q '"status": "PASS"' /tmp/semantic-platform-powerbi-ingest.json
+          grep -q '"row_count": 1' /tmp/semantic-platform-powerbi-ingest.json
+          grep -q '"capture_status": "CAPTURED"' /tmp/consumer-evidence/monthly_loss_ratio_by_cedant.power_bi.json
           semantic-platform capture-governed-evidence --workspace /tmp/semantic-platform-demo --evidence-dir /tmp/consumer-evidence --security-context ROLE_ANALYST --max-rows 1000 --dry-run >/tmp/semantic-platform-governed-capture-plan.json
           grep -q '"status": "DRY_RUN"' /tmp/semantic-platform-governed-capture-plan.json
           grep -q '"case_count": 3' /tmp/semantic-platform-governed-capture-plan.json
@@ -109,6 +117,8 @@ jobs:
           grep -q '"expected_evidence_count": 12' /tmp/semantic-platform-consumer-plan.json
           grep -q '"present_evidence_count": 12' /tmp/semantic-platform-consumer-plan.json
           grep -q '"missing_evidence_count": 0' /tmp/semantic-platform-consumer-plan.json
+          grep -q '"captured_evidence_count": 1' /tmp/semantic-platform-consumer-plan.json
+          grep -q '"pending_evidence_count": 11' /tmp/semantic-platform-consumer-plan.json
           grep -q '"capture_status": "CAPTURED"' /tmp/semantic-platform-consumer-plan.json
           set +e
           semantic-platform certify-consumers --workspace /tmp/semantic-platform-demo --evidence-dir /tmp/consumer-evidence >/tmp/semantic-platform-consumer-fail.json
