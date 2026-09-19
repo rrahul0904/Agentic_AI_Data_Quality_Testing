@@ -673,3 +673,56 @@ def test_apply_cdc_refuses_live_execution_without_confirm(tmp_path: Path):
         assert "without --confirm" in str(exc)
     else:
         raise AssertionError("live CDC application must be fail-closed")
+
+
+def test_live_certification_plan_includes_cdc_when_requested(tmp_path: Path):
+    workspace = tmp_path / "demo"
+    required = [
+        workspace / "data" / "manifest.json",
+        workspace / "snowflake" / "001_raw_tables.sql",
+        workspace / "snowflake" / "002_load_raw.sql",
+        workspace / "snowflake" / "003_apply_cdc.sql",
+        workspace / "cdc" / "manifest.json",
+        workspace / "cdc" / "change_events.jsonl",
+        workspace / "dbt" / "dbt_project.yml",
+        workspace / "release" / "release_manifest.json",
+        workspace / "release" / "semantic" / "verify_semantic_view.sql",
+        workspace / "release" / "semantic" / "deploy_semantic_view.sql",
+        workspace / "release" / "benchmarks" / "manifest.json",
+    ]
+    for path in required:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+
+    result = cli.certify_live(
+        workspace,
+        confirm=False,
+        dry_run=True,
+        concurrency=[1, 5],
+        iterations=1,
+        deploy_ai=False,
+        apply_cdc_events=True,
+        verify_cdc_idempotency=True,
+    )
+    assert result["status"] == "DRY_RUN"
+    assert result["workspace_ready"] is True
+    assert result["deployment"]["apply_cdc"] is True
+    assert result["deployment"]["verify_cdc_idempotency"] is True
+    assert result["evidence"]["cdc_application"].endswith("cdc_application.json")
+    assert result["required_artifacts"]["cdc_apply_sql"]["exists"] is True
+
+
+def test_live_certification_rejects_idempotency_without_cdc(tmp_path: Path):
+    try:
+        cli.certification_plan(
+            tmp_path,
+            concurrency=[1],
+            iterations=1,
+            deploy_ai=False,
+            apply_cdc_events=False,
+            verify_cdc_idempotency=True,
+        )
+    except ValueError as exc:
+        assert "requires apply_cdc_events" in str(exc)
+    else:
+        raise AssertionError("CDC idempotency verification must require CDC application")
