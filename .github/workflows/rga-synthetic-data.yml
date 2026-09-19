@@ -87,10 +87,15 @@ jobs:
           grep -q '"workspace_ready": true' /tmp/semantic-platform-certify-ai.json
           grep -q 'create_agent.sql' /tmp/semantic-platform-certify-ai.json
           grep -q 'create_mcp_server.sql' /tmp/semantic-platform-certify-ai.json
+          semantic-platform prepare-consumer-evidence --workspace /tmp/semantic-platform-demo --evidence-dir /tmp/consumer-evidence --security-context ROLE_ANALYST >/tmp/semantic-platform-consumer-templates.json
+          grep -q '"written_count": 12' /tmp/semantic-platform-consumer-templates.json
+          grep -q 'Replace PENDING with CAPTURED' /tmp/semantic-platform-consumer-templates.json
+          grep -q '"capture_status": "PENDING"' /tmp/consumer-evidence/monthly_loss_ratio_by_cedant.power_bi.json
           semantic-platform certify-consumers --workspace /tmp/semantic-platform-demo --evidence-dir /tmp/consumer-evidence --dry-run >/tmp/semantic-platform-consumer-plan.json
           grep -q '"status": "DRY_RUN"' /tmp/semantic-platform-consumer-plan.json
           grep -q '"expected_evidence_count": 12' /tmp/semantic-platform-consumer-plan.json
-          grep -q '"missing_evidence_count": 12' /tmp/semantic-platform-consumer-plan.json
+          grep -q '"present_evidence_count": 12' /tmp/semantic-platform-consumer-plan.json
+          grep -q '"missing_evidence_count": 0' /tmp/semantic-platform-consumer-plan.json
           grep -q '"capture_status": "CAPTURED"' /tmp/semantic-platform-consumer-plan.json
           set +e
           semantic-platform certify-consumers --workspace /tmp/semantic-platform-demo --evidence-dir /tmp/consumer-evidence >/tmp/semantic-platform-consumer-fail.json
@@ -98,7 +103,7 @@ jobs:
           set -e
           test "$consumer_code" -eq 1
           grep -q '"status": "FAIL"' /tmp/semantic-platform-consumer-fail.json
-          grep -q 'missing evidence' /tmp/semantic-platform-consumer-fail.json
+          grep -q 'capture_status must be CAPTURED' /tmp/semantic-platform-consumer-fail.json
           set +e
           semantic-platform certify-live --workspace /tmp/semantic-platform-demo --concurrency 1 --iterations 1 >/tmp/semantic-platform-certify-refusal.json
           code=$?
