@@ -586,9 +586,13 @@ def certification_plan(
     concurrency: list[int],
     iterations: int,
     deploy_ai: bool,
+    apply_cdc_events: bool = False,
+    verify_cdc_idempotency: bool = False,
 ) -> dict[str, Any]:
     if iterations < 1 or iterations > 100:
         raise ValueError("iterations must be between 1 and 100")
+    if verify_cdc_idempotency and not apply_cdc_events:
+        raise ValueError("verify_cdc_idempotency requires apply_cdc_events")
     required = {
         "data_manifest": workspace / "data" / "manifest.json",
         "snowflake_ddl": workspace / "snowflake" / "001_raw_tables.sql",
@@ -602,6 +606,10 @@ def certification_plan(
     if deploy_ai:
         required["agent_create"] = workspace / "release" / "ai" / "create_agent.sql"
         required["mcp_create"] = workspace / "release" / "ai" / "create_mcp_server.sql"
+    if apply_cdc_events:
+        required["cdc_manifest"] = workspace / "cdc" / "manifest.json"
+        required["cdc_events"] = workspace / "cdc" / "change_events.jsonl"
+        required["cdc_apply_sql"] = workspace / "snowflake" / "003_apply_cdc.sql"
     return {
         "workspace": str(workspace),
         "workspace_ready": all(path.exists() for path in required.values()),
@@ -617,6 +625,8 @@ def certification_plan(
             "deploy_semantic_view": True,
             "deploy_ai": deploy_ai,
             "agent_runtime_smoke": deploy_ai,
+            "apply_cdc": apply_cdc_events,
+            "verify_cdc_idempotency": verify_cdc_idempotency,
         },
         "benchmark": {
             "mode": "both",
@@ -630,6 +640,7 @@ def certification_plan(
             "directory": str(workspace / "evidence"),
             "workload_analysis": str(workspace / "evidence" / "workload_analysis.json"),
             "agent_smoke": str(workspace / "evidence" / "agent_smoke.json") if deploy_ai else None,
+            "cdc_application": str(workspace / "evidence" / "cdc_application.json") if apply_cdc_events else None,
             "certification_manifest": str(workspace / "evidence" / "certification_manifest.json"),
         },
         "scope": (
@@ -747,12 +758,16 @@ def certify_live(
     concurrency: list[int],
     iterations: int,
     deploy_ai: bool,
+    apply_cdc_events: bool = False,
+    verify_cdc_idempotency: bool = False,
 ) -> dict[str, Any]:
     plan = certification_plan(
         workspace,
         concurrency=concurrency,
         iterations=iterations,
         deploy_ai=deploy_ai,
+        apply_cdc_events=apply_cdc_events,
+        verify_cdc_idempotency=verify_cdc_idempotency,
     )
     if dry_run:
         return {"status": "DRY_RUN", **plan}
@@ -775,6 +790,15 @@ def certify_live(
         deploy_semantic=True,
         deploy_ai=deploy_ai,
     )
+
+    cdc_application = None
+    if apply_cdc_events:
+        cdc_application = apply_cdc(
+            workspace,
+            confirm=True,
+            dry_run=False,
+            verify_idempotency=verify_cdc_idempotency,
+        )
 
     evidence_dir = workspace / "evidence"
     evidence_dir.mkdir(parents=True, exist_ok=True)
@@ -842,12 +866,18 @@ def certify_live(
         if not deploy_ai
         else bool(agent_answer_parity and agent_answer_parity.get("status") == "PASS")
     )
+    cdc_application_pass = (
+        True
+        if not apply_cdc_events
+        else bool(cdc_application and cdc_application.get("status") == "PASS")
+    )
     certification_pass = (
         all_benchmarks_pass
         and all_parity_pass
         and telemetry_complete
         and agent_runtime_pass
         and agent_answer_parity_pass
+        and cdc_application_pass
     )
 
     release_manifest_path = workspace / "release" / "release_manifest.json"
@@ -873,6 +903,12 @@ def certify_live(
             "query_history_telemetry_complete": telemetry_complete,
             "agent_runtime_smoke_pass": agent_runtime_pass if deploy_ai else None,
             "agent_result_parity_pass": agent_answer_parity_pass if deploy_ai else None,
+            "cdc_application_pass": cdc_application_pass if apply_cdc_events else None,
+            "cdc_idempotency_verified": (
+                bool(cdc_application and cdc_application.get("idempotency_validation"))
+                if verify_cdc_idempotency
+                else None
+            ),
         },
         "agent_runtime": (
             {
@@ -884,6 +920,16 @@ def certify_live(
                 "result_parity_report": str(agent_parity_output) if agent_parity_output else None,
             }
             if agent_runtime
+            else None
+        ),
+        "cdc_application": (
+            {
+                "status": cdc_application.get("status"),
+                "report": cdc_application.get("report"),
+                "verify_idempotency": cdc_application.get("verify_idempotency"),
+                "source_event_count": cdc_application.get("source_event_count"),
+            }
+            if cdc_application
             else None
         ),
         "benchmark_runs": benchmark_runs,
@@ -1476,6 +1522,8 @@ def build_parser() -> argparse.ArgumentParser:
     certify.add_argument("--concurrency", default="1,5,10,25,50")
     certify.add_argument("--iterations", type=int, default=3)
     certify.add_argument("--deploy-ai", action="store_true")
+    certify.add_argument("--apply-cdc", action="store_true")
+    certify.add_argument("--verify-cdc-idempotency", action="store_true")
     certify.add_argument("--confirm", action="store_true")
     certify.add_argument("--dry-run", action="store_true")
 
@@ -1662,6 +1710,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 concurrency=parse_concurrency_sweep(args.concurrency),
                 iterations=args.iterations,
                 deploy_ai=args.deploy_ai,
+                apply_cdc_events=args.apply_cdc,
+                verify_cdc_idempotency=args.verify_cdc_idempotency,
             )
             print(_json(result))
             return 0 if result["status"] in {"PASS", "DRY_RUN"} else 1
