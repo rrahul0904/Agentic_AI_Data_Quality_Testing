@@ -163,8 +163,10 @@ def demo_plan(
     seed: int = 42,
     policies: int | None = None,
     database: str = "RGA_SYNTHETIC_TESTBED",
+    cdc_events_per_type: int = 5,
 ) -> dict[str, Any]:
     data_dir = workspace / "data"
+    cdc_dir = workspace / "cdc"
     sql_dir = workspace / "snowflake"
     dbt_dir = workspace / "dbt"
     release_dir = workspace / "release"
@@ -183,6 +185,15 @@ def demo_plan(
         _python_script("generate_data.py", *data_args),
         _python_script("validate_dataset.py", "--input", str(data_dir)),
         _python_script(
+            "generate_change_events.py",
+            "--input",
+            str(data_dir),
+            "--output",
+            str(cdc_dir),
+            "--events-per-type",
+            str(cdc_events_per_type),
+        ),
+        _python_script(
             "generate_snowflake_ddl.py",
             "--output",
             str(sql_dir / "001_raw_tables.sql"),
@@ -197,6 +208,15 @@ def demo_plan(
             database,
             "--local-root",
             str(data_dir / "csv"),
+        ),
+        _python_script(
+            "generate_cdc_apply_sql.py",
+            "--input",
+            str(cdc_dir / "change_events.jsonl"),
+            "--output",
+            str(sql_dir / "003_apply_cdc.sql"),
+            "--database",
+            database,
         ),
         _python_script("generate_dbt_project.py", "--output", str(dbt_dir)),
         _python_script(
@@ -214,8 +234,10 @@ def demo_plan(
         "preset": preset,
         "seed": seed,
         "policies": policies,
+        "cdc_events_per_type": cdc_events_per_type,
         "paths": {
             "data": str(data_dir),
+            "cdc": str(cdc_dir),
             "snowflake": str(sql_dir),
             "dbt": str(dbt_dir),
             "release": str(release_dir),
@@ -232,23 +254,34 @@ def build_demo(
     seed: int,
     policies: int | None,
     database: str,
+    cdc_events_per_type: int = 5,
 ) -> dict[str, Any]:
-    plan = demo_plan(workspace, preset=preset, seed=seed, policies=policies, database=database)
+    plan = demo_plan(
+        workspace,
+        preset=preset,
+        seed=seed,
+        policies=policies,
+        database=database,
+        cdc_events_per_type=cdc_events_per_type,
+    )
     workspace.mkdir(parents=True, exist_ok=True)
     steps = []
     for command in plan["commands"]:
         steps.append(_run_checked(command))
     release_manifest = Path(plan["paths"]["release"]) / "release_manifest.json"
     data_manifest = Path(plan["paths"]["data"]) / "manifest.json"
+    cdc_manifest = Path(plan["paths"]["cdc"]) / "manifest.json"
     return {
         "status": "PASS",
         "basis": PRODUCT_BASIS,
         "workspace": str(workspace),
         "data_manifest": json.loads(data_manifest.read_text(encoding="utf-8")),
+        "cdc_manifest": json.loads(cdc_manifest.read_text(encoding="utf-8")),
         "release_manifest": json.loads(release_manifest.read_text(encoding="utf-8")),
         "steps": [{"command": item["command"], "returncode": item["returncode"]} for item in steps],
         "next": {
             "snowflake_demo": "semantic-platform snowflake-demo --workspace <workspace> --confirm",
+            "cdc_apply_sql": "<workspace>/snowflake/003_apply_cdc.sql",
             "benchmark": "semantic-platform benchmark --workspace <workspace> --dry-run",
         },
     }
@@ -1233,6 +1266,7 @@ def build_parser() -> argparse.ArgumentParser:
     demo.add_argument("--seed", type=int, default=42)
     demo.add_argument("--policies", type=int)
     demo.add_argument("--database", default="RGA_SYNTHETIC_TESTBED")
+    demo.add_argument("--cdc-events-per-type", type=int, default=5)
 
     rel = sub.add_parser("release", help="Compile the governed semantic release bundle.")
     rel.add_argument("--output", type=Path, default=REPO_ROOT / "rga-snowflake-data-platform" / "release")
@@ -1348,6 +1382,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         seed=args.seed,
                         policies=args.policies,
                         database=args.database,
+                        cdc_events_per_type=args.cdc_events_per_type,
                     )
                 )
             )
