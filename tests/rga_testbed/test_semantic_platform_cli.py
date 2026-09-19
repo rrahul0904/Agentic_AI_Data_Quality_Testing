@@ -40,15 +40,19 @@ def test_demo_plan_builds_complete_operator_sequence(tmp_path: Path):
         database="RGA_SYNTHETIC_TESTBED",
     )
     command_text = [" ".join(command) for command in plan["commands"]]
-    assert len(command_text) == 7
+    assert len(command_text) == 9
     assert any("generate_data.py" in command for command in command_text)
     assert any("validate_dataset.py" in command for command in command_text)
+    assert any("generate_change_events.py" in command for command in command_text)
     assert any("generate_snowflake_ddl.py" in command for command in command_text)
     assert any("generate_load_sql.py" in command for command in command_text)
+    assert any("generate_cdc_apply_sql.py" in command for command in command_text)
     assert any("generate_dbt_project.py" in command for command in command_text)
     assert any("build_semantic_release.py" in command for command in command_text)
     assert any("generate_airflow_dag.py" in command for command in command_text)
     assert plan["paths"]["release"].endswith("/release")
+    assert plan["paths"]["cdc"].endswith("/cdc")
+    assert plan["cdc_events_per_type"] == 5
 
 
 def test_snowflake_demo_refuses_without_confirm(tmp_path: Path):
