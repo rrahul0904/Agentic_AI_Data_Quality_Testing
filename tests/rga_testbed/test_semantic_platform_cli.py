@@ -352,3 +352,60 @@ def test_certify_consumers_passes_complete_captured_evidence(tmp_path: Path):
     assert report["failed_cases"] == 0
     assert report["expected_evidence_count"] == 4
     assert Path(report["report"]).exists()
+
+
+def test_prepare_consumer_evidence_writes_pending_templates_without_overwrite(tmp_path: Path):
+    workspace = tmp_path / "demo"
+    parity_dir = workspace / "release" / "parity"
+    parity_dir.mkdir(parents=True)
+    manifest = {
+        "required_consumers": ["snowflake_semantic_view", "cortex_agent_mcp", "power_bi", "excel"],
+        "cases": [
+            {
+                "id": "q1",
+                "business_question": "What is metric A?",
+                "dimensions": ["DIMENSION_A"],
+                "metrics": ["METRIC_A"],
+                "acceptance": {
+                    "numeric_tolerance": 1e-9,
+                    "same_security_context": True,
+                    "require_captured_evidence": True,
+                    "allow_empty_result": False,
+                },
+            }
+        ],
+    }
+    (parity_dir / "parity_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    evidence_dir = workspace / "external-evidence"
+
+    first = cli.prepare_consumer_evidence(
+        workspace,
+        evidence_dir=evidence_dir,
+        security_context="ROLE_ANALYST",
+    )
+    assert first["status"] == "PASS"
+    assert first["written_count"] == 4
+    assert first["skipped_count"] == 0
+
+    sample = json.loads((evidence_dir / "q1.power_bi.json").read_text(encoding="utf-8"))
+    assert sample["capture_status"] == "PENDING"
+    assert sample["security_context"] == "ROLE_ANALYST"
+    assert sample["rows"] == []
+    assert sample["expected_metrics"] == ["METRIC_A"]
+    assert "without local metric reimplementation" in sample["capture_instructions"]
+
+    second = cli.prepare_consumer_evidence(
+        workspace,
+        evidence_dir=evidence_dir,
+        security_context="ROLE_ANALYST",
+    )
+    assert second["written_count"] == 0
+    assert second["skipped_count"] == 4
+
+    report = cli.certify_consumers(workspace, evidence_dir=evidence_dir)
+    assert report["status"] == "FAIL"
+    assert any(
+        "capture_status must be CAPTURED" in error
+        for result in report["results"]
+        for error in result["errors"]
+    )
