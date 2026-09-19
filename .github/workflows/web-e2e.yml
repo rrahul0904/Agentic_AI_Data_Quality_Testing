@@ -111,6 +111,11 @@ jobs:
             -d '{"args":{"plan":{"fingerprint":"smoke-plan","selectors":{"build":["fact_orders"],"clone":[],"defer":[],"skip":["dim_date"]},"actions":[]},"project_dir":"."}}' \
             http://127.0.0.1:3000/api/ade/api/v1/dbt-next/state-contract > /tmp/dbt-next-state-contract.json
 
+          curl -fsS --connect-timeout 2 --max-time 30 \
+            -H 'Content-Type: application/json' \
+            -d '{"args":{"spec":{"dashboard":{"name":"smoke_dashboard","charts":[{"name":"smoke_chart","sql":"select 1 as value"}]}}}}' \
+            http://127.0.0.1:3000/api/ade/api/v1/dbt-next/chart-contract > /tmp/dbt-next-chart-contract.json
+
           python - <<'PY'
           import json
           overview = json.load(open("/tmp/overview.json"))
@@ -131,6 +136,8 @@ jobs:
           assert "state-execute" in domains["dbt-next"], domains["dbt-next"]
           assert "explore-contract" in domains["dbt-next"], domains["dbt-next"]
           assert "explore-execute" in domains["dbt-next"], domains["dbt-next"]
+          assert "chart-contract" in domains["dbt-next"], domains["dbt-next"]
+          assert "chart-execute" in domains["dbt-next"], domains["dbt-next"]
 
           schema = json.load(open("/tmp/dbt-next-agents-schema.json"))
           assert schema["status"] == "PASS", schema
@@ -146,6 +153,12 @@ jobs:
           assert state_contract["commands"][0]["phase"] == "build", state_contract
           assert state_contract["skipped_selectors"] == ["dim_date"], state_contract
           assert state_contract["fingerprint"], state_contract
+
+          chart_contract = json.load(open("/tmp/dbt-next-chart-contract.json"))
+          assert chart_contract["status"] == "READY", chart_contract
+          assert chart_contract["query_source"] == "explicit-read-only-sql", chart_contract
+          assert chart_contract["sql"] == "select 1 as value", chart_contract
+          assert chart_contract["fingerprint"], chart_contract
           PY
 
           for endpoint in \
