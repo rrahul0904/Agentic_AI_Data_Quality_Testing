@@ -75,6 +75,22 @@ def _norm(value: Any) -> str | None:
     return str(value)
 
 
+def audit_record_errors(audit: dict[str, Any] | None) -> list[str]:
+    errors: list[str] = []
+    if not audit:
+        return ["audit record is missing"]
+    if int(audit.get("count", 0)) != 1:
+        errors.append(
+            f"audit row count expected 1, got {int(audit.get('count', 0))}"
+        )
+    statuses = set(audit.get("statuses") or set())
+    if statuses != {"APPLIED"}:
+        errors.append(
+            f"audit status expected only APPLIED, got {sorted(statuses)!r}"
+        )
+    return errors
+
+
 def event_check(event: dict[str, Any]) -> dict[str, Any]:
     scenario = event.get("scenario")
     after = event.get("after") or {}
@@ -171,18 +187,7 @@ group by EVENT_ID, STATUS
                 event_id = str(event["event_id"])
                 check = event_check(event)
                 errors: list[str] = []
-                audit = audit_rows.get(event_id)
-                if not audit:
-                    errors.append("audit record is missing")
-                else:
-                    if audit["count"] != 1:
-                        errors.append(
-                            f"audit row count expected 1, got {audit['count']}"
-                        )
-                    if audit["statuses"] != {"APPLIED"}:
-                        errors.append(
-                            f"audit status expected only APPLIED, got {sorted(audit['statuses'])!r}"
-                        )
+                errors.extend(audit_record_errors(audit_rows.get(event_id)))
 
                 columns = list(check["fields"])
                 cursor.execute(
