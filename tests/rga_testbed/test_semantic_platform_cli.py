@@ -151,7 +151,8 @@ def test_agent_smoke_cli_dry_run_uses_workspace_database(tmp_path: Path):
     assert result["status"] == "DRY_RUN"
     assert result["agent"] == "CUSTOM_RGA_DB.AI.RGA_REINSURANCE_AGENT"
     assert result["task_count"] >= 3
-    assert any("Reinsurance_Analyst" in item for item in result["acceptance"])
+    assert any("system_execute_sql" in item for item in result["acceptance"])
+    assert any("canonical signature" in item for item in result["acceptance"])
 
 
 def test_certification_plan_requires_ai_artifacts_when_ai_is_enabled(tmp_path: Path):
@@ -178,6 +179,7 @@ def test_certification_plan_requires_ai_artifacts_when_ai_is_enabled(tmp_path: P
     )
     assert plan["workspace_ready"] is False
     assert plan["deployment"]["agent_runtime_smoke"] is True
+    assert plan["benchmark"]["requires_agent_result_parity"] is True
     assert "agent_create" in plan["required_artifacts"]
     assert "mcp_create" in plan["required_artifacts"]
 
@@ -196,3 +198,83 @@ def test_certification_plan_requires_ai_artifacts_when_ai_is_enabled(tmp_path: P
     )
     assert plan["workspace_ready"] is True
     assert plan["evidence"]["agent_smoke"].endswith("agent_smoke.json")
+
+
+def test_agent_benchmark_parity_passes_when_value_signatures_match(tmp_path: Path):
+    report_path = tmp_path / "benchmark.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "results": [
+                    {
+                        "status": "PASS",
+                        "query_name": "q1",
+                        "variant": "direct",
+                        "value_sha256": "same-values",
+                    },
+                    {
+                        "status": "PASS",
+                        "query_name": "q1",
+                        "variant": "semantic",
+                        "value_sha256": "same-values",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    agent = {
+        "results": [
+            {
+                "business_query_id": "q1",
+                "analytical_executions": [
+                    {
+                        "status": "success",
+                        "query_id": "agent-query-1",
+                        "result_signature": {"value_sha256": "same-values"},
+                    }
+                ],
+            }
+        ]
+    }
+    parity = cli.agent_benchmark_parity(agent, [report_path])
+    assert parity["status"] == "PASS"
+    assert parity["failed_queries"] == 0
+    assert parity["queries"]["q1"]["agent_query_ids"] == ["agent-query-1"]
+
+
+def test_agent_benchmark_parity_fails_on_ai_result_drift(tmp_path: Path):
+    report_path = tmp_path / "benchmark.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "results": [
+                    {
+                        "status": "PASS",
+                        "query_name": "q1",
+                        "variant": "direct",
+                        "value_sha256": "canonical-values",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    agent = {
+        "results": [
+            {
+                "business_query_id": "q1",
+                "analytical_executions": [
+                    {
+                        "status": "success",
+                        "query_id": "agent-query-2",
+                        "result_signature": {"value_sha256": "different-values"},
+                    }
+                ],
+            }
+        ]
+    }
+    parity = cli.agent_benchmark_parity(agent, [report_path])
+    assert parity["status"] == "FAIL"
+    assert parity["failed_queries"] == 1
+    assert "differs" in parity["queries"]["q1"]["reason"]
