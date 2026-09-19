@@ -117,6 +117,14 @@ jobs:
           test "$consumer_code" -eq 1
           grep -q '"status": "FAIL"' /tmp/semantic-platform-consumer-fail.json
           grep -q 'capture_status must be CAPTURED' /tmp/semantic-platform-consumer-fail.json
+          semantic-platform certification-report --workspace /tmp/semantic-platform-demo --evidence-dir /tmp/consumer-evidence --output-dir /tmp/semantic-platform-certification-report >/tmp/semantic-platform-certification-report.json
+          grep -q '"status": "PASS"' /tmp/semantic-platform-certification-report.json
+          grep -q '"overall_status": "REPOSITORY_READY_LIVE_CERTIFICATION_PENDING"' /tmp/semantic-platform-certification-report.json
+          grep -q '"end_to_end_certified": false' /tmp/semantic-platform-certification-report.json
+          grep -q '"production_rollout_certified": false' /tmp/semantic-platform-certification-report.json
+          test -f /tmp/semantic-platform-certification-report/certification_summary.json
+          test -f /tmp/semantic-platform-certification-report/CERTIFICATION_SUMMARY.md
+          grep -q 'Production rollout certified.*NO' /tmp/semantic-platform-certification-report/CERTIFICATION_SUMMARY.md
           set +e
           semantic-platform certify-live --workspace /tmp/semantic-platform-demo --concurrency 1 --iterations 1 >/tmp/semantic-platform-certify-refusal.json
           code=$?
