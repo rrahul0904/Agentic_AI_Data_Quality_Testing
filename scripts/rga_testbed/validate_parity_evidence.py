@@ -86,9 +86,13 @@ def validate_case(case: dict[str, Any], evidence_dir: Path) -> dict[str, Any]:
             errors.append(f"{consumer}: consumer mismatch")
         if not payload.get("security_context"):
             errors.append(f"{consumer}: security_context is required")
+        if case["acceptance"].get("require_captured_evidence", True) and payload.get("capture_status") != "CAPTURED":
+            errors.append(f"{consumer}: capture_status must be CAPTURED")
         if not isinstance(payload.get("rows"), list):
             errors.append(f"{consumer}: rows must be a list")
             continue
+        if not payload["rows"] and not case["acceptance"].get("allow_empty_result", False):
+            errors.append(f"{consumer}: rows must not be empty for this certification case")
         evidence[consumer] = payload
 
     reference_payload = evidence.get("snowflake_semantic_view")
