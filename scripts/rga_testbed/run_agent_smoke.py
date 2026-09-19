@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke-test the governed RGA Cortex Agent using Snowflake DATA_AGENT_RUN.
-
-Live execution is fail-closed. The evidence deliberately stores final text, tool names,
-warnings, query IDs, and run metadata, but not agent reasoning/thinking content.
-"""
+"""Smoke-test governed Cortex Agent analytics and capture parity-ready evidence."""
 from __future__ import annotations
 
 import argparse
@@ -14,10 +10,16 @@ from typing import Any
 
 import yaml
 
+try:
+    from scripts.rga_testbed.result_signature import result_set_signature
+except ModuleNotFoundError:
+    from result_signature import result_set_signature
+
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONTRACT = ROOT / "config" / "rga_semantic_contract.yml"
 DEFAULT_OUTPUT = ROOT / "artifacts" / "rga_agent_smoke.json"
 REQUIRED_ENV = ("SNOWFLAKE_ACCOUNT", "SNOWFLAKE_USER", "SNOWFLAKE_WAREHOUSE")
+ANALYTICAL_TOOL_TYPES = {"system_execute_sql", "cortex_analyst_text_to_sql"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -40,10 +42,20 @@ def default_agent(contract: dict[str, Any]) -> str:
     return f"{contract['database']}.AI.RGA_REINSURANCE_AGENT"
 
 
-def questions(contract: dict[str, Any], supplied: list[str] | None) -> list[str]:
+def tasks(contract: dict[str, Any], supplied: list[str] | None) -> list[dict[str, str]]:
     if supplied:
-        return supplied
-    return [item["question"] for item in contract.get("verified_queries", [])]
+        return [
+            {"id": f"adhoc_{index:03d}", "question": question}
+            for index, question in enumerate(supplied, 1)
+        ]
+    return [
+        {"id": str(item["id"]), "question": str(item["question"])}
+        for item in contract.get("verified_queries", [])
+    ]
+
+
+def questions(contract: dict[str, Any], supplied: list[str] | None) -> list[str]:
+    return [item["question"] for item in tasks(contract, supplied)]
 
 
 def connection_kwargs(env: dict[str, str]) -> dict[str, Any]:
@@ -100,9 +112,30 @@ def _coerce_response(value: Any) -> dict[str, Any]:
     raise ValueError(f"Unsupported Agent response type: {type(value).__name__}")
 
 
+def _execution_from_payload(
+    *,
+    name: str | None,
+    tool_type: str | None,
+    status: str | None,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    signature = result_set_signature(payload.get("result_set"))
+    return {
+        "name": name,
+        "type": tool_type,
+        "status": status,
+        "query_id": payload.get("query_id"),
+        "sql": payload.get("sql"),
+        "result_signature": signature,
+    }
+
+
 def extract_evidence(response: dict[str, Any]) -> dict[str, Any]:
     texts: list[str] = []
     tool_names: list[str] = []
+    tool_types: list[str] = []
+    analytical_executions: list[dict[str, Any]] = []
+
     for item in response.get("content", []) or []:
         if not isinstance(item, dict):
             continue
@@ -112,14 +145,56 @@ def extract_evidence(response: dict[str, Any]) -> dict[str, Any]:
                 texts.append(value.strip())
             elif isinstance(value, dict) and isinstance(value.get("text"), str):
                 texts.append(value["text"].strip())
+
         tool_use = item.get("tool_use")
-        if isinstance(tool_use, dict) and tool_use.get("name"):
-            tool_names.append(str(tool_use["name"]))
+        if isinstance(tool_use, dict):
+            if tool_use.get("name"):
+                tool_names.append(str(tool_use["name"]))
+            if tool_use.get("type"):
+                tool_types.append(str(tool_use["type"]))
+
+        tool_result = item.get("tool_result")
+        if isinstance(tool_result, dict):
+            name = str(tool_result.get("name")) if tool_result.get("name") else None
+            tool_type = str(tool_result.get("type")) if tool_result.get("type") else None
+            if name:
+                tool_names.append(name)
+            if tool_type:
+                tool_types.append(tool_type)
+            for content in tool_result.get("content", []) or []:
+                if not isinstance(content, dict):
+                    continue
+                payload = content.get("json")
+                if isinstance(payload, dict) and (
+                    tool_type in ANALYTICAL_TOOL_TYPES
+                    or name in ANALYTICAL_TOOL_TYPES
+                    or payload.get("result_set") is not None
+                ):
+                    analytical_executions.append(
+                        _execution_from_payload(
+                            name=name,
+                            tool_type=tool_type,
+                            status=tool_result.get("status"),
+                            payload=payload,
+                        )
+                    )
+
+        table = item.get("table")
+        if isinstance(table, dict) and isinstance(table.get("result_set"), dict):
+            analytical_executions.append(
+                _execution_from_payload(
+                    name="table",
+                    tool_type="table",
+                    status="success",
+                    payload={
+                        "query_id": table.get("query_id"),
+                        "result_set": table.get("result_set"),
+                    },
+                )
+            )
+
     warnings = [
-        {
-            "code": item.get("code"),
-            "message": item.get("message"),
-        }
+        {"code": item.get("code"), "message": item.get("message")}
         for item in (response.get("warnings") or [])
         if isinstance(item, dict)
     ]
@@ -128,41 +203,49 @@ def extract_evidence(response: dict[str, Any]) -> dict[str, Any]:
         "role": response.get("role"),
         "text": "\n".join(texts),
         "tool_names": sorted(set(tool_names)),
+        "tool_types": sorted(set(tool_types)),
+        "analytical_executions": analytical_executions,
         "warnings": warnings,
         "run_id": metadata.get("run_id"),
         "thread_id": response.get("thread_id") or metadata.get("thread_id"),
     }
 
 
-def assess_evidence(evidence: dict[str, Any], required_tool: str = "Reinsurance_Analyst") -> tuple[str, list[str]]:
+def assess_evidence(evidence: dict[str, Any]) -> tuple[str, list[str]]:
     errors: list[str] = []
     if evidence.get("role") != "assistant":
         errors.append("response role is not assistant")
     if not evidence.get("text"):
         errors.append("agent returned no final text")
-    if required_tool not in evidence.get("tool_names", []):
-        errors.append(f"governed tool {required_tool} was not observed")
+    executions = [
+        item
+        for item in evidence.get("analytical_executions", [])
+        if item.get("status") in (None, "success") and item.get("result_signature")
+    ]
+    if not executions:
+        errors.append("no successful analytical SQL result set was observed")
     if evidence.get("warnings"):
         errors.append("agent returned warnings")
     return ("PASS" if not errors else "FAIL", errors)
 
 
-def dry_run_payload(agent: str, prompts: list[str]) -> dict[str, Any]:
+def dry_run_payload(agent: str, work: list[dict[str, str]]) -> dict[str, Any]:
     return {
         "status": "DRY_RUN",
         "agent": agent,
-        "task_count": len(prompts),
-        "questions": prompts,
+        "task_count": len(work),
+        "tasks": work,
         "acceptance": [
             "assistant final text is present",
-            "Reinsurance_Analyst governed tool use is observed",
+            "successful analytical SQL execution is observed (current system_execute_sql or compatible Analyst result)",
+            "analytical result_set is captured as a parity-ready canonical signature",
             "no Agent warnings are returned",
             "reasoning/thinking content is not persisted in evidence",
         ],
     }
 
 
-def run(agent: str, prompts: list[str], env: dict[str, str]) -> dict[str, Any]:
+def run(agent: str, work: list[dict[str, str]], env: dict[str, str]) -> dict[str, Any]:
     try:
         import snowflake.connector
     except ImportError as exc:
@@ -178,17 +261,18 @@ select try_parse_json(
     try:
         cursor = connection.cursor()
         try:
-            for prompt in prompts:
-                body = json.dumps(request_body(prompt), separators=(",", ":"))
+            for task in work:
+                body = json.dumps(request_body(task["question"]), separators=(",", ":"))
                 cursor.execute(sql, (agent, body))
-                query_id = getattr(cursor, "sfqid", None)
+                wrapper_query_id = getattr(cursor, "sfqid", None)
                 row = cursor.fetchone()
                 if not row:
                     results.append(
                         {
                             "status": "FAIL",
-                            "question": prompt,
-                            "query_id": query_id,
+                            "business_query_id": task["id"],
+                            "question": task["question"],
+                            "wrapper_query_id": wrapper_query_id,
                             "errors": ["DATA_AGENT_RUN returned no row"],
                         }
                     )
@@ -199,8 +283,9 @@ select try_parse_json(
                 results.append(
                     {
                         "status": status,
-                        "question": prompt,
-                        "query_id": query_id,
+                        "business_query_id": task["id"],
+                        "question": task["question"],
+                        "wrapper_query_id": wrapper_query_id,
                         "errors": errors,
                         **evidence,
                     }
@@ -218,7 +303,10 @@ select try_parse_json(
         "passed": len(results) - failed,
         "failed": failed,
         "results": results,
-        "evidence_policy": "Final text/tool/warning/run metadata only; Agent reasoning is intentionally not persisted.",
+        "evidence_policy": (
+            "Final text, tool metadata, SQL/query IDs, result signatures, warnings, and run metadata only; "
+            "Agent reasoning is intentionally not persisted."
+        ),
     }
 
 
@@ -226,26 +314,18 @@ def main() -> int:
     args = parse_args()
     contract = load_contract(args.contract)
     agent = args.agent or default_agent(contract)
-    prompts = questions(contract, args.question)
-    if not prompts:
+    work = tasks(contract, args.question)
+    if not work:
         print(json.dumps({"status": "FAIL", "error": "No Agent smoke questions configured"}, indent=2))
         return 1
     if args.dry_run:
-        print(json.dumps(dry_run_payload(agent, prompts), indent=2))
+        print(json.dumps(dry_run_payload(agent, work), indent=2))
         return 0
     if not args.confirm:
-        print(
-            json.dumps(
-                {
-                    "status": "REFUSED",
-                    "error": "Refusing live Cortex Agent smoke test without --confirm",
-                },
-                indent=2,
-            )
-        )
+        print(json.dumps({"status": "REFUSED", "error": "Refusing live Cortex Agent smoke test without --confirm"}, indent=2))
         return 2
     try:
-        report = run(agent, prompts, dict(os.environ))
+        report = run(agent, work, dict(os.environ))
     except Exception as exc:
         print(json.dumps({"status": "FAIL", "error": str(exc), "agent": agent}, indent=2))
         return 1
