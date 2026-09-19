@@ -153,6 +153,16 @@ def run(
                     {columns[index]: _normalize(value) for index, value in enumerate(row)}
                     for row in rows
                 ]
+                if not row_payload:
+                    results.append(
+                        {
+                            "case_id": case["case_id"],
+                            "status": "FAIL",
+                            "error": "reference query returned no rows; parity case cannot be certified",
+                            "query_id": query_id,
+                        }
+                    )
+                    continue
                 output = evidence_dir / f"{case['case_id']}.snowflake_semantic_view.json"
                 payload = {
                     "case_id": case["case_id"],
