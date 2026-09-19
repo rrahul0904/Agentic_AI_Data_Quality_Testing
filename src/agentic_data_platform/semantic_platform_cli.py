@@ -406,6 +406,9 @@ def certification_plan(
         "semantic_deploy": workspace / "release" / "semantic" / "deploy_semantic_view.sql",
         "benchmark_manifest": workspace / "release" / "benchmarks" / "manifest.json",
     }
+    if deploy_ai:
+        required["agent_create"] = workspace / "release" / "ai" / "create_agent.sql"
+        required["mcp_create"] = workspace / "release" / "ai" / "create_mcp_server.sql"
     return {
         "workspace": str(workspace),
         "workspace_ready": all(path.exists() for path in required.values()),
@@ -420,6 +423,7 @@ def certification_plan(
             "server_verify_semantic_view": True,
             "deploy_semantic_view": True,
             "deploy_ai": deploy_ai,
+            "agent_runtime_smoke": deploy_ai,
         },
         "benchmark": {
             "mode": "both",
@@ -431,9 +435,15 @@ def certification_plan(
         "evidence": {
             "directory": str(workspace / "evidence"),
             "workload_analysis": str(workspace / "evidence" / "workload_analysis.json"),
+            "agent_smoke": str(workspace / "evidence" / "agent_smoke.json") if deploy_ai else None,
             "certification_manifest": str(workspace / "evidence" / "certification_manifest.json"),
         },
-        "scope": "Snowflake semantic runtime certification; Power BI/Excel XMLA and interactive AI answer evidence remain separate.",
+        "scope": (
+            "Snowflake semantic runtime + governed Cortex Agent runtime smoke; "
+            "Power BI/Excel XMLA and numerical AI answer parity remain separate."
+            if deploy_ai
+            else "Snowflake semantic runtime certification; Cortex Agent runtime and Power BI/Excel XMLA remain separate."
+        ),
     }
 
 
@@ -516,7 +526,6 @@ def certify_live(
             confirm=True,
             dry_run=False,
         )
-    evidence_dir.mkdir(parents=True, exist_ok=True)
     benchmark_runs: list[dict[str, Any]] = []
     report_paths: list[Path] = []
     for level in concurrency:
