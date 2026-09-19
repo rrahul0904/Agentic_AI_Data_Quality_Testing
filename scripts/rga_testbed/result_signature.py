@@ -82,3 +82,52 @@ def result_set_signature(result_set: dict[str, Any]) -> dict[str, Any] | None:
         columns = [f"COL_{index}" for index in range(1, width + 1)]
     rows = [list(row) for row in data if isinstance(row, (list, tuple))]
     return canonical_result(columns, rows)
+
+
+def result_set_rows(result_set: dict[str, Any], max_rows: int = 10000) -> dict[str, Any] | None:
+    if max_rows < 1:
+        raise ValueError("max_rows must be positive")
+    if not isinstance(result_set, dict):
+        return None
+    metadata = result_set.get("resultSetMetaData")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    row_type = metadata.get("rowType")
+    columns: list[str] = []
+    if isinstance(row_type, list):
+        for index, item in enumerate(row_type, 1):
+            if isinstance(item, dict) and item.get("name"):
+                columns.append(str(item["name"]).upper())
+            else:
+                columns.append(f"COL_{index}")
+    data = result_set.get("data")
+    if not isinstance(data, list):
+        return None
+    if not columns and data:
+        width = len(data[0]) if isinstance(data[0], (list, tuple)) else 0
+        columns = [f"COL_{index}" for index in range(1, width + 1)]
+
+    declared_rows = metadata.get("numRows")
+    try:
+        declared_count = int(declared_rows) if declared_rows is not None else len(data)
+    except (TypeError, ValueError):
+        declared_count = len(data)
+    truncated = declared_count > max_rows or len(data) > max_rows
+    rows = []
+    for row in data[:max_rows]:
+        if not isinstance(row, (list, tuple)):
+            continue
+        rows.append(
+            {
+                columns[index]: normalize_value(value)
+                for index, value in enumerate(row)
+                if index < len(columns)
+            }
+        )
+    return {
+        "columns": columns,
+        "rows": rows,
+        "declared_row_count": declared_count,
+        "captured_row_count": len(rows),
+        "truncated": truncated,
+    }
