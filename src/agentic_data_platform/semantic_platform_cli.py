@@ -886,7 +886,11 @@ def capture_governed_evidence(
     _require_confirm(confirm, "live governed consumer evidence capture")
 
     configured_role = os.environ.get("SNOWFLAKE_ROLE")
-    if configured_role and configured_role != security_context:
+    if not configured_role:
+        raise RuntimeError(
+            "SNOWFLAKE_ROLE must be explicitly set for governed evidence capture"
+        )
+    if configured_role != security_context:
         raise RuntimeError(
             f"security context mismatch: --security-context={security_context!r} "
             f"but SNOWFLAKE_ROLE={configured_role!r}"
