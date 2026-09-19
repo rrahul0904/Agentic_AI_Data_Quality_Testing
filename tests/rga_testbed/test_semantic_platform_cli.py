@@ -278,3 +278,77 @@ def test_agent_benchmark_parity_fails_on_ai_result_drift(tmp_path: Path):
     assert parity["status"] == "FAIL"
     assert parity["failed_queries"] == 1
     assert "differs" in parity["queries"]["q1"]["reason"]
+
+
+def test_consumer_parity_plan_lists_expected_evidence(tmp_path: Path):
+    workspace = tmp_path / "demo"
+    parity_dir = workspace / "release" / "parity"
+    parity_dir.mkdir(parents=True)
+    manifest = {
+        "required_consumers": ["snowflake_semantic_view", "cortex_agent_mcp", "power_bi", "excel"],
+        "cases": [
+            {
+                "id": "q1",
+                "dimensions": ["DIMENSION_A"],
+                "metrics": ["METRIC_A"],
+                "acceptance": {
+                    "numeric_tolerance": 1e-9,
+                    "same_security_context": True,
+                    "require_captured_evidence": True,
+                    "allow_empty_result": False,
+                },
+            }
+        ],
+    }
+    (parity_dir / "parity_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    evidence_dir = workspace / "external-evidence"
+    evidence_dir.mkdir()
+    (evidence_dir / "q1.snowflake_semantic_view.json").write_text("{}", encoding="utf-8")
+
+    plan = cli.consumer_parity_plan(workspace, evidence_dir)
+    assert plan["expected_evidence_count"] == 4
+    assert plan["present_evidence_count"] == 1
+    assert plan["missing_evidence_count"] == 3
+    assert plan["evidence_contract"]["capture_status"] == "CAPTURED"
+    assert plan["evidence_contract"]["non_empty_rows_required"] is True
+
+
+def test_certify_consumers_passes_complete_captured_evidence(tmp_path: Path):
+    workspace = tmp_path / "demo"
+    parity_dir = workspace / "release" / "parity"
+    parity_dir.mkdir(parents=True)
+    consumers = ["snowflake_semantic_view", "cortex_agent_mcp", "power_bi", "excel"]
+    manifest = {
+        "required_consumers": consumers,
+        "cases": [
+            {
+                "id": "q1",
+                "dimensions": ["DIMENSION_A"],
+                "metrics": ["METRIC_A"],
+                "acceptance": {
+                    "numeric_tolerance": 1e-9,
+                    "same_security_context": True,
+                    "require_captured_evidence": True,
+                    "allow_empty_result": False,
+                },
+            }
+        ],
+    }
+    (parity_dir / "parity_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    evidence_dir = workspace / "external-evidence"
+    evidence_dir.mkdir()
+    for consumer in consumers:
+        payload = {
+            "case_id": "q1",
+            "consumer": consumer,
+            "security_context": "ROLE_ANALYST",
+            "capture_status": "CAPTURED",
+            "rows": [{"DIMENSION_A": "A", "METRIC_A": 10.0}],
+        }
+        (evidence_dir / f"q1.{consumer}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = cli.certify_consumers(workspace, evidence_dir=evidence_dir)
+    assert report["status"] == "PASS"
+    assert report["failed_cases"] == 0
+    assert report["expected_evidence_count"] == 4
+    assert Path(report["report"]).exists()
