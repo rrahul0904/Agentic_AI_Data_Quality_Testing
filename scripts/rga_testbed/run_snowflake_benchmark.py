@@ -15,10 +15,13 @@ import os
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime
-from decimal import Decimal
 from pathlib import Path
 from typing import Any, Iterable
+
+try:
+    from scripts.rga_testbed.result_signature import canonical_result
+except ModuleNotFoundError:
+    from result_signature import canonical_result
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = ROOT / "rga-snowflake-data-platform" / "benchmarks" / "manifest.json"
@@ -116,45 +119,6 @@ def connection_kwargs(env: dict[str, str], query_tag: str) -> dict[str, Any]:
     if env.get("SNOWFLAKE_TOKEN"):
         kwargs["token"] = env["SNOWFLAKE_TOKEN"]
     return kwargs
-
-
-def _normalize_value(value: Any) -> Any:
-    if value is None or isinstance(value, (bool, str, int)):
-        return value
-    if isinstance(value, Decimal):
-        return format(value.normalize(), "f")
-    if isinstance(value, float):
-        if math.isnan(value):
-            return "NaN"
-        if math.isinf(value):
-            return "Infinity" if value > 0 else "-Infinity"
-        return format(value, ".9g")
-    if isinstance(value, (datetime, date)):
-        return value.isoformat()
-    return str(value)
-
-
-def canonical_result(columns: list[str], rows: list[tuple[Any, ...]]) -> dict[str, Any]:
-    normalized_columns = [str(name).upper() for name in columns]
-    normalized_rows = [
-        {
-            normalized_columns[index]: _normalize_value(value)
-            for index, value in enumerate(row)
-        }
-        for row in rows
-    ]
-    normalized_rows.sort(key=lambda row: json.dumps(row, sort_keys=True, separators=(",", ":"), default=str))
-    payload = json.dumps(
-        {"columns": sorted(normalized_columns), "rows": normalized_rows},
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    )
-    return {
-        "columns": sorted(normalized_columns),
-        "row_count": len(normalized_rows),
-        "result_sha256": hashlib.sha256(payload.encode()).hexdigest(),
-    }
 
 
 def _telemetry(
