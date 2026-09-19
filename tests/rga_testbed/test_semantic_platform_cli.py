@@ -622,3 +622,54 @@ def test_capture_governed_evidence_requires_explicit_matching_role(tmp_path: Pat
         assert "SNOWFLAKE_ROLE must be explicitly set" in str(exc)
     else:
         raise AssertionError("governed evidence capture must bind to an explicit Snowflake role")
+
+
+def test_cdc_plan_requires_generated_change_assets(tmp_path: Path):
+    workspace = tmp_path / "demo"
+    required = [
+        workspace / "cdc" / "manifest.json",
+        workspace / "cdc" / "change_events.jsonl",
+        workspace / "snowflake" / "003_apply_cdc.sql",
+        workspace / "dbt" / "dbt_project.yml",
+        workspace / "release" / "semantic" / "verify_semantic_view.sql",
+    ]
+    for path in required[:-1]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+
+    plan = cli.cdc_plan(workspace)
+    assert plan["workspace_ready"] is False
+    assert plan["required_artifacts"]["semantic_verify"]["exists"] is False
+
+    required[-1].parent.mkdir(parents=True, exist_ok=True)
+    required[-1].write_text("-- verify", encoding="utf-8")
+    plan = cli.cdc_plan(workspace)
+    assert plan["workspace_ready"] is True
+    assert "execute idempotent CDC MERGE SQL" in plan["steps"]
+
+
+def test_apply_cdc_dry_run_is_safe_without_credentials(tmp_path: Path):
+    workspace = tmp_path / "demo"
+    result = cli.apply_cdc(
+        workspace,
+        confirm=False,
+        dry_run=True,
+        verify_idempotency=True,
+    )
+    assert result["status"] == "DRY_RUN"
+    assert result["verify_idempotency"] is True
+    assert result["workspace_ready"] is False
+
+
+def test_apply_cdc_refuses_live_execution_without_confirm(tmp_path: Path):
+    try:
+        cli.apply_cdc(
+            tmp_path,
+            confirm=False,
+            dry_run=False,
+            verify_idempotency=False,
+        )
+    except RuntimeError as exc:
+        assert "without --confirm" in str(exc)
+    else:
+        raise AssertionError("live CDC application must be fail-closed")
