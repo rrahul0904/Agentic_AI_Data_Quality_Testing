@@ -2,6 +2,7 @@
 """Run paired MART vs Semantic View benchmarks against Snowflake.
 
 Live execution is fail-closed: --confirm-live is required. CI uses --dry-run only.
+For paired mode, performance passes only when direct and semantic results are also equivalent.
 """
 from __future__ import annotations
 
@@ -14,6 +15,8 @@ import os
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -40,6 +43,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--confirm-live", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--telemetry-attempts", type=int, default=5)
+    parser.add_argument("--telemetry-delay-seconds", type=float, default=0.5)
     return parser.parse_args()
 
 
@@ -51,7 +56,15 @@ def load_manifest(path: Path) -> dict[str, Any]:
     return manifest
 
 
-def validate_request(manifest: Path, concurrency: int, iterations: int, confirm_live: bool, dry_run: bool) -> list[str]:
+def validate_request(
+    manifest: Path,
+    concurrency: int,
+    iterations: int,
+    confirm_live: bool,
+    dry_run: bool,
+    telemetry_attempts: int = 5,
+    telemetry_delay_seconds: float = 0.5,
+) -> list[str]:
     errors: list[str] = []
     if not manifest.exists():
         errors.append(f"Benchmark manifest not found: {manifest}")
@@ -59,6 +72,10 @@ def validate_request(manifest: Path, concurrency: int, iterations: int, confirm_
         errors.append("concurrency must be between 1 and 100")
     if iterations < 1 or iterations > 100:
         errors.append("iterations must be between 1 and 100")
+    if telemetry_attempts < 1 or telemetry_attempts > 20:
+        errors.append("telemetry-attempts must be between 1 and 20")
+    if telemetry_delay_seconds < 0 or telemetry_delay_seconds > 10:
+        errors.append("telemetry-delay-seconds must be between 0 and 10")
     if not dry_run and not confirm_live:
         errors.append("Refusing live Snowflake benchmark without --confirm-live")
     return errors
@@ -101,7 +118,52 @@ def connection_kwargs(env: dict[str, str], query_tag: str) -> dict[str, Any]:
     return kwargs
 
 
-def _telemetry(cursor: Any, query_id: str) -> dict[str, Any]:
+def _normalize_value(value: Any) -> Any:
+    if value is None or isinstance(value, (bool, str, int)):
+        return value
+    if isinstance(value, Decimal):
+        return format(value.normalize(), "f")
+    if isinstance(value, float):
+        if math.isnan(value):
+            return "NaN"
+        if math.isinf(value):
+            return "Infinity" if value > 0 else "-Infinity"
+        return format(value, ".9g")
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return str(value)
+
+
+def canonical_result(columns: list[str], rows: list[tuple[Any, ...]]) -> dict[str, Any]:
+    normalized_columns = [str(name).upper() for name in columns]
+    normalized_rows = [
+        {
+            normalized_columns[index]: _normalize_value(value)
+            for index, value in enumerate(row)
+        }
+        for row in rows
+    ]
+    normalized_rows.sort(key=lambda row: json.dumps(row, sort_keys=True, separators=(",", ":"), default=str))
+    payload = json.dumps(
+        {"columns": sorted(normalized_columns), "rows": normalized_rows},
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return {
+        "columns": sorted(normalized_columns),
+        "row_count": len(normalized_rows),
+        "result_sha256": hashlib.sha256(payload.encode()).hexdigest(),
+    }
+
+
+def _telemetry(
+    cursor: Any,
+    query_id: str,
+    *,
+    attempts: int = 5,
+    delay_seconds: float = 0.5,
+) -> dict[str, Any]:
     telemetry_sql = """
 select
   query_id,
@@ -126,15 +188,32 @@ from table(information_schema.query_history(
 ))
 where query_id = %s
 """
-    cursor.execute(telemetry_sql, (query_id,))
-    row = cursor.fetchone()
-    if row is None:
-        return {"telemetry_status": "NOT_FOUND"}
-    columns = [item[0].lower() for item in cursor.description]
-    return {**dict(zip(columns, row)), "telemetry_status": "FOUND"}
+    for attempt in range(1, attempts + 1):
+        cursor.execute(telemetry_sql, (query_id,))
+        row = cursor.fetchone()
+        if row is not None:
+            columns = [item[0].lower() for item in cursor.description]
+            return {
+                **dict(zip(columns, row)),
+                "telemetry_status": "FOUND",
+                "telemetry_attempts": attempt,
+            }
+        if attempt < attempts and delay_seconds:
+            time.sleep(delay_seconds)
+    return {
+        "telemetry_status": "NOT_FOUND",
+        "telemetry_attempts": attempts,
+    }
 
 
-def execute_task(task: BenchmarkTask, env: dict[str, str], run_id: str, query_tag_base: str) -> dict[str, Any]:
+def execute_task(
+    task: BenchmarkTask,
+    env: dict[str, str],
+    run_id: str,
+    query_tag_base: str,
+    telemetry_attempts: int = 5,
+    telemetry_delay_seconds: float = 0.5,
+) -> dict[str, Any]:
     try:
         import snowflake.connector
     except ImportError as exc:
@@ -152,10 +231,17 @@ def execute_task(task: BenchmarkTask, env: dict[str, str], run_id: str, query_ta
             query_started = time.perf_counter()
             cursor.execute(sql)
             query_id = cursor.sfqid
+            columns = [item[0] for item in cursor.description or []]
             fetched = cursor.fetchall()
             rows = len(fetched)
             wall_elapsed_ms = round((time.perf_counter() - query_started) * 1000, 3)
-            metrics = _telemetry(cursor, query_id)
+            result_contract = canonical_result(columns, fetched)
+            metrics = _telemetry(
+                cursor,
+                query_id,
+                attempts=telemetry_attempts,
+                delay_seconds=telemetry_delay_seconds,
+            )
             return {
                 "status": "PASS",
                 "query_name": task.query_name,
@@ -165,6 +251,7 @@ def execute_task(task: BenchmarkTask, env: dict[str, str], run_id: str, query_ta
                 "rows_fetched": rows,
                 "client_elapsed_ms": wall_elapsed_ms,
                 "sql_sha256": hashlib.sha256(sql.encode()).hexdigest(),
+                **result_contract,
                 **metrics,
             }
         finally:
@@ -223,9 +310,69 @@ def summarize(results: list[dict[str, Any]], wall_seconds: float) -> dict[str, A
             "p99_client_elapsed_ms": round(percentile(elapsed, 0.99), 3) if elapsed else None,
             "bytes_scanned": sum(int(item.get("bytes_scanned") or 0) for item in subset if item["status"] == "PASS"),
             "queued_overload_ms": sum(int(item.get("queued_overload_time") or 0) for item in subset if item["status"] == "PASS"),
-            "remote_spill_bytes": sum(int(item.get("bytes_spilled_to_remote_storage") or 0) for item in subset if item["status"] == "PASS"),
+            "remote_spill_bytes": sum(
+                int(item.get("bytes_spilled_to_remote_storage") or 0)
+                for item in subset
+                if item["status"] == "PASS"
+            ),
+            "telemetry_missing": sum(
+                item.get("telemetry_status") != "FOUND"
+                for item in subset
+                if item["status"] == "PASS"
+            ),
         }
     return summary
+
+
+def result_parity(results: list[dict[str, Any]], mode: str) -> dict[str, Any]:
+    if mode != "both":
+        return {
+            "status": "SKIPPED",
+            "reason": "Result parity requires --mode both",
+            "queries": {},
+        }
+
+    query_names = sorted({item["query_name"] for item in results})
+    queries: dict[str, Any] = {}
+    failed_queries = 0
+    for query_name in query_names:
+        subset = [item for item in results if item["query_name"] == query_name]
+        direct = [item for item in subset if item["variant"] == "direct" and item["status"] == "PASS"]
+        semantic = [item for item in subset if item["variant"] == "semantic" and item["status"] == "PASS"]
+        direct_hashes = sorted({item.get("result_sha256") for item in direct if item.get("result_sha256")})
+        semantic_hashes = sorted({item.get("result_sha256") for item in semantic if item.get("result_sha256")})
+        direct_rows = sorted({item.get("row_count") for item in direct if "row_count" in item})
+        semantic_rows = sorted({item.get("row_count") for item in semantic if "row_count" in item})
+
+        if not direct or not semantic:
+            status = "FAIL"
+            reason = "missing successful direct or semantic result"
+        elif len(direct_hashes) != 1 or len(semantic_hashes) != 1:
+            status = "FAIL"
+            reason = "result changed across repeated iterations"
+        elif direct_hashes[0] != semantic_hashes[0]:
+            status = "FAIL"
+            reason = "direct and semantic result signatures differ"
+        else:
+            status = "PASS"
+            reason = "canonical result signatures match"
+
+        if status != "PASS":
+            failed_queries += 1
+        queries[query_name] = {
+            "status": status,
+            "reason": reason,
+            "direct_result_sha256": direct_hashes,
+            "semantic_result_sha256": semantic_hashes,
+            "direct_row_counts": direct_rows,
+            "semantic_row_counts": semantic_rows,
+        }
+
+    return {
+        "status": "PASS" if failed_queries == 0 else "FAIL",
+        "failed_queries": failed_queries,
+        "queries": queries,
+    }
 
 
 def dry_run_payload(manifest_path: Path, tasks: list[BenchmarkTask], concurrency: int) -> dict[str, Any]:
@@ -237,12 +384,25 @@ def dry_run_payload(manifest_path: Path, tasks: list[BenchmarkTask], concurrency
         "queries": sorted({task.query_name for task in tasks}),
         "variants": sorted({task.variant for task in tasks}),
         "sql_files": sorted({str(task.sql_file) for task in tasks}),
+        "live_acceptance": [
+            "all SQL tasks execute successfully",
+            "direct and semantic result signatures match for every canonical question when mode=both",
+            "Snowflake Query History telemetry is collected with bounded retry",
+        ],
     }
 
 
 def main() -> int:
     args = parse_args()
-    errors = validate_request(args.manifest, args.concurrency, args.iterations, args.confirm_live, args.dry_run)
+    errors = validate_request(
+        args.manifest,
+        args.concurrency,
+        args.iterations,
+        args.confirm_live,
+        args.dry_run,
+        args.telemetry_attempts,
+        args.telemetry_delay_seconds,
+    )
     if errors:
         print(json.dumps({"status": "REFUSED", "errors": errors}, indent=2))
         return 2
@@ -257,9 +417,26 @@ def main() -> int:
     query_tag_base = manifest.get("query_tag", "RGA_SEMANTIC_BENCHMARK")
     started = time.perf_counter()
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.concurrency) as executor:
-        futures = [executor.submit(execute_task, task, dict(os.environ), run_id, query_tag_base) for task in tasks]
+        futures = [
+            executor.submit(
+                execute_task,
+                task,
+                dict(os.environ),
+                run_id,
+                query_tag_base,
+                args.telemetry_attempts,
+                args.telemetry_delay_seconds,
+            )
+            for task in tasks
+        ]
         results = [future.result() for future in concurrent.futures.as_completed(futures)]
     wall_seconds = time.perf_counter() - started
+
+    summary = summarize(results, wall_seconds)
+    parity = result_parity(results, args.mode)
+    benchmark_ok = summary["failed"] == 0
+    parity_ok = parity["status"] in {"PASS", "SKIPPED"}
+    status = "PASS" if benchmark_ok and parity_ok else "FAIL"
 
     report = {
         "run_id": run_id,
@@ -267,14 +444,29 @@ def main() -> int:
         "concurrency": args.concurrency,
         "iterations": args.iterations,
         "mode": args.mode,
-        "summary": summarize(results, wall_seconds),
+        "summary": summary,
+        "result_parity": parity,
         "results": sorted(results, key=lambda item: (item["query_name"], item["variant"], item["iteration"])),
-        "note": "Snowflake QUERY_HISTORY telemetry is reported per query. Warehouse credit attribution is intentionally not estimated per query.",
+        "note": (
+            "Snowflake QUERY_HISTORY telemetry is reported per query with bounded retry. "
+            "Warehouse credit attribution is intentionally not estimated per query. "
+            "For mode=both, benchmark success requires direct and Semantic View results to be equivalent."
+        ),
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, default=str) + "\n", encoding="utf-8")
-    print(json.dumps({"status": "PASS" if report["summary"]["failed"] == 0 else "FAIL", "output": str(args.output), **report["summary"]}, indent=2))
-    return 0 if report["summary"]["failed"] == 0 else 1
+    print(
+        json.dumps(
+            {
+                "status": status,
+                "output": str(args.output),
+                "result_parity": parity["status"],
+                **summary,
+            },
+            indent=2,
+        )
+    )
+    return 0 if status == "PASS" else 1
 
 
 if __name__ == "__main__":
