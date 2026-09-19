@@ -172,7 +172,12 @@ left join {{ ref('stg_underwriting_cases') }} u using (policy_id, insured_id)
     )
     emit(
         "models/core/fct_premium.sql",
-        """{{ config(alias='FCT_PREMIUM') }}
+        """{{ config(
+    alias='FCT_PREMIUM',
+    materialized='incremental',
+    unique_key='premium_txn_id',
+    incremental_strategy='merge'
+) }}
 select
     premium_txn_id,
     policy_id,
@@ -181,13 +186,25 @@ select
     accounting_date,
     gross_premium,
     ceded_premium,
-    currency_code
+    currency_code,
+    _ingested_at as source_updated_at
 from {{ ref('stg_premiums') }}
+{% if is_incremental() %}
+where _ingested_at >= (
+    select coalesce(max(source_updated_at), '1900-01-01'::timestamp_tz)
+    from {{ this }}
+)
+{% endif %}
 """,
     )
     emit(
         "models/core/fct_claim.sql",
-        """{{ config(alias='FCT_CLAIM') }}
+        """{{ config(
+    alias='FCT_CLAIM',
+    materialized='incremental',
+    unique_key='claim_id',
+    incremental_strategy='merge'
+) }}
 select
     claim_id,
     policy_id,
@@ -199,13 +216,25 @@ select
     cause_code,
     claim_amount,
     ceded_claim_amount,
-    currency_code
+    currency_code,
+    _ingested_at as source_updated_at
 from {{ ref('stg_claims') }}
+{% if is_incremental() %}
+where _ingested_at >= (
+    select coalesce(max(source_updated_at), '1900-01-01'::timestamp_tz)
+    from {{ this }}
+)
+{% endif %}
 """,
     )
     emit(
         "models/core/fct_exposure.sql",
-        """{{ config(alias='FCT_EXPOSURE') }}
+        """{{ config(
+    alias='FCT_EXPOSURE',
+    materialized='incremental',
+    unique_key='exposure_id',
+    incremental_strategy='merge'
+) }}
 select
     exposure_id,
     policy_id,
@@ -214,52 +243,110 @@ select
     exposure_month,
     exposed_amount,
     exposure_fraction,
-    currency_code
+    currency_code,
+    _ingested_at as source_updated_at
 from {{ ref('stg_exposure_monthly') }}
+{% if is_incremental() %}
+where _ingested_at >= (
+    select coalesce(max(source_updated_at), '1900-01-01'::timestamp_tz)
+    from {{ this }}
+)
+{% endif %}
 """,
     )
     emit(
         "models/marts/mart_reinsurance_performance.sql",
-        """{{ config(alias='REINSURANCE_PERFORMANCE') }}
-with premium_monthly as (
+        """{{ config(
+    alias='REINSURANCE_PERFORMANCE',
+    materialized='incremental',
+    unique_key=['cedant_id', 'treaty_id', 'period_month'],
+    incremental_strategy='merge'
+) }}
+with watermark as (
+    {% if is_incremental() %}
+    select coalesce(max(source_updated_at), '1900-01-01'::timestamp_tz) as last_updated_at
+    from {{ this }}
+    {% else %}
+    select '1900-01-01'::timestamp_tz as last_updated_at
+    {% endif %}
+),
+affected_keys as (
     select
         cedant_id,
         treaty_id,
-        date_trunc('month', accounting_date)::date as period_month,
-        sum(gross_premium) as gross_premium,
-        sum(ceded_premium) as ceded_premium,
-        count(*) as premium_transaction_count
+        date_trunc('month', accounting_date)::date as period_month
     from {{ ref('fct_premium') }}
+    {% if is_incremental() %}
+    where source_updated_at >= (select last_updated_at from watermark)
+    {% endif %}
+    union
+    select
+        p.cedant_id,
+        c.treaty_id,
+        date_trunc('month', c.event_date)::date as period_month
+    from {{ ref('fct_claim') }} c
+    join {{ ref('dim_policy') }} p using (policy_id)
+    {% if is_incremental() %}
+    where c.source_updated_at >= (select last_updated_at from watermark)
+    {% endif %}
+    union
+    select
+        cedant_id,
+        treaty_id,
+        exposure_month as period_month
+    from {{ ref('fct_exposure') }}
+    {% if is_incremental() %}
+    where source_updated_at >= (select last_updated_at from watermark)
+    {% endif %}
+),
+premium_monthly as (
+    select
+        a.cedant_id,
+        a.treaty_id,
+        a.period_month,
+        sum(p.gross_premium) as gross_premium,
+        sum(p.ceded_premium) as ceded_premium,
+        count(*) as premium_transaction_count,
+        max(p.source_updated_at) as source_updated_at
+    from affected_keys a
+    join {{ ref('fct_premium') }} p
+      on p.cedant_id = a.cedant_id
+     and p.treaty_id = a.treaty_id
+     and date_trunc('month', p.accounting_date)::date = a.period_month
     group by 1, 2, 3
 ),
 claim_monthly as (
     select
-        p.cedant_id,
-        c.treaty_id,
-        date_trunc('month', c.event_date)::date as period_month,
+        a.cedant_id,
+        a.treaty_id,
+        a.period_month,
         sum(c.claim_amount) as gross_claim_amount,
         sum(c.ceded_claim_amount) as ceded_claim_amount,
-        count(*) as claim_count
-    from {{ ref('fct_claim') }} c
-    join {{ ref('dim_policy') }} p using (policy_id)
+        count(*) as claim_count,
+        max(c.source_updated_at) as source_updated_at
+    from affected_keys a
+    join {{ ref('fct_claim') }} c
+      on c.treaty_id = a.treaty_id
+     and date_trunc('month', c.event_date)::date = a.period_month
+    join {{ ref('dim_policy') }} p
+      on p.policy_id = c.policy_id
+     and p.cedant_id = a.cedant_id
     group by 1, 2, 3
 ),
 exposure_monthly as (
     select
-        cedant_id,
-        treaty_id,
-        exposure_month as period_month,
-        sum(exposed_amount * exposure_fraction) as exposure_amount,
-        count(distinct policy_id) as exposed_policy_count
-    from {{ ref('fct_exposure') }}
+        a.cedant_id,
+        a.treaty_id,
+        a.period_month,
+        sum(e.exposed_amount * e.exposure_fraction) as exposure_amount,
+        count(distinct e.policy_id) as exposed_policy_count,
+        max(e.source_updated_at) as source_updated_at
+    from affected_keys a
+    join {{ ref('fct_exposure') }} e
+      on e.cedant_id = a.cedant_id
+     and e.treaty_id = a.treaty_id
+     and e.exposure_month = a.period_month
     group by 1, 2, 3
-),
-keys as (
-    select cedant_id, treaty_id, period_month from premium_monthly
-    union
-    select cedant_id, treaty_id, period_month from claim_monthly
-    union
-    select cedant_id, treaty_id, period_month from exposure_monthly
 )
 select
     k.cedant_id,
@@ -277,12 +364,30 @@ select
     coalesce(c.claim_count, 0) as claim_count,
     coalesce(e.exposed_policy_count, 0) as exposed_policy_count,
     coalesce(c.ceded_claim_amount, 0) / nullif(coalesce(p.ceded_premium, 0), 0) as ceded_loss_ratio,
-    coalesce(p.ceded_premium, 0) / nullif(coalesce(p.gross_premium, 0), 0) as ceded_premium_rate
-from keys k
+    coalesce(p.ceded_premium, 0) / nullif(coalesce(p.gross_premium, 0), 0) as ceded_premium_rate,
+    greatest_ignore_nulls(
+        p.source_updated_at,
+        c.source_updated_at,
+        e.source_updated_at
+    ) as source_updated_at
+from affected_keys k
 left join premium_monthly p using (cedant_id, treaty_id, period_month)
 left join claim_monthly c using (cedant_id, treaty_id, period_month)
 left join exposure_monthly e using (cedant_id, treaty_id, period_month)
 left join {{ ref('dim_treaty') }} d using (cedant_id, treaty_id)
+""",
+    )
+
+    emit(
+        "tests/mart_reinsurance_performance_grain_unique.sql",
+        """select
+    cedant_id,
+    treaty_id,
+    period_month,
+    count(*) as row_count
+from {{ ref('mart_reinsurance_performance') }}
+group by 1, 2, 3
+having count(*) > 1
 """,
     )
 
