@@ -409,3 +409,212 @@ def test_prepare_consumer_evidence_writes_pending_templates_without_overwrite(tm
         for result in report["results"]
         for error in result["errors"]
     )
+
+
+def test_governed_evidence_plan_targets_only_snowflake_and_agent(tmp_path: Path):
+    workspace = tmp_path / "demo"
+    parity_dir = workspace / "release" / "parity"
+    parity_dir.mkdir(parents=True)
+    manifest = {
+        "required_consumers": ["snowflake_semantic_view", "cortex_agent_mcp", "power_bi", "excel"],
+        "cases": [
+            {
+                "id": "q1",
+                "business_question": "What is metric A?",
+                "dimensions": ["DIMENSION_A"],
+                "metrics": ["METRIC_A"],
+                "reference": {"sql_file": "q1.reference.sql"},
+            }
+        ],
+    }
+    (parity_dir / "parity_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    plan = cli.governed_evidence_plan(
+        workspace,
+        evidence_dir=workspace / "external-evidence",
+        security_context="ROLE_ANALYST",
+        max_rows=100,
+    )
+    assert plan["case_count"] == 1
+    assert plan["captured_consumers"] == ["snowflake_semantic_view", "cortex_agent_mcp"]
+    assert plan["external_consumers_remaining"] == ["power_bi", "excel"]
+    assert plan["cases"][0]["expected_columns"] == ["DIMENSION_A", "METRIC_A"]
+
+
+def test_agent_consumer_evidence_writes_captured_rows_for_exact_columns(tmp_path: Path):
+    manifest = {
+        "cases": [
+            {
+                "id": "q1",
+                "dimensions": ["DIMENSION_A"],
+                "metrics": ["METRIC_A"],
+            }
+        ]
+    }
+    agent_report = {
+        "results": [
+            {
+                "business_query_id": "q1",
+                "wrapper_query_id": "wrapper-1",
+                "analytical_executions": [
+                    {
+                        "status": "success",
+                        "query_id": "agent-q1",
+                        "sql": "select ...",
+                        "result_rows": {
+                            "columns": ["DIMENSION_A", "METRIC_A"],
+                            "rows": [{"DIMENSION_A": "A", "METRIC_A": "10"}],
+                            "truncated": False,
+                        },
+                    }
+                ],
+            }
+        ]
+    }
+    evidence_dir = tmp_path / "evidence"
+    report = cli.agent_consumer_evidence(
+        manifest,
+        agent_report,
+        evidence_dir=evidence_dir,
+        security_context="ROLE_ANALYST",
+    )
+    assert report["status"] == "PASS"
+    assert report["passed"] == 1
+    payload = json.loads((evidence_dir / "q1.cortex_agent_mcp.json").read_text(encoding="utf-8"))
+    assert payload["capture_status"] == "CAPTURED"
+    assert payload["security_context"] == "ROLE_ANALYST"
+    assert payload["analytical_query_id"] == "agent-q1"
+    assert payload["rows"] == [{"DIMENSION_A": "A", "METRIC_A": "10"}]
+
+
+def test_agent_consumer_evidence_rejects_wrong_columns_or_truncation(tmp_path: Path):
+    manifest = {
+        "cases": [
+            {
+                "id": "q1",
+                "dimensions": ["DIMENSION_A"],
+                "metrics": ["METRIC_A"],
+            }
+        ]
+    }
+    agent_report = {
+        "results": [
+            {
+                "business_query_id": "q1",
+                "analytical_executions": [
+                    {
+                        "status": "success",
+                        "query_id": "agent-q1",
+                        "result_rows": {
+                            "columns": ["WRONG_COLUMN"],
+                            "rows": [{"WRONG_COLUMN": "10"}],
+                            "truncated": False,
+                        },
+                    },
+                    {
+                        "status": "success",
+                        "query_id": "agent-q2",
+                        "result_rows": {
+                            "columns": ["DIMENSION_A", "METRIC_A"],
+                            "rows": [{"DIMENSION_A": "A", "METRIC_A": "10"}],
+                            "truncated": True,
+                        },
+                    },
+                ],
+            }
+        ]
+    }
+    report = cli.agent_consumer_evidence(
+        manifest,
+        agent_report,
+        evidence_dir=tmp_path / "evidence",
+        security_context="ROLE_ANALYST",
+    )
+    assert report["status"] == "FAIL"
+    assert report["failed"] == 1
+    assert "expected columns" in report["results"][0]["error"]
+
+
+def test_consumer_parity_plan_counts_captured_pending_and_invalid(tmp_path: Path):
+    workspace = tmp_path / "demo"
+    parity_dir = workspace / "release" / "parity"
+    parity_dir.mkdir(parents=True)
+    manifest = {
+        "required_consumers": ["snowflake_semantic_view", "cortex_agent_mcp", "power_bi", "excel"],
+        "cases": [{"id": "q1"}],
+    }
+    (parity_dir / "parity_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    evidence_dir = tmp_path / "evidence"
+    evidence_dir.mkdir()
+    (evidence_dir / "q1.snowflake_semantic_view.json").write_text(
+        json.dumps({"capture_status": "CAPTURED"}),
+        encoding="utf-8",
+    )
+    (evidence_dir / "q1.cortex_agent_mcp.json").write_text(
+        json.dumps({"capture_status": "PENDING"}),
+        encoding="utf-8",
+    )
+    (evidence_dir / "q1.power_bi.json").write_text("{bad json", encoding="utf-8")
+
+    plan = cli.consumer_parity_plan(workspace, evidence_dir)
+    assert plan["expected_evidence_count"] == 4
+    assert plan["captured_evidence_count"] == 1
+    assert plan["pending_evidence_count"] == 1
+    assert plan["invalid_evidence_count"] == 1
+    assert plan["missing_evidence_count"] == 1
+
+
+def test_capture_governed_evidence_dry_run_needs_no_credentials(tmp_path: Path):
+    workspace = tmp_path / "demo"
+    parity_dir = workspace / "release" / "parity"
+    parity_dir.mkdir(parents=True)
+    manifest = {
+        "required_consumers": ["snowflake_semantic_view", "cortex_agent_mcp", "power_bi", "excel"],
+        "cases": [
+            {
+                "id": "q1",
+                "business_question": "What is metric A?",
+                "dimensions": ["DIMENSION_A"],
+                "metrics": ["METRIC_A"],
+                "reference": {"sql_file": "q1.reference.sql"},
+            }
+        ],
+    }
+    (parity_dir / "parity_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    result = cli.capture_governed_evidence(
+        workspace,
+        evidence_dir=tmp_path / "evidence",
+        security_context="ROLE_ANALYST",
+        max_rows=500,
+        confirm=False,
+        dry_run=True,
+    )
+    assert result["status"] == "DRY_RUN"
+    assert result["max_rows"] == 500
+    assert result["external_consumers_remaining"] == ["power_bi", "excel"]
+
+
+def test_capture_governed_evidence_requires_explicit_matching_role(tmp_path: Path, monkeypatch):
+    workspace = tmp_path / "demo"
+    parity_dir = workspace / "release" / "parity"
+    parity_dir.mkdir(parents=True)
+    (parity_dir / "parity_manifest.json").write_text(
+        json.dumps(
+            {
+                "required_consumers": ["snowflake_semantic_view", "cortex_agent_mcp", "power_bi", "excel"],
+                "cases": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("SNOWFLAKE_ROLE", raising=False)
+    try:
+        cli.capture_governed_evidence(
+            workspace,
+            evidence_dir=tmp_path / "evidence",
+            security_context="ROLE_ANALYST",
+            confirm=True,
+        )
+    except RuntimeError as exc:
+        assert "SNOWFLAKE_ROLE must be explicitly set" in str(exc)
+    else:
+        raise AssertionError("governed evidence capture must bind to an explicit Snowflake role")
