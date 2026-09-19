@@ -115,3 +115,112 @@ def test_connection_contract_tags_benchmark_sessions():
     assert kwargs["warehouse"] == "BENCH_WH"
     assert kwargs["database"] == "RGA_SYNTHETIC_TESTBED"
     assert kwargs["session_parameters"]["QUERY_TAG"].startswith("RGA_SEMANTIC_BENCHMARK")
+
+
+def test_canonical_result_is_order_independent_and_case_normalized():
+    _, runner = _benchmark_modules()
+    left = runner.canonical_result(
+        ["cedant_name", "ceded_loss_ratio"],
+        [("B", 0.2), ("A", 0.1)],
+    )
+    right = runner.canonical_result(
+        ["CEDANT_NAME", "CEDED_LOSS_RATIO"],
+        [("A", 0.1), ("B", 0.2)],
+    )
+    assert left["result_sha256"] == right["result_sha256"]
+    assert left["row_count"] == 2
+    assert left["columns"] == ["CEDANT_NAME", "CEDED_LOSS_RATIO"]
+
+
+def test_result_parity_passes_when_direct_and_semantic_match():
+    _, runner = _benchmark_modules()
+    signature = runner.canonical_result(["X"], [(1,)])["result_sha256"]
+    results = [
+        {
+            "status": "PASS",
+            "query_name": "q1",
+            "variant": "direct",
+            "iteration": 1,
+            "result_sha256": signature,
+            "row_count": 1,
+        },
+        {
+            "status": "PASS",
+            "query_name": "q1",
+            "variant": "semantic",
+            "iteration": 1,
+            "result_sha256": signature,
+            "row_count": 1,
+        },
+    ]
+    parity = runner.result_parity(results, "both")
+    assert parity["status"] == "PASS"
+    assert parity["failed_queries"] == 0
+    assert parity["queries"]["q1"]["status"] == "PASS"
+
+
+def test_result_parity_fails_on_semantic_drift():
+    _, runner = _benchmark_modules()
+    direct = runner.canonical_result(["X"], [(1,)])["result_sha256"]
+    semantic = runner.canonical_result(["X"], [(2,)])["result_sha256"]
+    results = [
+        {
+            "status": "PASS",
+            "query_name": "q1",
+            "variant": "direct",
+            "iteration": 1,
+            "result_sha256": direct,
+            "row_count": 1,
+        },
+        {
+            "status": "PASS",
+            "query_name": "q1",
+            "variant": "semantic",
+            "iteration": 1,
+            "result_sha256": semantic,
+            "row_count": 1,
+        },
+    ]
+    parity = runner.result_parity(results, "both")
+    assert parity["status"] == "FAIL"
+    assert parity["failed_queries"] == 1
+    assert "differ" in parity["queries"]["q1"]["reason"]
+
+
+def test_result_parity_fails_when_repeated_iterations_are_not_stable():
+    _, runner = _benchmark_modules()
+    first = runner.canonical_result(["X"], [(1,)])["result_sha256"]
+    second = runner.canonical_result(["X"], [(2,)])["result_sha256"]
+    results = [
+        {"status": "PASS", "query_name": "q1", "variant": "direct", "iteration": 1, "result_sha256": first, "row_count": 1},
+        {"status": "PASS", "query_name": "q1", "variant": "direct", "iteration": 2, "result_sha256": second, "row_count": 1},
+        {"status": "PASS", "query_name": "q1", "variant": "semantic", "iteration": 1, "result_sha256": first, "row_count": 1},
+        {"status": "PASS", "query_name": "q1", "variant": "semantic", "iteration": 2, "result_sha256": first, "row_count": 1},
+    ]
+    parity = runner.result_parity(results, "both")
+    assert parity["status"] == "FAIL"
+    assert "changed across repeated iterations" in parity["queries"]["q1"]["reason"]
+
+
+def test_telemetry_retries_until_query_history_is_visible():
+    _, runner = _benchmark_modules()
+
+    class Cursor:
+        def __init__(self):
+            self.calls = 0
+            self.description = [("QUERY_ID",), ("TOTAL_ELAPSED_TIME",)]
+
+        def execute(self, sql, params):
+            self.calls += 1
+
+        def fetchone(self):
+            if self.calls < 3:
+                return None
+            return ("qid", 123)
+
+    cursor = Cursor()
+    telemetry = runner._telemetry(cursor, "qid", attempts=5, delay_seconds=0)
+    assert telemetry["telemetry_status"] == "FOUND"
+    assert telemetry["telemetry_attempts"] == 3
+    assert telemetry["query_id"] == "qid"
+    assert telemetry["total_elapsed_time"] == 123
