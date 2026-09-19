@@ -60,7 +60,8 @@ def test_certification_report_is_truthful_when_only_repository_release_exists(tm
 
     report = module.build_report(workspace, evidence_dir)
     assert report["overall_status"] == "REPOSITORY_READY_LIVE_CERTIFICATION_PENDING"
-    assert report["production_certified"] is False
+    assert report["end_to_end_certified"] is False
+    assert report["production_rollout_certified"] is False
     assert report["release"]["status"] == "PASS"
     assert report["live_runtime"]["status"] == "PENDING"
     assert report["consumer_parity"]["status"] == "PENDING"
@@ -70,7 +71,8 @@ def test_certification_report_is_truthful_when_only_repository_release_exists(tm
     assert any("0/4 captured" in blocker for blocker in report["blockers"])
 
     markdown = module.render_markdown(report)
-    assert "Production certified:** NO" in markdown
+    assert "End-to-end certified for executed workload:** NO" in markdown
+    assert "Production rollout certified:** NO" in markdown
     assert "REPOSITORY_READY_LIVE_CERTIFICATION_PENDING" in markdown
 
 
@@ -130,9 +132,11 @@ def test_certification_report_marks_production_only_after_all_surfaces_pass(tmp_
         )
 
     report = module.build_report(workspace, evidence_dir)
-    assert report["overall_status"] == "PRODUCTION_CERTIFIED"
-    assert report["production_certified"] is True
+    assert report["overall_status"] == "END_TO_END_CERTIFIED_FOR_EXECUTED_WORKLOAD"
+    assert report["end_to_end_certified"] is True
+    assert report["production_rollout_certified"] is False
     assert report["blockers"] == []
+    assert report["production_rollout_blockers"]
     assert report["consumer_parity"]["evidence"]["captured"] == 4
     assert report["consumer_parity"]["evidence"]["status"] == "COMPLETE"
     assert report["workload_analysis"]["recommendation_count"] == 1
@@ -143,7 +147,8 @@ def test_certification_report_marks_production_only_after_all_surfaces_pass(tmp_
         output_dir=workspace / "final-report",
     )
     assert generated["status"] == "PASS"
-    assert generated["production_certified"] is True
+    assert generated["end_to_end_certified"] is True
+    assert generated["production_rollout_certified"] is False
     assert Path(generated["json"]).exists()
     assert Path(generated["markdown"]).exists()
 
@@ -168,4 +173,5 @@ def test_certification_report_does_not_count_pending_files_as_captured(tmp_path:
     evidence = report["consumer_parity"]["evidence"]
     assert evidence["captured"] == 0
     assert evidence["pending"] == 4
-    assert report["production_certified"] is False
+    assert report["end_to_end_certified"] is False
+    assert report["production_rollout_certified"] is False
