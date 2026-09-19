@@ -83,12 +83,14 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
     live_path = workspace / "evidence" / "certification_manifest.json"
     consumer_path = workspace / "evidence" / "cross_consumer_parity.json"
     agent_path = workspace / "evidence" / "agent_smoke.json"
+    cdc_path = workspace / "evidence" / "cdc_application.json"
     workload_path = workspace / "evidence" / "workload_analysis.json"
 
     release = _load(release_path)
     live = _load(live_path)
     consumer = _load(consumer_path)
     agent = _load(agent_path)
+    cdc = _load(cdc_path)
     workload = _load(workload_path)
     evidence_status = _consumer_evidence_status(workspace, evidence_dir)
 
@@ -96,6 +98,7 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
     live_status = live.get("status") if live else "PENDING"
     consumer_status = consumer.get("status") if consumer else "PENDING"
     agent_status = agent.get("status") if agent else "PENDING"
+    cdc_status = cdc.get("status") if cdc else "PENDING"
 
     blockers: list[str] = []
     if not release:
@@ -104,6 +107,8 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
         blockers.append("live Snowflake semantic-runtime certification has not passed")
     if consumer_status != "PASS":
         blockers.append("cross-consumer Snowflake/AI/Power BI/Excel parity has not passed")
+    if cdc and cdc_status != "PASS":
+        blockers.append("CDC correction/late-arrival certification evidence exists but has not passed")
     if evidence_status["status"] != "COMPLETE":
         blockers.append(
             "consumer evidence is incomplete "
@@ -153,6 +158,12 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
             "passed": agent.get("passed") if agent else None,
             "failed": agent.get("failed") if agent else None,
         },
+        "change_data": {
+            "status": cdc_status,
+            "path": str(cdc_path),
+            "verify_idempotency": cdc.get("verify_idempotency") if cdc else None,
+            "source_event_count": cdc.get("source_event_count") if cdc else None,
+        },
         "consumer_parity": {
             "status": consumer_status,
             "path": str(consumer_path),
@@ -191,6 +202,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Governed release: **{report['release']['status']}**",
         f"- Live Snowflake runtime: **{report['live_runtime']['status']}**",
         f"- Cortex Agent runtime: **{report['agent_runtime']['status']}**",
+        f"- CDC correction/late-arrival cycle: **{report['change_data']['status']}**",
         f"- Cross-consumer parity: **{report['consumer_parity']['status']}**",
         (
             "- Consumer evidence: "
