@@ -78,10 +78,12 @@ jobs:
           grep -q '"requires_query_history_telemetry": true' /tmp/semantic-platform-certify-live.json
           semantic-platform agent-smoke --workspace /tmp/semantic-platform-demo --dry-run >/tmp/semantic-platform-agent-smoke.json
           grep -q '"status": "DRY_RUN"' /tmp/semantic-platform-agent-smoke.json
-          grep -q 'Reinsurance_Analyst governed tool use is observed' /tmp/semantic-platform-agent-smoke.json
+          grep -q 'system_execute_sql' /tmp/semantic-platform-agent-smoke.json
+          grep -q 'parity-ready canonical signature' /tmp/semantic-platform-agent-smoke.json
           semantic-platform certify-live --workspace /tmp/semantic-platform-demo --deploy-ai --concurrency 1,5 --iterations 1 --dry-run >/tmp/semantic-platform-certify-ai.json
           grep -q '"status": "DRY_RUN"' /tmp/semantic-platform-certify-ai.json
           grep -q '"agent_runtime_smoke": true' /tmp/semantic-platform-certify-ai.json
+          grep -q '"requires_agent_result_parity": true' /tmp/semantic-platform-certify-ai.json
           grep -q '"workspace_ready": true' /tmp/semantic-platform-certify-ai.json
           grep -q 'create_agent.sql' /tmp/semantic-platform-certify-ai.json
           grep -q 'create_mcp_server.sql' /tmp/semantic-platform-certify-ai.json
