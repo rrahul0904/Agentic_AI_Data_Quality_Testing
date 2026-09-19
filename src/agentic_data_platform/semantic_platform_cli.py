@@ -431,6 +431,7 @@ def certification_plan(
             "iterations": iterations,
             "requires_result_parity": True,
             "requires_query_history_telemetry": True,
+            "requires_agent_result_parity": deploy_ai,
         },
         "evidence": {
             "directory": str(workspace / "evidence"),
@@ -478,6 +479,70 @@ def agent_smoke(
         payload = json.loads(output.read_text(encoding="utf-8"))
         payload["report"] = str(output)
     return payload
+
+
+def agent_benchmark_parity(
+    agent_report: dict[str, Any],
+    benchmark_report_paths: list[Path],
+) -> dict[str, Any]:
+    references: dict[str, set[str]] = {}
+    for path in benchmark_report_paths:
+        report = json.loads(path.read_text(encoding="utf-8"))
+        for item in report.get("results", []):
+            if item.get("status") != "PASS":
+                continue
+            query_name = item.get("query_name")
+            value_sha = item.get("value_sha256")
+            if not query_name or not value_sha:
+                continue
+            references.setdefault(str(query_name), set()).add(str(value_sha))
+
+    queries: dict[str, Any] = {}
+    failed = 0
+    for item in agent_report.get("results", []):
+        query_id = str(item.get("business_query_id") or "")
+        expected = sorted(references.get(query_id, set()))
+        observed: list[str] = []
+        execution_query_ids: list[str] = []
+        for execution in item.get("analytical_executions", []) or []:
+            if execution.get("status") not in (None, "success"):
+                continue
+            signature = execution.get("result_signature")
+            if isinstance(signature, dict) and signature.get("value_sha256"):
+                observed.append(str(signature["value_sha256"]))
+            if execution.get("query_id"):
+                execution_query_ids.append(str(execution["query_id"]))
+        observed = sorted(set(observed))
+        matches = sorted(set(expected) & set(observed))
+        if not expected:
+            status = "FAIL"
+            reason = "canonical benchmark result signature is missing"
+        elif not observed:
+            status = "FAIL"
+            reason = "Agent analytical result signature is missing"
+        elif not matches:
+            status = "FAIL"
+            reason = "Agent analytical result differs from canonical benchmark result"
+        else:
+            status = "PASS"
+            reason = "Agent analytical result matches canonical benchmark values"
+        if status != "PASS":
+            failed += 1
+        queries[query_id] = {
+            "status": status,
+            "reason": reason,
+            "canonical_value_sha256": expected,
+            "agent_value_sha256": observed,
+            "matched_value_sha256": matches,
+            "agent_query_ids": sorted(set(execution_query_ids)),
+        }
+
+    return {
+        "status": "PASS" if queries and failed == 0 else "FAIL",
+        "failed_queries": failed,
+        "queries": queries,
+        "comparison": "value signature parity; column aliases may differ while row values must remain equivalent",
+    }
 
 
 def certify_live(
@@ -552,6 +617,13 @@ def certify_live(
             }
         )
 
+    agent_answer_parity = None
+    agent_parity_output = None
+    if deploy_ai and agent_runtime:
+        agent_answer_parity = agent_benchmark_parity(agent_runtime, report_paths)
+        agent_parity_output = evidence_dir / "agent_result_parity.json"
+        agent_parity_output.write_text(json.dumps(agent_answer_parity, indent=2) + "\n", encoding="utf-8")
+
     workload_output = evidence_dir / "workload_analysis.json"
     workload_args = [
         "--manifest",
@@ -571,11 +643,17 @@ def certify_live(
         for variant in item.get("summary", {}).get("variants", {}).values()
     )
     agent_runtime_pass = True if not deploy_ai else bool(agent_runtime and agent_runtime.get("status") == "PASS")
+    agent_answer_parity_pass = (
+        True
+        if not deploy_ai
+        else bool(agent_answer_parity and agent_answer_parity.get("status") == "PASS")
+    )
     certification_pass = (
         all_benchmarks_pass
         and all_parity_pass
         and telemetry_complete
         and agent_runtime_pass
+        and agent_answer_parity_pass
     )
 
     release_manifest_path = workspace / "release" / "release_manifest.json"
@@ -600,6 +678,7 @@ def certify_live(
             "all_direct_semantic_result_parity_pass": all_parity_pass,
             "query_history_telemetry_complete": telemetry_complete,
             "agent_runtime_smoke_pass": agent_runtime_pass if deploy_ai else None,
+            "agent_result_parity_pass": agent_answer_parity_pass if deploy_ai else None,
         },
         "agent_runtime": (
             {
@@ -607,6 +686,8 @@ def certify_live(
                 "passed": agent_runtime.get("passed"),
                 "failed": agent_runtime.get("failed"),
                 "report": agent_runtime.get("report"),
+                "result_parity_status": agent_answer_parity.get("status") if agent_answer_parity else None,
+                "result_parity_report": str(agent_parity_output) if agent_parity_output else None,
             }
             if agent_runtime
             else None
@@ -616,9 +697,9 @@ def certify_live(
         "acceleration_recommendation_count": len(workload.get("recommendations", [])),
         "external_remaining": [
             (
-                "Cortex Agent numerical/answer parity against canonical query results"
+                "Snowflake-managed MCP client invocation evidence"
                 if deploy_ai
-                else "Cortex Agent/MCP live deployment and governed runtime smoke"
+                else "Cortex Agent/MCP live deployment, runtime smoke, and result parity"
             ),
             "Power BI XMLA governed parity",
             "Excel XMLA governed parity",
