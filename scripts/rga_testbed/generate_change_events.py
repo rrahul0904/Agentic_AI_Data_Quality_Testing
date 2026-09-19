@@ -145,6 +145,17 @@ def validate_events(events: list[dict[str, Any]]) -> list[str]:
             errors.append(f"update event missing before/after: {event['event_id']}")
         if event["operation"] == "INSERT" and event.get("before") is not None:
             errors.append(f"insert event has before image: {event['event_id']}")
+        if event["scenario"] in {"premium_correction", "late_arriving_claim"}:
+            grain = event.get("semantic_grain")
+            if not isinstance(grain, dict):
+                errors.append(f"semantic-changing event missing semantic_grain: {event['event_id']}")
+            else:
+                required = {"cedant_id", "treaty_id", "period_month"}
+                if not required.issubset(grain):
+                    errors.append(f"semantic_grain missing required keys: {event['event_id']}")
+                if grain.get("period_month") and not str(grain["period_month"]).endswith("-01"):
+                    errors.append(f"semantic_grain period_month is not month grain: {event['event_id']}")
+
         if event["scenario"] == "premium_correction":
             before = event["before"]
             after = event["after"]
@@ -152,8 +163,18 @@ def validate_events(events: list[dict[str, Any]]) -> list[str]:
                 errors.append(f"premium correction did not increase gross premium: {event['event_id']}")
             if float(after["ceded_premium"]) > float(after["gross_premium"]):
                 errors.append(f"ceded premium exceeds gross premium: {event['event_id']}")
+            grain = event.get("semantic_grain") or {}
+            if grain.get("cedant_id") != after.get("cedant_id") or grain.get("treaty_id") != after.get("treaty_id"):
+                errors.append(f"premium semantic_grain key mismatch: {event['event_id']}")
+            expected_month = str(after.get("accounting_date", ""))[:7] + "-01"
+            if grain.get("period_month") != expected_month:
+                errors.append(f"premium semantic_grain month mismatch: {event['event_id']}")
         if event["scenario"] == "late_arriving_claim":
             after = event["after"]
+            grain = event.get("semantic_grain") or {}
+            expected_month = str(after.get("event_date", ""))[:7] + "-01"
+            if grain.get("period_month") != expected_month:
+                errors.append(f"late claim semantic_grain month mismatch: {event['event_id']}")
             if after["event_date"] >= after["reported_date"]:
                 errors.append(f"late claim is not late: {event['event_id']}")
             if float(after["ceded_claim_amount"]) > float(after["claim_amount"]):
