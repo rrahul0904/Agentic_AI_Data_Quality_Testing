@@ -200,8 +200,15 @@ jobs:
           set -e
           test "$semantic_cdc_code" -eq 2
           grep -q 'without --confirm' /tmp/rga-cdc-semantic-refusal.json
-      - name: Generate dbt analytics project
-        run: python scripts/rga_testbed/generate_dbt_project.py --output /tmp/rga-dbt
+      - name: Generate and parse dbt analytics project
+        env:
+          SNOWFLAKE_ACCOUNT: dummy_account
+          SNOWFLAKE_USER: dummy_user
+          SNOWFLAKE_PASSWORD: dummy_password
+        run: |
+          python scripts/rga_testbed/generate_dbt_project.py --output /tmp/rga-dbt
+          cp /tmp/rga-dbt/profiles.yml.example /tmp/rga-dbt/profiles.yml
+          dbt parse --project-dir /tmp/rga-dbt --profiles-dir /tmp/rga-dbt --no-partial-parse
       - name: Generate Snowflake semantic view contract
         run: python scripts/rga_testbed/generate_semantic_view.py --output /tmp/rga-semantic
       - name: Compile canonical semantic manifest
@@ -273,6 +280,13 @@ jobs:
           grep -q 'AUDIT.CDC_EVENT_APPLICATIONS' /tmp/rga-smoke/003_apply_cdc.sql
           grep -q "source('rga_raw', 'policies')" /tmp/rga-dbt/models/staging/stg_policies.sql
           grep -q "alias='REINSURANCE_PERFORMANCE'" /tmp/rga-dbt/models/marts/mart_reinsurance_performance.sql
+          grep -q "materialized='incremental'" /tmp/rga-dbt/models/core/fct_premium.sql
+          grep -q "unique_key='premium_txn_id'" /tmp/rga-dbt/models/core/fct_premium.sql
+          grep -q "incremental_strategy='merge'" /tmp/rga-dbt/models/core/fct_claim.sql
+          grep -q "unique_key=\['cedant_id', 'treaty_id', 'period_month'\]" /tmp/rga-dbt/models/marts/mart_reinsurance_performance.sql
+          grep -q 'affected_keys as' /tmp/rga-dbt/models/marts/mart_reinsurance_performance.sql
+          grep -q 'greatest_ignore_nulls' /tmp/rga-dbt/models/marts/mart_reinsurance_performance.sql
+          test -f /tmp/rga-dbt/tests/mart_reinsurance_performance_grain_unique.sql
           grep -q 'CEDED_LOSS_RATIO' /tmp/rga-semantic/rga_reinsurance_performance.yml
           grep -q 'SYSTEM$CREATE_SEMANTIC_VIEW_FROM_YAML' /tmp/rga-semantic/verify_semantic_view.sql
           grep -q 'SYSTEM$CREATE_SEMANTIC_VIEW_FROM_YAML' /tmp/rga-semantic/deploy_semantic_view.sql
