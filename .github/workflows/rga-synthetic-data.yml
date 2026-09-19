@@ -71,6 +71,17 @@ jobs:
           grep -q '"task_count": 12' /tmp/semantic-platform-benchmark.json
           grep -q 'direct and semantic result signatures match' /tmp/semantic-platform-benchmark.json
           grep -q 'Snowflake Query History telemetry is collected with bounded retry' /tmp/semantic-platform-benchmark.json
+          semantic-platform certify-live --workspace /tmp/semantic-platform-demo --concurrency 1,5,10 --iterations 2 --dry-run >/tmp/semantic-platform-certify-live.json
+          grep -q '"status": "DRY_RUN"' /tmp/semantic-platform-certify-live.json
+          grep -q '"workspace_ready": true' /tmp/semantic-platform-certify-live.json
+          grep -q '"requires_result_parity": true' /tmp/semantic-platform-certify-live.json
+          grep -q '"requires_query_history_telemetry": true' /tmp/semantic-platform-certify-live.json
+          set +e
+          semantic-platform certify-live --workspace /tmp/semantic-platform-demo --concurrency 1 --iterations 1 >/tmp/semantic-platform-certify-refusal.json
+          code=$?
+          set -e
+          test "$code" -eq 2
+          grep -q 'without --confirm' /tmp/semantic-platform-certify-refusal.json
       - name: Generate bounded smoke dataset
         run: python scripts/rga_testbed/generate_data.py --preset tiny --policies 120 --seed 42 --output /tmp/rga-smoke
       - name: Validate generated dataset
