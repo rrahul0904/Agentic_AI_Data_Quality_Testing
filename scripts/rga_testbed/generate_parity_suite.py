@@ -81,6 +81,8 @@ def build_suite(database: str, contract_path: Path = DEFAULT_CONTRACT) -> dict:
                     "same_filter_context": True,
                     "same_security_context": True,
                     "numeric_tolerance": 1e-9,
+                    "require_captured_evidence": True,
+                    "allow_empty_result": False,
                 },
             }
         )
