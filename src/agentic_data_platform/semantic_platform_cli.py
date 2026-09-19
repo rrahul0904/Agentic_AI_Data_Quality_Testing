@@ -710,6 +710,82 @@ def certify_live(
     return manifest
 
 
+def consumer_parity_plan(
+    workspace: Path,
+    evidence_dir: Path,
+) -> dict[str, Any]:
+    manifest_path = workspace / "release" / "parity" / "parity_manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"parity manifest not found: {manifest_path}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    consumers = manifest.get("required_consumers", [])
+    expected: list[dict[str, Any]] = []
+    for case in manifest.get("cases", []):
+        for consumer in consumers:
+            path = evidence_dir / f"{case['id']}.{consumer}.json"
+            expected.append(
+                {
+                    "case_id": case["id"],
+                    "consumer": consumer,
+                    "path": str(path),
+                    "exists": path.exists(),
+                }
+            )
+    missing = [item for item in expected if not item["exists"]]
+    return {
+        "manifest": str(manifest_path),
+        "evidence_dir": str(evidence_dir),
+        "case_count": len(manifest.get("cases", [])),
+        "consumer_count": len(consumers),
+        "expected_evidence_count": len(expected),
+        "present_evidence_count": len(expected) - len(missing),
+        "missing_evidence_count": len(missing),
+        "required_consumers": consumers,
+        "missing": missing,
+        "evidence_contract": {
+            "capture_status": "CAPTURED",
+            "security_context_required": True,
+            "non_empty_rows_required": True,
+            "same_security_context_required": True,
+        },
+    }
+
+
+def certify_consumers(
+    workspace: Path,
+    *,
+    evidence_dir: Path,
+    output: Path | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    plan = consumer_parity_plan(workspace, evidence_dir)
+    if dry_run:
+        return {"status": "DRY_RUN", **plan}
+
+    output = output or (workspace / "evidence" / "cross_consumer_parity.json")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    result = _run(
+        _python_script(
+            "validate_parity_evidence.py",
+            "--manifest",
+            plan["manifest"],
+            "--evidence-dir",
+            str(evidence_dir),
+        ),
+        capture=True,
+    )
+    try:
+        report = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(result.stdout.strip() or result.stderr.strip() or "consumer parity validator returned invalid output") from exc
+    report["evidence_dir"] = str(evidence_dir)
+    report["report"] = str(output)
+    report["expected_evidence_count"] = plan["expected_evidence_count"]
+    report["present_evidence_count"] = plan["present_evidence_count"]
+    output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    return report
+
+
 def release(
     output: Path,
     *,
@@ -795,6 +871,15 @@ def build_parser() -> argparse.ArgumentParser:
     certify.add_argument("--confirm", action="store_true")
     certify.add_argument("--dry-run", action="store_true")
 
+    consumers = sub.add_parser(
+        "certify-consumers",
+        help="Plan or validate Snowflake/AI/Power BI/Excel parity evidence.",
+    )
+    consumers.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE)
+    consumers.add_argument("--evidence-dir", type=Path, required=True)
+    consumers.add_argument("--output", type=Path)
+    consumers.add_argument("--dry-run", action="store_true")
+
     return parser
 
 
@@ -857,6 +942,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 dry_run=args.dry_run,
                 agent=args.agent,
                 questions=args.question,
+            )
+            print(_json(result))
+            return 0 if result["status"] in {"PASS", "DRY_RUN"} else 1
+        if args.command == "certify-consumers":
+            result = certify_consumers(
+                args.workspace,
+                evidence_dir=args.evidence_dir,
+                output=args.output,
+                dry_run=args.dry_run,
             )
             print(_json(result))
             return 0 if result["status"] in {"PASS", "DRY_RUN"} else 1
