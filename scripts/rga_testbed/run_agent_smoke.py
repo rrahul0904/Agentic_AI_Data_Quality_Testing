@@ -11,9 +11,9 @@ from typing import Any
 import yaml
 
 try:
-    from scripts.rga_testbed.result_signature import result_set_signature
+    from scripts.rga_testbed.result_signature import result_set_rows, result_set_signature
 except ModuleNotFoundError:
-    from result_signature import result_set_signature
+    from result_signature import result_set_rows, result_set_signature
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONTRACT = ROOT / "config" / "rga_semantic_contract.yml"
@@ -28,6 +28,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--agent")
     parser.add_argument("--question", action="append")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--max-rows", type=int, default=10000)
     parser.add_argument("--confirm", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -118,8 +119,11 @@ def _execution_from_payload(
     tool_type: str | None,
     status: str | None,
     payload: dict[str, Any],
+    max_rows: int,
 ) -> dict[str, Any]:
-    signature = result_set_signature(payload.get("result_set"))
+    result_set = payload.get("result_set")
+    signature = result_set_signature(result_set)
+    captured = result_set_rows(result_set, max_rows=max_rows)
     return {
         "name": name,
         "type": tool_type,
@@ -127,10 +131,11 @@ def _execution_from_payload(
         "query_id": payload.get("query_id"),
         "sql": payload.get("sql"),
         "result_signature": signature,
+        "result_rows": captured,
     }
 
 
-def extract_evidence(response: dict[str, Any]) -> dict[str, Any]:
+def extract_evidence(response: dict[str, Any], max_rows: int = 10000) -> dict[str, Any]:
     texts: list[str] = []
     tool_names: list[str] = []
     tool_types: list[str] = []
@@ -176,6 +181,7 @@ def extract_evidence(response: dict[str, Any]) -> dict[str, Any]:
                             tool_type=tool_type,
                             status=tool_result.get("status"),
                             payload=payload,
+                            max_rows=max_rows,
                         )
                     )
 
@@ -190,6 +196,7 @@ def extract_evidence(response: dict[str, Any]) -> dict[str, Any]:
                         "query_id": table.get("query_id"),
                         "result_set": table.get("result_set"),
                     },
+                    max_rows=max_rows,
                 )
             )
 
@@ -224,28 +231,35 @@ def assess_evidence(evidence: dict[str, Any]) -> tuple[str, list[str]]:
     ]
     if not executions:
         errors.append("no successful analytical SQL result set was observed")
+    if any(
+        isinstance(item.get("result_rows"), dict)
+        and item["result_rows"].get("truncated")
+        for item in executions
+    ):
+        errors.append("analytical result exceeded max_rows and would be truncated")
     if evidence.get("warnings"):
         errors.append("agent returned warnings")
     return ("PASS" if not errors else "FAIL", errors)
 
 
-def dry_run_payload(agent: str, work: list[dict[str, str]]) -> dict[str, Any]:
+def dry_run_payload(agent: str, work: list[dict[str, str]], max_rows: int = 10000) -> dict[str, Any]:
     return {
         "status": "DRY_RUN",
         "agent": agent,
         "task_count": len(work),
+        "max_rows": max_rows,
         "tasks": work,
         "acceptance": [
             "assistant final text is present",
             "successful analytical SQL execution is observed (current system_execute_sql or compatible Analyst result)",
-            "analytical result_set is captured as a parity-ready canonical signature",
+            "analytical result_set is captured as parity-ready canonical signatures and bounded rows",
             "no Agent warnings are returned",
             "reasoning/thinking content is not persisted in evidence",
         ],
     }
 
 
-def run(agent: str, work: list[dict[str, str]], env: dict[str, str]) -> dict[str, Any]:
+def run(agent: str, work: list[dict[str, str]], env: dict[str, str], max_rows: int = 10000) -> dict[str, Any]:
     try:
         import snowflake.connector
     except ImportError as exc:
@@ -278,7 +292,7 @@ select try_parse_json(
                     )
                     continue
                 response = _coerce_response(row[0])
-                evidence = extract_evidence(response)
+                evidence = extract_evidence(response, max_rows=max_rows)
                 status, errors = assess_evidence(evidence)
                 results.append(
                     {
@@ -318,14 +332,17 @@ def main() -> int:
     if not work:
         print(json.dumps({"status": "FAIL", "error": "No Agent smoke questions configured"}, indent=2))
         return 1
+    if args.max_rows < 1 or args.max_rows > 100000:
+        print(json.dumps({"status": "FAIL", "error": "max_rows must be between 1 and 100000"}, indent=2))
+        return 1
     if args.dry_run:
-        print(json.dumps(dry_run_payload(agent, work), indent=2))
+        print(json.dumps(dry_run_payload(agent, work, args.max_rows), indent=2))
         return 0
     if not args.confirm:
         print(json.dumps({"status": "REFUSED", "error": "Refusing live Cortex Agent smoke test without --confirm"}, indent=2))
         return 2
     try:
-        report = run(agent, work, dict(os.environ))
+        report = run(agent, work, dict(os.environ), max_rows=args.max_rows)
     except Exception as exc:
         print(json.dumps({"status": "FAIL", "error": str(exc), "agent": agent}, indent=2))
         return 1
