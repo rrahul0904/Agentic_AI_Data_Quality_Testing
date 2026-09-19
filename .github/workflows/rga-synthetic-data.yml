@@ -69,6 +69,8 @@ jobs:
           semantic-platform benchmark --workspace /tmp/semantic-platform-demo --mode both --concurrency 10 --iterations 2 --dry-run >/tmp/semantic-platform-benchmark.json
           grep -q '"status": "DRY_RUN"' /tmp/semantic-platform-benchmark.json
           grep -q '"task_count": 12' /tmp/semantic-platform-benchmark.json
+          grep -q 'direct and semantic result signatures match' /tmp/semantic-platform-benchmark.json
+          grep -q 'Snowflake Query History telemetry is collected with bounded retry' /tmp/semantic-platform-benchmark.json
       - name: Generate bounded smoke dataset
         run: python scripts/rga_testbed/generate_data.py --preset tiny --policies 120 --seed 42 --output /tmp/rga-smoke
       - name: Validate generated dataset
@@ -116,6 +118,8 @@ jobs:
           python scripts/rga_testbed/run_snowflake_benchmark.py --manifest /tmp/rga-benchmarks/manifest.json --mode both --concurrency 10 --iterations 2 --dry-run >/tmp/benchmark-dry-run.json
           grep -q 'DRY_RUN' /tmp/benchmark-dry-run.json
           grep -q '"task_count": 12' /tmp/benchmark-dry-run.json
+          grep -q 'direct and semantic result signatures match' /tmp/benchmark-dry-run.json
+          grep -q 'bounded retry' /tmp/benchmark-dry-run.json
       - name: Generate Airflow orchestration
         run: |
           python scripts/rga_testbed/generate_airflow_dag.py --output /tmp/rga-airflow/rga_synthetic_pipeline.py
