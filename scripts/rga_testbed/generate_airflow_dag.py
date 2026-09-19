@@ -27,10 +27,13 @@ from airflow.operators.bash import BashOperator
 from airflow.operators.python import ShortCircuitOperator
 
 REPO = os.environ.get("RGA_REPO_ROOT", "/opt/airflow/repo")
-DBT_DIR = f"{REPO}/rga-snowflake-data-platform/dbt"
-SEMANTIC_DIR = f"{REPO}/rga-snowflake-data-platform/semantic"
-SQL_DIR = f"{REPO}/snowflake/rga_testbed"
-CDC_DIR = f"{REPO}/artifacts/rga_cdc"
+WORKSPACE = os.environ.get("RGA_WORKSPACE", f"{REPO}/artifacts/semantic_platform_demo")
+DATA_DIR = f"{WORKSPACE}/data"
+CDC_DIR = f"{WORKSPACE}/cdc"
+SQL_DIR = f"{WORKSPACE}/snowflake"
+DBT_DIR = f"{WORKSPACE}/dbt"
+RELEASE_DIR = f"{WORKSPACE}/release"
+SEMANTIC_DIR = f"{RELEASE_DIR}/semantic"
 
 
 def semantic_deploy_enabled(**context):
@@ -54,7 +57,16 @@ with DAG(
         task_id="generate_synthetic_data",
         bash_command=(
             f"cd {REPO} && python scripts/rga_testbed/generate_data.py "
-            "--preset {{ params.preset }} --seed {{ params.seed }}"
+            "--preset {{ params.preset }} --seed {{ params.seed }} "
+            f"--output {DATA_DIR}"
+        ),
+    )
+
+    validate_data = BashOperator(
+        task_id="validate_synthetic_data",
+        bash_command=(
+            f"cd {REPO} && python scripts/rga_testbed/validate_dataset.py "
+            f"--input {DATA_DIR}"
         ),
     )
 
@@ -62,13 +74,12 @@ with DAG(
         task_id="generate_pipeline_contracts",
         bash_command=(
             f"cd {REPO} && "
-            "python scripts/rga_testbed/generate_snowflake_ddl.py && "
-            "python scripts/rga_testbed/generate_load_sql.py && "
-            "python scripts/rga_testbed/generate_change_events.py && "
-            "python scripts/rga_testbed/generate_cdc_apply_sql.py && "
-            "python scripts/rga_testbed/generate_dbt_project.py && "
-            "python scripts/rga_testbed/generate_semantic_view.py && "
-            "python scripts/rga_testbed/generate_benchmark_pack.py"
+            f"python scripts/rga_testbed/generate_snowflake_ddl.py --output {SQL_DIR}/001_raw_tables.sql && "
+            f"python scripts/rga_testbed/generate_load_sql.py --output {SQL_DIR}/002_load_raw.sql --local-root {DATA_DIR}/csv && "
+            f"python scripts/rga_testbed/generate_change_events.py --input {DATA_DIR} --output {CDC_DIR} && "
+            f"python scripts/rga_testbed/generate_cdc_apply_sql.py --input {CDC_DIR}/change_events.jsonl --output {SQL_DIR}/003_apply_cdc.sql && "
+            f"python scripts/rga_testbed/generate_dbt_project.py --output {DBT_DIR} && "
+            f"python scripts/rga_testbed/build_semantic_release.py --output {RELEASE_DIR}"
         ),
     )
 
@@ -174,7 +185,7 @@ with DAG(
         ),
     )
 
-    generate_data >> generate_contracts >> bootstrap_snowflake >> load_raw >> dbt_build >> verify_semantic_view
+    generate_data >> validate_data >> generate_contracts >> bootstrap_snowflake >> load_raw >> dbt_build >> verify_semantic_view
     verify_semantic_view >> semantic_deploy_gate >> deploy_semantic_view
     verify_semantic_view >> cdc_apply_gate >> capture_cdc_semantic_baseline >> apply_cdc
     apply_cdc >> dbt_rebuild_after_cdc >> verify_semantic_after_cdc >> validate_cdc_application >> validate_cdc_semantic_effects
