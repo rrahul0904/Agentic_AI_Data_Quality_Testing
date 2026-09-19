@@ -99,6 +99,9 @@ def test_agent_evidence_extracts_current_system_execute_sql_result_without_think
     assert execution["query_id"] == "qid-1"
     assert execution["result_signature"]["row_count"] == 1
     assert execution["result_signature"]["value_sha256"]
+    assert execution["result_rows"]["columns"] == ["TOTAL_CEDED_PREMIUM"]
+    assert execution["result_rows"]["rows"] == [{"TOTAL_CEDED_PREMIUM": "100"}]
+    assert execution["result_rows"]["truncated"] is False
     assert "private reasoning" not in str(evidence)
 
 
@@ -147,3 +150,45 @@ def test_agent_smoke_dry_run_lists_current_analytical_acceptance_contract():
     assert any("system_execute_sql" in item for item in payload["acceptance"])
     assert any("canonical signature" in item for item in payload["acceptance"])
     assert any("reasoning/thinking content is not persisted" in item for item in payload["acceptance"])
+
+
+def test_agent_evidence_fails_if_result_rows_would_be_truncated():
+    module = _module()
+    response = {
+        "role": "assistant",
+        "content": [
+            {
+                "type": "tool_result",
+                "tool_result": {
+                    "name": "system_execute_sql",
+                    "type": "system_execute_sql",
+                    "status": "success",
+                    "content": [
+                        {
+                            "type": "json",
+                            "json": {
+                                "query_id": "qid-large",
+                                "result_set": {
+                                    "resultSetMetaData": {
+                                        "rowType": [{"name": "METRIC_A"}],
+                                        "numRows": 2,
+                                    },
+                                    "data": [["1"], ["2"]],
+                                },
+                            },
+                        }
+                    ],
+                },
+            },
+            {"type": "text", "text": "Two rows."},
+        ],
+        "warnings": [],
+    }
+    evidence = module.extract_evidence(response, max_rows=1)
+    execution = evidence["analytical_executions"][0]
+    assert execution["result_rows"]["captured_row_count"] == 1
+    assert execution["result_rows"]["declared_row_count"] == 2
+    assert execution["result_rows"]["truncated"] is True
+    status, errors = module.assess_evidence(evidence)
+    assert status == "FAIL"
+    assert any("truncated" in error for error in errors)
