@@ -141,28 +141,48 @@ def validate(events: list[dict[str, Any]], database: str, env: dict[str, str]) -
     placeholders = ", ".join(["%s"] * len(event_ids))
     connection = snowflake.connector.connect(**connection_kwargs(env, database))
     results: list[dict[str, Any]] = []
-    audit_rows: dict[str, str] = {}
+    audit_rows: dict[str, dict[str, Any]] = {}
     try:
         cursor = connection.cursor()
         try:
             cursor.execute(
                 f"""
-select EVENT_ID, STATUS
+select EVENT_ID, STATUS, COUNT(*) AS ROW_COUNT
 from AUDIT.CDC_EVENT_APPLICATIONS
-where EVENT_ID in ({placeholders})
-""",
+where EVENT_ID in (placeholders)
+group by EVENT_ID, STATUS
+""".replace("$placeholders", placeholders),
                 tuple(event_ids),
             )
-            audit_rows = {str(row[0]): str(row[1]) for row in cursor.fetchall()}
+            for row in cursor.fetchall():
+                event_id = str(row[0])
+                status = str(row[1])
+                count = int(row[2])
+                if event_id in audit_rows:
+                    audit_rows[event_id]["count"] += count
+                    audit_rows[event_id]["statuses"].add(status)
+                else:
+                    audit_rows[event_id] = {
+                        "count": count,
+                        "statuses": {status},
+                    }
 
             for event in events:
                 event_id = str(event["event_id"])
                 check = event_check(event)
                 errors: list[str] = []
-                if audit_rows.get(event_id) != "APPLIED":
-                    errors.append(
-                        f"audit status expected APPLIED, got {audit_rows.get(event_id)!r}"
-                    )
+                audit = audit_rows.get(event_id)
+                if not audit:
+                    errors.append("audit record is missing")
+                else:
+                    if audit["count"] != 1:
+                        errors.append(
+                            f"audit row count expected 1, got {audit['count']}"
+                        )
+                    if audit["statuses"] != {"APPLIED"}:
+                        errors.append(
+                            f"audit status expected only APPLIED, got {sorted(audit['statuses'])!r}"
+                        )
 
                 columns = list(check["fields"])
                 cursor.execute(
