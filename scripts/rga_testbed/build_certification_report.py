@@ -110,15 +110,15 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
             f"({evidence_status['captured']}/{evidence_status['expected']} captured)"
         )
 
-    production_certified = bool(
+    end_to_end_certified = bool(
         release
         and live_status == "PASS"
         and consumer_status == "PASS"
         and evidence_status["status"] == "COMPLETE"
     )
 
-    if production_certified:
-        overall_status = "PRODUCTION_CERTIFIED"
+    if end_to_end_certified:
+        overall_status = "END_TO_END_CERTIFIED_FOR_EXECUTED_WORKLOAD"
     elif release and live_status == "PASS":
         overall_status = "LIVE_RUNTIME_CERTIFIED_CONSUMER_PARITY_PENDING"
     elif release:
@@ -129,7 +129,8 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
     return {
         "certification_report_version": 1,
         "overall_status": overall_status,
-        "production_certified": production_certified,
+        "end_to_end_certified": end_to_end_certified,
+        "production_rollout_certified": False,
         "workspace": str(workspace),
         "evidence_dir": str(evidence_dir),
         "release": {
@@ -164,10 +165,13 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
             "recommendation_count": len(workload.get("recommendations", [])) if workload else None,
         },
         "blockers": blockers,
+        "production_rollout_blockers": [
+            "target-scale SLA/load evidence and organizational operational approval are outside this report"
+        ],
         "truth_boundary": (
-            "PRODUCTION_CERTIFIED is emitted only when the governed release exists, "
-            "live Snowflake certification passes, all required consumer evidence is captured, "
-            "and cross-consumer parity passes."
+            "END_TO_END_CERTIFIED_FOR_EXECUTED_WORKLOAD means the governed release, live Snowflake runtime, "
+            "captured consumer evidence, and cross-consumer parity passed for the executed workload/environment. "
+            "It does not by itself certify a production rollout."
         ),
     }
 
@@ -179,7 +183,8 @@ def render_markdown(report: dict[str, Any]) -> str:
         "# Governed Semantic Platform Certification",
         "",
         f"**Overall status:** {report['overall_status']}",
-        f"**Production certified:** {'YES' if report['production_certified'] else 'NO'}",
+        f"**End-to-end certified for executed workload:** {'YES' if report['end_to_end_certified'] else 'NO'}",
+        f"**Production rollout certified:** {'YES' if report['production_rollout_certified'] else 'NO'}",
         "",
         "## Certification surfaces",
         "",
@@ -229,7 +234,8 @@ def generate(
     return {
         "status": "PASS",
         "overall_status": report["overall_status"],
-        "production_certified": report["production_certified"],
+        "end_to_end_certified": report["end_to_end_certified"],
+        "production_rollout_certified": report["production_rollout_certified"],
         "json": str(json_path),
         "markdown": str(markdown_path),
         "blockers": report["blockers"],
