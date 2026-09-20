@@ -1,0 +1,18 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ade-api-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: ade-api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: ade-web
+      ports:
+        - protocol: TCP
+          port: 8001
