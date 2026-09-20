@@ -19,13 +19,53 @@ function backendBase(): string | null {
   return null;
 }
 
+type WebUser = { password: string; api_token: string };
+
+function webUsers(): Record<string, WebUser> {
+  const raw = process.env.ADE_WEB_USERS_JSON?.trim();
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, WebUser>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function apiTokenForRequest(request: NextRequest): string | null {
+  const serviceToken = process.env.ADE_API_SERVICE_TOKEN?.trim();
+  const authorization = request.headers.get("authorization") || "";
+  if (authorization.toLowerCase().startsWith("basic ")) {
+    try {
+      const decoded = atob(authorization.slice(6));
+      const separator = decoded.indexOf(":");
+      const username = separator >= 0 ? decoded.slice(0, separator) : "";
+      const password = separator >= 0 ? decoded.slice(separator + 1) : "";
+      const user = webUsers()[username];
+      if (user && user.password === password && user.api_token) {
+        return user.api_token;
+      }
+    } catch {
+      return null;
+    }
+  }
+  return serviceToken || null;
+}
+
 function upstreamHeaders(request: NextRequest): Headers {
   const headers = new Headers();
   request.headers.forEach((value, key) => {
-    if (!HOP_BY_HOP.has(key.toLowerCase()) && key.toLowerCase() !== "content-length") {
+    const lower = key.toLowerCase();
+    if (
+      !HOP_BY_HOP.has(lower)
+      && lower !== "content-length"
+      && lower !== "authorization"
+    ) {
       headers.set(key, value);
     }
   });
+  const apiToken = apiTokenForRequest(request);
+  if (apiToken) headers.set("authorization", `Bearer ${apiToken}`);
   headers.set("accept", request.headers.get("accept") || "application/json");
   headers.set("x-ade-web-proxy", "1");
   return headers;
