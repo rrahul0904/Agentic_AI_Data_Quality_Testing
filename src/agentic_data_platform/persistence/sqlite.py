@@ -89,9 +89,19 @@ class SQLiteControlPlaneRepository(ControlPlaneRepository):
             (record.approval_id, record.run_id, record.approved_by, record.scope, int(record.approved), record.action, environment, record.expires_at, record.used_at, record.created_at),
         )
 
+    def get_approval(self, approval_id: str) -> dict[str, Any] | None:
+        row = self._conn().execute("SELECT * FROM approvals WHERE approval_id = ?", (approval_id,)).fetchone()
+        return dict(row) if row is not None else None
+
+    def consume_approval(self, approval_id: str) -> None:
+        self._execute(
+            "UPDATE approvals SET used_at = ? WHERE approval_id = ? AND used_at IS NULL",
+            (utc_now(), approval_id),
+        )
+
     def has_approval(self, run_id: str, scope: str, *, action: str = "execute", environment: str | None = None) -> bool:
         params: list[Any] = [run_id, scope, action, utc_now()]
-        sql = "SELECT 1 FROM approvals WHERE run_id = ? AND scope = ? AND action = ? AND approved = 1 AND (expires_at IS NULL OR expires_at > ?)"
+        sql = "SELECT 1 FROM approvals WHERE run_id = ? AND scope = ? AND action = ? AND approved = 1 AND used_at IS NULL AND (expires_at IS NULL OR expires_at > ?)"
         if environment is not None:
             sql += " AND (environment IS NULL OR environment = ?)"
             params.append(environment)
