@@ -174,3 +174,67 @@ Repository certification is necessary but does not prove a customer environment.
 - monitoring/logging/alerting integration.
 
 Missing external evidence must remain explicitly marked as external rather than being inferred from repository CI.
+
+
+## Immutable release images
+
+For production promotion, use the manual `production-release` workflow from the `main` branch.
+
+The workflow:
+
+- reruns canonical repository certification for the selected exact SHA;
+- optionally runs live read-only Snowflake certification through the protected `snowflake-pipeline-test` environment;
+- publishes API and web images to GHCR with immutable `sha-<commit>` tags;
+- creates build-provenance attestations for both image digests;
+- emits `artifacts/production-release.json` with the exact commit, image tags, digests and immutable image references.
+
+No `latest` tag is used as the deployment identity.
+
+## Deploy immutable images with Docker Compose
+
+After `production-release.json` is available, set the immutable image references and run the release compose contract:
+
+```bash
+export ADE_COMMIT_SHA=<released-sha>
+export ADE_API_IMAGE='ghcr.io/<owner>/agentic-ai-data-quality-testing-api@sha256:<digest>'
+export ADE_WEB_IMAGE='ghcr.io/<owner>/agentic-ai-data-quality-testing-web@sha256:<digest>'
+export ADE_API_KEYS_JSON='...'
+export ADE_WEB_USERS_JSON='...'
+export ADE_PROJECT_ROOT_HOST=/absolute/path/to/the/managed/project
+
+docker compose -f docker-compose.release.yml up -d
+```
+
+The release compose file does not build mutable local images. It consumes the exact released image references supplied by the operator.
+
+## Kubernetes base
+
+A provider-neutral Kustomize base is available at `deploy/k8s/base`.
+
+It includes:
+
+- non-root API and web pods;
+- fixed API UID/GID for predictable persistent-volume ownership;
+- two web replicas;
+- readiness and liveness probes;
+- ClusterIP-only API exposure;
+- persistent claims for ADE state and the managed project workspace;
+- an API ingress NetworkPolicy that accepts traffic only from the ADE web tier;
+- explicit secret references for API credentials and web-user mappings.
+
+Create secrets from the structure in `deploy/k8s/secret.example.yaml`; never apply the example unchanged.
+
+Before applying the base, replace the release placeholders with the exact release evidence:
+
+```bash
+cd deploy/k8s/base
+kustomize edit set image \
+  ghcr.io/rrahul0904/agentic-ai-data-quality-testing-api=ghcr.io/<owner>/agentic-ai-data-quality-testing-api@sha256:<api-digest> \
+  ghcr.io/rrahul0904/agentic-ai-data-quality-testing-web=ghcr.io/<owner>/agentic-ai-data-quality-testing-web@sha256:<web-digest>
+
+# Set ADE_COMMIT_SHA in configmap.yaml to the same released SHA.
+kubectl apply -f ../secret.yaml
+kubectl apply -k .
+```
+
+Ingress, TLS certificates, storage classes, external secret operators, service-mesh policy and cloud-specific identity remain environment-specific and intentionally sit outside the provider-neutral base.
