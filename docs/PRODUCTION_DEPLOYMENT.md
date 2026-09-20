@@ -207,6 +207,8 @@ docker compose -f docker-compose.release.yml up -d
 
 The release compose file does not build mutable local images. It consumes the exact released image references supplied by the operator.
 
+The API container runs as UID/GID `10001`. If the mounted project must support approved Builder edits, the host path must be writable by UID/GID 10001 (or be provisioned with equivalent ACLs). Read-only production analysis can mount the project read-only instead.
+
 ## Kubernetes base
 
 A provider-neutral Kustomize base is available at `deploy/k8s/base`.
