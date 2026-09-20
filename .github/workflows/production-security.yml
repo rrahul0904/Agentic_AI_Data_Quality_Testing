@@ -124,7 +124,7 @@ jobs:
 
           APPROVAL_ID="$(python -c 'import json; print(json.load(open("/tmp/approval.json"))["approval_id"])')"
 
-          python - "$RUN_ID" "$APPROVAL_ID" "${{ github.workspace }}" <<'PY'
+          python - "$RUN_ID" "$APPROVAL_ID" "/workspace" <<'PY'
           import json, sys
           run_id, approval_id, workspace = sys.argv[1:4]
           json.dump(
