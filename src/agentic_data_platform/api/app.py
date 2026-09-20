@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
 from typing import Any
@@ -13,11 +13,20 @@ from pydantic import BaseModel, Field
 from agentic_data_platform.agents.planner import PlannerAgent
 from agentic_data_platform.errors import safe_error
 from agentic_data_platform.agents import InvestigationStore, SupervisorAgent
-from agentic_data_platform.models import ActorMode, ApprovalRecord, Environment, InteractionMode, ProjectRecord, RunRecord, ToolRequest
+from agentic_data_platform.models import ActorMode, ApprovalRecord, Environment, InteractionMode, ProjectRecord, Risk, RunRecord, ToolRequest
 from agentic_data_platform.persistence.sqlite import SQLiteControlPlaneRepository
 from agentic_data_platform.sql.parser import parse_sql
 from agentic_data_platform.tools.builtin import build_tool_registry
 from agentic_data_platform.tools.registry import ToolInvocation
+from agentic_data_platform.api.security import (
+    ApiKeyAuthMiddleware,
+    auth_required,
+    current_principal,
+    production_mode,
+    require_actor_mode,
+    require_role,
+    validate_runtime_configuration,
+)
 
 
 class ProjectInput(BaseModel):
@@ -58,6 +67,8 @@ class ToolInput(BaseModel):
     environment: Environment = Environment.DEV
     dry_run: bool = False
     approved: bool = False
+    run_id: str | None = None
+    approval_id: str | None = None
 
 
 class SqlWorkspaceInput(BaseModel):
@@ -170,7 +181,7 @@ def _program_root() -> Path:
 
 
 def _project_root() -> Path:
-    configured = os.getenv("ADE_DEMO_PROJECT")
+    configured = os.getenv("ADE_PROJECT_ROOT") or os.getenv("ADE_DEMO_PROJECT")
     return Path(configured).expanduser().resolve() if configured else _program_root() / "hospitality-snowflake-data-platform"
 
 
@@ -189,18 +200,20 @@ def _shiftforge_fixture() -> Path:
 
 
 def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAPI:
+    validate_runtime_configuration()
     repo = repository or SQLiteControlPlaneRepository(os.getenv("ADE_DATABASE_PATH", "ade.db"))
     repo.initialize()
     registry = build_tool_registry()
     investigation_store = InvestigationStore(_investigation_database())
     supervisor = SupervisorAgent(registry, investigation_store, _project_root())
     app = FastAPI(title="Agentic Data Engineering OS", version="0.5.0")
+    app.add_middleware(ApiKeyAuthMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=os.getenv("ADE_UI_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(","),
         allow_credentials=False,
         allow_methods=["GET", "POST", "PATCH", "DELETE"],
-        allow_headers=["content-type"],
+        allow_headers=["content-type", "authorization"],
     )
 
     def invoke_governed(
@@ -212,7 +225,12 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
         environment: Environment = Environment.DEV,
         dry_run: bool = False,
         approved: bool = False,
+        run_id: str | None = None,
     ) -> dict[str, Any]:
+        try:
+            require_actor_mode(actor_mode)
+        except PermissionError as exc:
+            raise HTTPException(403, safe_error(exc)) from exc
         definition = registry.describe(tool_name)
         request = ToolRequest(
             tool=tool_name,
@@ -225,7 +243,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             return registry.invoke(
                 ToolInvocation(
                     request,
-                    run_id=f"api-v1-{tool_name}",
+                    run_id=run_id or f"api-v1-{tool_name}",
                     approved=approved,
                     dry_run=dry_run,
                     actor_mode=actor_mode,
@@ -240,6 +258,71 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             raise HTTPException(404, safe_error(exc)) from exc
         except ValueError as exc:
             raise HTTPException(400, safe_error(exc)) from exc
+
+    def _parse_expiry(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    def _resolve_server_approval(
+        tool_name: str,
+        payload: ToolInput,
+    ) -> tuple[bool, str | None, str | None]:
+        definition = registry.describe(tool_name)
+        if definition.risk is Risk.READ_ONLY:
+            return False, payload.run_id, None
+
+        if not auth_required():
+            return payload.approved, payload.run_id, None
+
+        if payload.approved and not payload.approval_id:
+            raise HTTPException(
+                403,
+                "client-supplied approved=true is not trusted; provide a persisted approval_id",
+            )
+        if not payload.approval_id or not payload.run_id:
+            raise HTTPException(
+                403,
+                "mutating production tool calls require run_id and approval_id",
+            )
+
+        record = repo.get_approval(payload.approval_id)
+        if record is None:
+            raise HTTPException(403, "approval not found")
+        if not bool(record["approved"]) or record.get("used_at"):
+            raise HTTPException(403, "approval is unavailable or already consumed")
+        if str(record["run_id"]) != payload.run_id:
+            raise HTTPException(403, "approval run_id does not match tool invocation")
+        if str(record["scope"]) != tool_name:
+            raise HTTPException(403, "approval scope does not match tool")
+        if str(record.get("action") or "") != "execute":
+            raise HTTPException(403, "approval action does not authorize execution")
+        record_environment = record.get("environment")
+        if record_environment and str(record_environment) != payload.environment.value:
+            raise HTTPException(403, "approval environment does not match tool invocation")
+        expiry = _parse_expiry(record.get("expires_at"))
+        if expiry is not None and expiry <= datetime.now(timezone.utc):
+            raise HTTPException(403, "approval has expired")
+        return True, payload.run_id, payload.approval_id
+
+    def _invoke_tool_payload(tool_name: str, payload: ToolInput) -> dict[str, Any]:
+        approved, run_id, approval_id = _resolve_server_approval(tool_name, payload)
+        result = invoke_governed(
+            tool_name,
+            payload.args,
+            actor_mode=payload.actor_mode,
+            interaction_mode=payload.interaction_mode,
+            environment=payload.environment,
+            dry_run=payload.dry_run,
+            approved=approved,
+            run_id=run_id,
+        )
+        if approval_id is not None:
+            repo.consume_approval(approval_id)
+        return result
 
     def invoke_read(tool_name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
         return invoke_governed(tool_name, args, actor_mode=ActorMode.ANALYST)
@@ -1547,18 +1630,12 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
         tool_name = operations.get(operation)
         if tool_name is None:
             raise HTTPException(404, f"unknown {domain} operation: {operation}")
-        return invoke_governed(
-            tool_name,
-            payload.args,
-            actor_mode=payload.actor_mode,
-            interaction_mode=payload.interaction_mode,
-            environment=payload.environment,
-            dry_run=payload.dry_run,
-            approved=payload.approved,
-        )
+        return _invoke_tool_payload(tool_name, payload)
 
     @app.post("/projects")
     def create_project(payload: ProjectInput) -> dict[str, Any]:
+        if auth_required():
+            require_role(ActorMode.BUILDER)
         record = ProjectRecord(payload.name)
         repo.save_project(record)
         return _record_payload(record)
@@ -1569,6 +1646,8 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
 
     @app.post("/runs")
     def create_run(payload: RunInput) -> dict[str, Any]:
+        if auth_required():
+            require_role(ActorMode.BUILDER)
         record = RunRecord(payload.project_id, payload.environment_id, payload.intent)
         repo.save_run(record)
         return _record_payload(record)
@@ -1622,21 +1701,35 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
 
     @app.post("/tools/{tool_name}")
     def invoke_tool(tool_name: str, payload: ToolInput) -> dict[str, Any]:
-        return invoke_governed(
-            tool_name,
-            payload.args,
-            actor_mode=payload.actor_mode,
-            interaction_mode=payload.interaction_mode,
-            environment=payload.environment,
-            dry_run=payload.dry_run,
-            approved=payload.approved,
-        )
+        return _invoke_tool_payload(tool_name, payload)
 
     @app.post("/approvals")
     def approve(payload: ApprovalInput) -> dict[str, Any]:
+        approved_by = payload.approved_by
+        if auth_required():
+            principal = require_role(ActorMode.ADMIN)
+            approved_by = principal.subject
+            if payload.action != "execute":
+                raise HTTPException(400, "production approvals only support execute action")
+            try:
+                registry.describe(payload.scope)
+            except KeyError as exc:
+                raise HTTPException(400, "approval scope must be an exact registered tool name") from exc
+            if repo.get_run(payload.run_id) is None:
+                raise HTTPException(400, "production approval requires an existing run_id")
+            try:
+                expiry = _parse_expiry(payload.expires_at)
+            except ValueError as exc:
+                raise HTTPException(400, "expires_at must be ISO-8601") from exc
+            now = datetime.now(timezone.utc)
+            if expiry is None or expiry <= now:
+                raise HTTPException(400, "production approval requires a future expires_at")
+            if expiry > now + timedelta(hours=24):
+                raise HTTPException(400, "production approval cannot exceed 24 hours")
+
         record = ApprovalRecord(
             payload.run_id,
-            payload.approved_by,
+            approved_by,
             payload.scope,
             action=payload.action,
             environment=payload.environment,
@@ -1647,13 +1740,17 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
 
     @app.get("/approvals/{approval_id}")
     def get_approval(approval_id: str) -> dict[str, Any]:
-        for record in repo.list_records("approvals"):
-            if record["approval_id"] == approval_id:
-                return record
+        if auth_required():
+            require_role(ActorMode.ADMIN)
+        record = repo.get_approval(approval_id)
+        if record is not None:
+            return record
         raise HTTPException(404, "approval not found")
 
     @app.get("/approvals")
     def list_approvals() -> list[dict[str, Any]]:
+        if auth_required():
+            require_role(ActorMode.ADMIN)
         return repo.list_records("approvals")
 
     @app.get("/artifacts/{artifact_id}")
