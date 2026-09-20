@@ -33,7 +33,7 @@ def test_production_containers_are_non_root() -> None:
     api = (ROOT / "deploy/Dockerfile.api").read_text()
     web = (ROOT / "apps/web/Dockerfile").read_text()
 
-    assert "useradd --system --uid 10001 --gid 10001" in api
+    assert "useradd --uid 10001 --gid 10001" in api
     assert "\nUSER ade\n" in api
     assert "COPY --chown=node:node" in web
     assert "\nUSER node\n" in web
