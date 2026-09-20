@@ -1,0 +1,59 @@
+services:
+  api:
+    image: ${ADE_API_IMAGE:?ADE_API_IMAGE is required}
+    environment:
+      PORT: "8001"
+      ADE_RUNTIME_MODE: production
+      ADE_DEMO_MODE: "false"
+      ADE_AUTH_MODE: api_key
+      ADE_API_KEYS_JSON: ${ADE_API_KEYS_JSON:?ADE_API_KEYS_JSON is required}
+      ADE_PROJECT_ROOT: /workspace
+      ADE_DATABASE_PATH: /state/control-plane.db
+      ADE_QUALITY_DATABASE: /state/quality.db
+      ADE_INVESTIGATION_DATABASE: /state/investigations.db
+      ADE_COMMIT_SHA: ${ADE_COMMIT_SHA:?ADE_COMMIT_SHA is required}
+      ADE_EXTERNAL_ASSURANCE_EVIDENCE: ${ADE_EXTERNAL_ASSURANCE_EVIDENCE:-}
+    volumes:
+      - ade-release-state:/state
+      - ${ADE_PROJECT_ROOT_HOST:?ADE_PROJECT_ROOT_HOST is required}:/workspace
+    expose:
+      - "8001"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/healthz', timeout=5).read()"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  web:
+    image: ${ADE_WEB_IMAGE:?ADE_WEB_IMAGE is required}
+    environment:
+      PORT: "3000"
+      ADE_API_URL: http://api:8001
+      ADE_WEB_AUTH_MODE: basic
+      ADE_WEB_USERS_JSON: ${ADE_WEB_USERS_JSON:?ADE_WEB_USERS_JSON is required}
+      ADE_API_SERVICE_TOKEN: ${ADE_API_SERVICE_TOKEN:-}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${ADE_WEB_BIND:-127.0.0.1}:${ADE_WEB_PORT:-3000}:3000"
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -qO-
+        - http://127.0.0.1:3000/api/healthz
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  ade-release-state:
