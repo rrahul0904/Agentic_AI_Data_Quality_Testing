@@ -14,7 +14,10 @@ COPY . .
 # non-secret offline placeholders; it does not require live Snowflake credentials.
 RUN python -m pip install --no-cache-dir . "dbt-snowflake>=1.9,<2" \
     && python scripts/parse_dbt.py
-RUN mkdir -p /state /app/.ade /app/hospitality-snowflake-data-platform/.ade
+RUN mkdir -p /state /app/.ade /app/hospitality-snowflake-data-platform/.ade \
+    && groupadd --system ade \
+    && useradd --system --gid ade --home-dir /app --shell /usr/sbin/nologin ade \
+    && chown -R ade:ade /app /state
 
 ENV ADE_DATABASE_PATH=/state/control-plane.db \
     ADE_QUALITY_DATABASE=/state/quality.db \
@@ -23,5 +26,7 @@ ENV ADE_DATABASE_PATH=/state/control-plane.db \
     PYTHONPATH=/app/src
 
 EXPOSE 8001
+
+USER ade
 
 CMD ["sh", "-c", "python -m uvicorn agentic_data_platform.api.app:app --host 0.0.0.0 --port ${PORT:-8001}"]
