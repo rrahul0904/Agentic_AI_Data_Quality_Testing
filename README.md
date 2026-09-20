@@ -1,5 +1,13 @@
 # Agentic Data Engineering OS
 
+## Production deployment boundary
+
+ADE OS now includes a separate fail-closed production stack with authenticated web/API access, role-aware principals, server-validated single-use approvals, demo-mode refusal, and exact-SHA deployment stamping.
+
+Use `docker-compose.production.yml` for production-oriented deployments, not the demo web compose file.
+
+See [docs/PRODUCTION_DEPLOYMENT.md](docs/PRODUCTION_DEPLOYMENT.md) for the required secrets, approval flow, security invariants, CI certification, and external hosted-environment evidence that must be retained before a specific deployment is called live.
+
 ## dbt Next / 2026 capability wave
 
 The project now includes a clean-room, provider-neutral implementation of the dbt 2026 product patterns described in the project brief: state-aware build planning, project-aware Wizard planning, governed semantic Explore, dashboards-as-code, per-model warehouse/lake routing, DuckDB Parquet/Iceberg compute, enterprise context bundles, and a read-only MCP v2 server.
