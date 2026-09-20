@@ -15,8 +15,8 @@ COPY . .
 RUN python -m pip install --no-cache-dir . "dbt-snowflake>=1.9,<2" \
     && python scripts/parse_dbt.py
 RUN mkdir -p /state /app/.ade /app/hospitality-snowflake-data-platform/.ade \
-    && groupadd --system --gid 10001 ade \
-    && useradd --system --uid 10001 --gid 10001 --home-dir /app --shell /usr/sbin/nologin ade \
+    && groupadd --gid 10001 ade \
+    && useradd --uid 10001 --gid 10001 --home-dir /app --shell /usr/sbin/nologin ade \
     && chown -R ade:ade /app /state
 
 ENV ADE_DATABASE_PATH=/state/control-plane.db \
