@@ -1,0 +1,171 @@
+name: production-security
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/agentic_data_platform/api/**"
+      - "src/agentic_data_platform/persistence/**"
+      - "apps/web/**"
+      - "deploy/**"
+      - "docker-compose.production.yml"
+      - "tests/test_api_production_security.py"
+      - ".github/workflows/production-security.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/agentic_data_platform/api/**"
+      - "src/agentic_data_platform/persistence/**"
+      - "apps/web/**"
+      - "deploy/**"
+      - "docker-compose.production.yml"
+      - "tests/test_api_production_security.py"
+      - ".github/workflows/production-security.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-security-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  production-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      ADE_API_KEYS_JSON: >-
+        {"analyst":{"token":"analyst-ci-token-1234567890-abcdef","subject":"analyst@ci.test","role":"analyst"},"builder":{"token":"builder-ci-token-1234567890-abcdef","subject":"builder@ci.test","role":"builder"},"admin":{"token":"admin-ci-token-123456789012-abcdef","subject":"admin@ci.test","role":"admin"}}
+      ADE_WEB_USERS_JSON: >-
+        {"analyst":{"password":"Analyst-CI-Pass-123!","api_token":"analyst-ci-token-1234567890-abcdef"},"builder":{"password":"Builder-CI-Pass-123!","api_token":"builder-ci-token-1234567890-abcdef"},"admin":{"password":"Admin-CI-Pass-123!","api_token":"admin-ci-token-123456789012-abcdef"}}
+      ADE_COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      ADE_WEB_BIND: 127.0.0.1
+      ADE_WEB_PORT: "3000"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install security test dependencies
+        run: python -m pip install -e '.[dev,testbed]'
+
+      - name: Run production security unit contract
+        run: pytest -q tests/test_api_production_security.py
+
+      - name: Ruff production security files
+        run: |
+          ruff check             src/agentic_data_platform/api/security.py             src/agentic_data_platform/api/app.py             src/agentic_data_platform/persistence/sqlite.py             tests/test_api_production_security.py
+
+      - name: Start fail-closed production stack
+        env:
+          ADE_PROJECT_ROOT_HOST: ${{ github.workspace }}/hospitality-snowflake-data-platform
+        run: docker compose -f docker-compose.production.yml up -d --build
+
+      - name: Verify production authentication and approval boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ready=false
+          for i in $(seq 1 90); do
+            if curl -fsS --connect-timeout 2 --max-time 5               http://127.0.0.1:3000/api/healthz >/tmp/web-health.json; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" = "true"
+
+          unauth_status="$(curl -sS -o /tmp/unauth.txt -w '%{http_code}' http://127.0.0.1:3000/)"
+          test "$unauth_status" = "401"
+
+          curl -fsS -u 'analyst:Analyst-CI-Pass-123!'             http://127.0.0.1:3000/ >/tmp/home.html
+          grep -q "ADE OS" /tmp/home.html
+
+          curl -fsS -u 'analyst:Analyst-CI-Pass-123!'             http://127.0.0.1:3000/api/ade/api/v1/domains >/tmp/domains.json
+
+          escalation_status="$(curl -sS -o /tmp/escalation.json -w '%{http_code}'             -u 'analyst:Analyst-CI-Pass-123!'             -H 'Content-Type: application/json'             -d '{"args":{},"actor_mode":"admin"}'             http://127.0.0.1:3000/api/ade/api/v1/dbt-next/agents-schema)"
+          test "$escalation_status" = "403"
+
+          curl -fsS -u 'builder:Builder-CI-Pass-123!'             -H 'Content-Type: application/json'             -d '{"project_id":"project-prod","environment_id":"environment-prod","intent":"production security smoke"}'             http://127.0.0.1:3000/api/ade/runs >/tmp/run.json
+
+          RUN_ID="$(python -c 'import json; print(json.load(open("/tmp/run.json"))["run_id"])')"
+          EXPIRES_AT="$(python -c 'from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)+timedelta(hours=1)).isoformat())')"
+
+          python - "$RUN_ID" "$EXPIRES_AT" <<'PY'
+          import json, sys
+          run_id, expires_at = sys.argv[1:3]
+          json.dump(
+              {
+                  "run_id": run_id,
+                  "approved_by": "spoofed@ci.test",
+                  "scope": "dbt_next_state_execute",
+                  "action": "execute",
+                  "environment": "prod",
+                  "expires_at": expires_at,
+              },
+              open("/tmp/approval-request.json", "w"),
+          )
+          PY
+
+          curl -fsS -u 'admin:Admin-CI-Pass-123!'             -H 'Content-Type: application/json'             --data-binary @/tmp/approval-request.json             http://127.0.0.1:3000/api/ade/approvals >/tmp/approval.json
+
+          python - <<'PY'
+          import json
+          payload = json.load(open("/tmp/approval.json"))
+          assert payload["approved_by"] == "admin@ci.test", payload
+          assert payload["scope"] == "dbt_next_state_execute", payload
+          PY
+
+          APPROVAL_ID="$(python -c 'import json; print(json.load(open("/tmp/approval.json"))["approval_id"])')"
+
+          python - "$RUN_ID" "$APPROVAL_ID" "${{ github.workspace }}" <<'PY'
+          import json, sys
+          run_id, approval_id, workspace = sys.argv[1:4]
+          json.dump(
+              {
+                  "args": {
+                      "plan": {
+                          "fingerprint": "production-security-smoke",
+                          "selectors": {"build": [], "clone": [], "defer": [], "skip": []},
+                          "actions": [],
+                      },
+                      "project_dir": workspace,
+                      "dry_run": True,
+                  },
+                  "actor_mode": "builder",
+                  "environment": "prod",
+                  "run_id": run_id,
+                  "approval_id": approval_id,
+              },
+              open("/tmp/execute-request.json", "w"),
+          )
+          PY
+
+          curl -fsS -u 'builder:Builder-CI-Pass-123!'             -H 'Content-Type: application/json'             --data-binary @/tmp/execute-request.json             http://127.0.0.1:3000/api/ade/api/v1/dbt-next/state-execute >/tmp/execute.json
+
+          python - <<'PY'
+          import json
+          payload = json.load(open("/tmp/execute.json"))
+          assert payload["status"] == "DRY_RUN", payload
+          PY
+
+          replay_status="$(curl -sS -o /tmp/replay.json -w '%{http_code}'             -u 'builder:Builder-CI-Pass-123!'             -H 'Content-Type: application/json'             --data-binary @/tmp/execute-request.json             http://127.0.0.1:3000/api/ade/api/v1/dbt-next/state-execute)"
+          test "$replay_status" = "403"
+
+      - name: Show production logs on failure
+        if: failure()
+        env:
+          ADE_PROJECT_ROOT_HOST: ${{ github.workspace }}/hospitality-snowflake-data-platform
+        run: docker compose -f docker-compose.production.yml logs --no-color || true
+
+      - name: Tear down production stack
+        if: always()
+        env:
+          ADE_PROJECT_ROOT_HOST: ${{ github.workspace }}/hospitality-snowflake-data-platform
+        run: docker compose -f docker-compose.production.yml down -v --remove-orphans
