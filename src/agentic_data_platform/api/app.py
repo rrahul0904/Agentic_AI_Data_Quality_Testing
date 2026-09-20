@@ -21,8 +21,6 @@ from agentic_data_platform.tools.registry import ToolInvocation
 from agentic_data_platform.api.security import (
     ApiKeyAuthMiddleware,
     auth_required,
-    current_principal,
-    production_mode,
     require_actor_mode,
     require_role,
     validate_runtime_configuration,
@@ -259,6 +257,12 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
         except ValueError as exc:
             raise HTTPException(400, safe_error(exc)) from exc
 
+    def require_api_role(role: ActorMode):
+        try:
+            return require_role(role)
+        except PermissionError as exc:
+            raise HTTPException(403, safe_error(exc)) from exc
+
     def _parse_expiry(value: str | None) -> datetime | None:
         if not value:
             return None
@@ -479,13 +483,17 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     @app.post("/api/v1/investigations/{incident_id}/approve")
     def investigation_approve(incident_id: str, payload: InvestigationApprovalInput) -> dict[str, Any]:
         try:
-            return supervisor.approve(incident_id, approved_by=payload.approved_by)
+            principal = require_api_role(ActorMode.BUILDER) if auth_required() else None
+            approved_by = principal.subject if principal is not None else payload.approved_by
+            return supervisor.approve(incident_id, approved_by=approved_by)
         except (KeyError, ValueError) as exc:
             raise HTTPException(400, safe_error(exc)) from exc
 
     @app.post("/api/v1/investigations/{incident_id}/execute")
     def investigation_execute(incident_id: str) -> dict[str, Any]:
         try:
+            if auth_required():
+                require_api_role(ActorMode.BUILDER)
             report = supervisor.execute_approved(incident_id)
             return supervisor.public_report(report.incident_id)
         except PermissionError as exc:
@@ -496,7 +504,9 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     @app.post("/api/v1/investigations/{incident_id}/reject")
     def investigation_reject(incident_id: str, payload: InvestigationRejectInput) -> dict[str, Any]:
         try:
-            return supervisor.reject(incident_id, rejected_by=payload.rejected_by, reason=payload.reason)
+            principal = require_api_role(ActorMode.BUILDER) if auth_required() else None
+            rejected_by = principal.subject if principal is not None else payload.rejected_by
+            return supervisor.reject(incident_id, rejected_by=rejected_by, reason=payload.reason)
         except (KeyError, ValueError) as exc:
             raise HTTPException(400, safe_error(exc)) from exc
 
@@ -1635,7 +1645,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     @app.post("/projects")
     def create_project(payload: ProjectInput) -> dict[str, Any]:
         if auth_required():
-            require_role(ActorMode.BUILDER)
+            require_api_role(ActorMode.BUILDER)
         record = ProjectRecord(payload.name)
         repo.save_project(record)
         return _record_payload(record)
@@ -1707,7 +1717,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     def approve(payload: ApprovalInput) -> dict[str, Any]:
         approved_by = payload.approved_by
         if auth_required():
-            principal = require_role(ActorMode.ADMIN)
+            principal = require_api_role(ActorMode.ADMIN)
             approved_by = principal.subject
             if payload.action != "execute":
                 raise HTTPException(400, "production approvals only support execute action")
@@ -1741,7 +1751,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     @app.get("/approvals/{approval_id}")
     def get_approval(approval_id: str) -> dict[str, Any]:
         if auth_required():
-            require_role(ActorMode.ADMIN)
+            require_api_role(ActorMode.ADMIN)
         record = repo.get_approval(approval_id)
         if record is not None:
             return record
