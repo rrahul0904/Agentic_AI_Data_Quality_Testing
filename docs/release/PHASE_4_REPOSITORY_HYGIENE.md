@@ -41,8 +41,10 @@ Validate the backend from its own clean checkout:
 cd "Automated Data Quality Testing"
 python3 -m venv .venv
 . .venv/bin/activate
-pip install -r requirements.txt
-PYTHONPATH=. pytest -q
+python -m pip install -c requirements-dev.lock -e '.[dev,testbed]'
+python -m pip install -c requirements-dev.lock -e './hospitality-snowflake-data-platform[dev,parquet]'
+PYTHONPATH=src python scripts/parse_dbt.py
+PYTHONPATH=src pytest -q -p no:cacheprovider tests
 ```
 
 The demo startup is intentionally separate from certification and does not seed or mutate provider data:
