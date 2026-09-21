@@ -766,3 +766,38 @@ def test_scale_test_rejects_non_positive_policy_count(tmp_path: Path):
         assert "policies must be positive" in str(exc)
     else:
         raise AssertionError("scale test must reject non-positive policy counts")
+
+
+def test_optimize_dry_run_needs_no_snowflake_credentials(tmp_path: Path):
+    workspace = tmp_path / "demo"
+    result = cli.optimize(
+        workspace,
+        days=14,
+        limit=500,
+        query_tag_prefix="RGA_SEMANTIC_BENCHMARK",
+        confirm=False,
+        dry_run=True,
+        include_query_text=False,
+    )
+    assert result["status"] == "DRY_RUN"
+    assert result["benchmark_manifest"]["exists"] is False
+    assert result["benchmark_report_count"] == 0
+    assert result["query_history"]["status"] == "DRY_RUN"
+    assert result["query_history"]["include_query_text"] is False
+    assert "physical mutations remain commented out" in result["policy"]
+
+
+def test_optimize_live_path_is_fail_closed_without_confirm(tmp_path: Path):
+    try:
+        cli.optimize(
+            tmp_path,
+            days=14,
+            limit=500,
+            query_tag_prefix="RGA_SEMANTIC_BENCHMARK",
+            confirm=False,
+            dry_run=False,
+        )
+    except RuntimeError as exc:
+        assert "without --confirm" in str(exc)
+    else:
+        raise AssertionError("live optimization analysis must require confirmation")
