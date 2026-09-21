@@ -38,16 +38,33 @@ def build_contract(database: str, contract_path: Path = DEFAULT_CONTRACT) -> dic
         "semantic_view": semantic_view_fqn(contract),
         "protocol": pbi["protocol"],
         "provider": "Snowflake Semantic Views XMLA Endpoint powered by AtScale",
-        "availability": "private_preview_feature_gate",
+        "availability": "account_entitlement_or_feature_gate_required",
+        "availability_policy": (
+            "Detect endpoint availability in the target Snowflake account. "
+            "Do not assume universal availability from repository configuration."
+        ),
         "power_bi": {
             "required_connection_mode": pbi["required_connection_mode"],
             "query_language": "DAX/XMLA",
             "must_not_reimplement": derived,
+            "parity_evidence_paths": [
+                "governed_live_xmla",
+                "execute_dax_queries_api_when_power_bi_semantic_model_supported",
+            ],
+            "api_evidence_note": (
+                "Execute DAX Queries can automate Power BI result evidence for a "
+                "supported Power BI semantic model. It does not certify Excel."
+            ),
         },
         "excel": {
             "required_connection_mode": excel["required_connection_mode"],
             "query_language": "MDX/XMLA",
             "must_not_reimplement": derived,
+            "parity_evidence_paths": ["governed_excel_xmla_client"],
+            "api_evidence_note": (
+                "Power BI REST evidence is not Excel evidence; Excel requires its own "
+                "governed live/XMLA capture."
+            ),
         },
         "parity_metrics": metric_names(contract),
         "parity_slices": parity_slices,
@@ -85,15 +102,17 @@ Canonical source: config/rga_semantic_contract.yml
 
 ## Power BI
 
-- Confirm the governed endpoint is enabled for the Snowflake account.
+- Detect whether the governed Snowflake Semantic Views XMLA endpoint is enabled/entitled in the target account; do not assume availability.
 - Connect using the endpoint URL and verify Power BI reports Live Connection using the required live connection mode.
 - Confirm governed metrics are visible without recreating {forbidden} in DAX.
 - Execute every canonical verified-query slice defined in the semantic contract.
-- Record result evidence and corresponding Snowflake query IDs.
+- Where an actual Power BI semantic model supports Execute DAX Queries, the generated `.powerbi.dax` files may automate result evidence capture through the Power BI API.
+- Power BI API evidence is valid only for that Power BI semantic model and does not certify Excel.
+- Record governed result evidence and the relevant platform/query identifiers.
 
 ## Excel
 
-- Connect Excel to the same governed semantic endpoint.
+- Connect Excel to the same governed semantic endpoint after account capability/entitlement is confirmed.
 - Build PivotTables from the governed model.
 - Confirm governed metrics are available without spreadsheet formulas that redefine {forbidden}.
 - Execute the same canonical verified-query slices used for Snowflake and Power BI.
