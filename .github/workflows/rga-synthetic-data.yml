@@ -246,6 +246,92 @@ jobs:
         run: python scripts/rga_testbed/generate_benchmark_pack.py --output /tmp/rga-benchmarks
       - name: Generate Snowflake acceleration plan
         run: python scripts/rga_testbed/generate_acceleration_plan.py --output /tmp/rga-acceleration
+      - name: Certify evidence-driven optimizer safety
+        run: |
+          python scripts/rga_testbed/collect_query_history.py --days 14 --limit 100 --dry-run >/tmp/rga-query-history-plan.json
+          grep -q '"status": "DRY_RUN"' /tmp/rga-query-history-plan.json
+          grep -q 'Query text is excluded by default' /tmp/rga-query-history-plan.json
+          python - <<'PY'
+          import json
+
+          benchmark_row = {
+              "status": "PASS",
+              "query_name": "monthly_loss_ratio_by_cedant",
+              "variant": "direct",
+              "query_id": "qid-benchmark",
+              "client_elapsed_ms": 7000,
+              "bytes_scanned": 2000000000,
+              "partitions_scanned": 95,
+              "partitions_total": 100,
+              "queued_overload_time": 500,
+              "bytes_spilled_to_remote_storage": 0,
+              "query_acceleration_bytes_scanned": 0,
+              "query_acceleration_upper_limit_scale_factor": 4,
+              "query_hash": "qh-benchmark",
+              "query_parameterized_hash": "pqh-benchmark",
+          }
+          json.dump(
+              {"concurrency": 10, "results": [benchmark_row, dict(benchmark_row)]},
+              open("/tmp/rga-optimizer-benchmark.json", "w"),
+          )
+
+          queries = []
+          for index in range(3):
+              queries.append({
+                  "query_id": f"qid-history-{index}",
+                  "query_hash": "qh-history",
+                  "query_parameterized_hash": "pqh-history",
+                  "total_elapsed_time": 8000 + index,
+                  "bytes_scanned": 1000000000,
+                  "partitions_scanned": 90,
+                  "partitions_total": 100,
+                  "queued_overload_time": 0,
+                  "bytes_spilled_to_remote_storage": 0,
+                  "query_acceleration_bytes_scanned": 0,
+                  "query_acceleration_upper_limit_scale_factor": 2,
+                  "shape": {
+                      "tables": ["RGA_SYNTHETIC_TESTBED.MART.REINSURANCE_PERFORMANCE"],
+                      "predicates": [
+                          {"column": "CEDANT_ID", "operator": "="},
+                          {"column": "PERIOD_MONTH", "operator": "BETWEEN"},
+                      ],
+                  },
+              })
+          json.dump(
+              {"status": "PASS", "query_count": len(queries), "queries": queries},
+              open("/tmp/rga-query-history.json", "w"),
+          )
+          PY
+          python scripts/rga_testbed/analyze_workload.py \
+            --manifest /tmp/rga-benchmarks/manifest.json \
+            --report /tmp/rga-optimizer-benchmark.json \
+            --history /tmp/rga-query-history.json \
+            --output /tmp/rga-workload-analysis.json >/tmp/rga-workload-analysis-summary.json
+          python scripts/rga_testbed/render_optimization_experiments.py \
+            --analysis /tmp/rga-workload-analysis.json \
+            --output /tmp/rga-optimization-experiments.sql >/tmp/rga-optimization-render-summary.json
+          grep -q 'SYSTEM$ESTIMATE_QUERY_ACCELERATION' /tmp/rga-optimization-experiments.sql
+          grep -q 'SYSTEM$CLUSTERING_INFORMATION' /tmp/rga-optimization-experiments.sql
+          grep -q 'SYSTEM$ESTIMATE_SEARCH_OPTIMIZATION_COSTS' /tmp/rga-optimization-experiments.sql
+          grep -q -- '-- ALTER TABLE RGA_SYNTHETIC_TESTBED.MART.REINSURANCE_PERFORMANCE' /tmp/rga-optimization-experiments.sql
+          if grep -Eq '^[[:space:]]*ALTER[[:space:]]+(TABLE|WAREHOUSE)' /tmp/rga-optimization-experiments.sql; then
+            echo "unsafe executable physical mutation found"
+            exit 1
+          fi
+          python - <<'PY'
+          import json
+          analysis = json.load(open("/tmp/rga-workload-analysis.json"))
+          types = {item["type"] for item in analysis["query_history"]["experiments"]}
+          assert "query_acceleration_service" in types
+          assert "clustering_diagnostic" in types
+          assert "search_optimization_cost_estimate" in types
+          assert all(
+              item.get("automatic_mutation_allowed") is False
+              for item in analysis["query_history"]["experiments"]
+          )
+          render = json.load(open("/tmp/rga-optimization-render-summary.json"))
+          assert render["executable_physical_mutations"] == 0
+          PY
       - name: Generate cross-consumer semantic parity suite
         run: python scripts/rga_testbed/generate_parity_suite.py --output /tmp/rga-parity
       - name: Build governed semantic release bundle
