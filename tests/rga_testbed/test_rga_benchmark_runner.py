@@ -59,6 +59,10 @@ def test_benchmark_summary_reports_latency_scan_queue_and_spill():
             "bytes_scanned": 1000,
             "queued_overload_time": 5,
             "bytes_spilled_to_remote_storage": 0,
+            "partitions_scanned": 5,
+            "partitions_total": 10,
+            "query_acceleration_bytes_scanned": 0,
+            "query_acceleration_upper_limit_scale_factor": 2,
         },
         {
             "status": "PASS",
@@ -69,6 +73,10 @@ def test_benchmark_summary_reports_latency_scan_queue_and_spill():
             "bytes_scanned": 2000,
             "queued_overload_time": 15,
             "bytes_spilled_to_remote_storage": 100,
+            "partitions_scanned": 7,
+            "partitions_total": 10,
+            "query_acceleration_bytes_scanned": 100,
+            "query_acceleration_upper_limit_scale_factor": 4,
         },
         {
             "status": "PASS",
@@ -79,6 +87,10 @@ def test_benchmark_summary_reports_latency_scan_queue_and_spill():
             "bytes_scanned": 800,
             "queued_overload_time": 0,
             "bytes_spilled_to_remote_storage": 0,
+            "partitions_scanned": 3,
+            "partitions_total": 10,
+            "query_acceleration_bytes_scanned": 50,
+            "query_acceleration_upper_limit_scale_factor": 1,
         },
         {
             "status": "FAIL",
@@ -98,6 +110,12 @@ def test_benchmark_summary_reports_latency_scan_queue_and_spill():
     assert summary["variants"]["direct"]["bytes_scanned"] == 3000
     assert summary["variants"]["direct"]["queued_overload_ms"] == 20
     assert summary["variants"]["direct"]["remote_spill_bytes"] == 100
+    assert summary["variants"]["direct"]["partitions_scanned"] == 12
+    assert summary["variants"]["direct"]["partitions_total"] == 20
+    assert summary["variants"]["direct"]["query_acceleration_bytes_scanned"] == 100
+    assert summary["variants"]["direct"]["query_acceleration_upper_limit_scale_factor"] == 4
+    assert summary["variants"]["semantic"]["partitions_scanned"] == 3
+    assert summary["variants"]["semantic"]["query_acceleration_upper_limit_scale_factor"] == 1
     assert summary["variants"]["semantic"]["passed"] == 1
 
 
