@@ -182,11 +182,21 @@ where "_generation_id" is not null
 
         # General FK validation from the domain contract.
         for entity, spec in config["entities"].items():
+            child_count = int(observed_counts.get(entity, 0))
+            if child_count == 0:
+                continue
             child_view = _ident(entity)
             for child_column, parent_ref in spec.get(
                 "foreign_keys", {}
             ).items():
                 parent_entity, parent_column = parent_ref.split(".", 1)
+                parent_count = int(observed_counts.get(parent_entity, 0))
+                if parent_count == 0:
+                    errors.append(
+                        f"{entity}.{child_column} has {child_count} missing "
+                        f"references to empty parent {parent_ref}"
+                    )
+                    continue
                 parent_view = _ident(parent_entity)
                 child_key = _ident(child_column)
                 parent_key = _ident(parent_column)
@@ -209,59 +219,62 @@ where p.{parent_key} is null
                     )
 
         # Domain-specific economic/chronology checks.
-        policy_errors = int(
-            _scalar(
-                connection,
-                """
+        if observed_counts.get("policies", 0):
+            policy_errors = int(
+                _scalar(
+                    connection,
+                    """
 select count(*)
 from "policies"
 where try_cast("sum_assured" as double) <= 0
    or try_cast("annual_premium" as double) <= 0
 """,
+                )
             )
-        )
-        if policy_errors:
-            errors.append(
-                f"policies has {policy_errors} rows with non-positive economics"
-            )
+            if policy_errors:
+                errors.append(
+                    f"policies has {policy_errors} rows with non-positive economics"
+                )
 
-        claim_chronology = int(
-            _scalar(
-                connection,
-                """
+        if observed_counts.get("claims", 0):
+            claim_chronology = int(
+                _scalar(
+                    connection,
+                    """
 select count(*)
 from "claims"
 where try_cast("reported_date" as date)
     < try_cast("event_date" as date)
 """,
+                )
             )
-        )
-        if claim_chronology:
-            errors.append(
-                f"claims has {claim_chronology} rows reported before event"
-            )
+            if claim_chronology:
+                errors.append(
+                    f"claims has {claim_chronology} rows reported before event"
+                )
 
-        claim_economics = int(
-            _scalar(
-                connection,
-                """
+            claim_economics = int(
+                _scalar(
+                    connection,
+                    """
 select count(*)
 from "claims"
 where try_cast("ceded_claim_amount" as double)
     > try_cast("claim_amount" as double)
 """,
+                )
             )
-        )
-        if claim_economics:
-            errors.append(
-                f"claims has {claim_economics} rows with ceded amount "
-                "greater than gross claim"
-            )
+            if claim_economics:
+                errors.append(
+                    f"claims has {claim_economics} rows with ceded amount "
+                    "greater than gross claim"
+                )
 
-        premium_economics = int(
-            _scalar(
-                connection,
-                """
+        if observed_counts.get("premiums", 0):
+            premium_economics = int(
+                _scalar(
+                    connection,
+                    """
 select count(*)
 from "premiums"
 where try_cast("gross_premium" as double) < 0
@@ -269,12 +282,12 @@ where try_cast("gross_premium" as double) < 0
    or try_cast("ceded_premium" as double)
       > try_cast("gross_premium" as double)
 """,
+                )
             )
-        )
-        if premium_economics:
-            errors.append(
-                f"premiums has {premium_economics} invalid gross/ceded rows"
-            )
+            if premium_economics:
+                errors.append(
+                    f"premiums has {premium_economics} invalid gross/ceded rows"
+                )
 
         expected = manifest.get("counts", {})
         for entity, count in expected.items():
