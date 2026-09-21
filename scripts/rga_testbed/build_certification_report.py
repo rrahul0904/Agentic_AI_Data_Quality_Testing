@@ -86,6 +86,10 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
     cdc_path = workspace / "evidence" / "cdc_application.json"
     scale_path = workspace / "evidence" / "scale_test.json"
     workload_path = workspace / "evidence" / "workload_analysis.json"
+    optimization_path = workspace / "evidence" / "optimization_analysis_summary.json"
+    optimization_diagnostics_path = (
+        workspace / "evidence" / "optimization_diagnostics.json"
+    )
 
     release = _load(release_path)
     live = _load(live_path)
@@ -94,6 +98,8 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
     cdc = _load(cdc_path)
     scale = _load(scale_path)
     workload = _load(workload_path)
+    optimization = _load(optimization_path)
+    optimization_diagnostics = _load(optimization_diagnostics_path)
     evidence_status = _consumer_evidence_status(workspace, evidence_dir)
 
     local_status = "PASS" if release else "MISSING"
@@ -102,6 +108,33 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
     agent_status = agent.get("status") if agent else "PENDING"
     cdc_status = cdc.get("status") if cdc else "PENDING"
     scale_status = scale.get("status") if scale else "PENDING"
+    live_optimization = (
+        live.get("optimization", {})
+        if live and isinstance(live.get("optimization"), dict)
+        else {}
+    )
+    optimization_requested = bool(live_optimization.get("requested"))
+    optimization_diagnostics_requested = bool(
+        live_optimization.get("diagnostics_requested")
+    )
+    optimization_status = (
+        optimization.get("status")
+        if optimization
+        else (
+            live_optimization.get("status")
+            if optimization_requested
+            else "NOT_REQUESTED"
+        )
+    )
+    optimization_diagnostics_status = (
+        optimization_diagnostics.get("status")
+        if optimization_diagnostics
+        else (
+            live_optimization.get("diagnostics_status")
+            if optimization_diagnostics_requested
+            else "NOT_REQUESTED"
+        )
+    )
 
     blockers: list[str] = []
     if not release:
@@ -114,6 +147,25 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
         blockers.append("CDC correction/late-arrival certification evidence exists but has not passed")
     if scale and scale_status != "PASS":
         blockers.append("local generator/out-of-core scale evidence exists but has not passed")
+    if optimization_requested:
+        live_acceptance = live.get("acceptance", {}) if live else {}
+        if live_acceptance.get("optimization_analysis_pass") is not True:
+            blockers.append(
+                "requested Snowflake physical-optimization analysis has not passed"
+            )
+        if (
+            optimization_diagnostics_requested
+            and live_acceptance.get("optimization_diagnostics_pass") is not True
+        ):
+            blockers.append(
+                "requested read-only optimization diagnostics have not passed"
+            )
+        if optimization and int(
+            optimization.get("executable_physical_mutations", 0)
+        ) != 0:
+            blockers.append(
+                "optimization evidence violated the zero executable physical-mutation invariant"
+            )
     if evidence_status["status"] != "COMPLETE":
         blockers.append(
             "consumer evidence is incomplete "
@@ -210,6 +262,39 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
             "path": str(workload_path),
             "recommendation_count": len(workload.get("recommendations", [])) if workload else None,
         },
+        "optimization": {
+            "requested": optimization_requested,
+            "diagnostics_requested": optimization_diagnostics_requested,
+            "status": optimization_status,
+            "path": str(optimization_path),
+            "diagnostics_status": optimization_diagnostics_status,
+            "diagnostics_path": str(optimization_diagnostics_path),
+            "recommendation_count": (
+                optimization.get("recommendation_count")
+                if optimization
+                else live_optimization.get("recommendation_count")
+            ),
+            "history_experiment_count": (
+                optimization.get("history_experiment_count")
+                if optimization
+                else live_optimization.get("history_experiment_count")
+            ),
+            "experiment_count": (
+                optimization.get("experiment_count")
+                if optimization
+                else live_optimization.get("experiment_count")
+            ),
+            "executable_physical_mutations": (
+                optimization.get("executable_physical_mutations")
+                if optimization
+                else live_optimization.get("executable_physical_mutations")
+            ),
+            "truth_boundary": (
+                optimization.get("truth_boundary")
+                if optimization
+                else live_optimization.get("truth_boundary")
+            ),
+        },
         "blockers": blockers,
         "production_rollout_blockers": [
             "target-scale SLA/load evidence and organizational operational approval are outside this report"
@@ -253,6 +338,14 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"(pending={evidence['pending']}, missing={evidence['missing']}, invalid={evidence['invalid']})"
         ),
         f"- Workload analysis: **{report['workload_analysis']['status']}**",
+        (
+            "- Physical optimization analysis: "
+            f"**{report['optimization']['status']}** "
+            f"(requested={report['optimization']['requested']}, "
+            f"diagnostics={report['optimization']['diagnostics_status']}, "
+            f"experiments={report['optimization']['experiment_count']}, "
+            f"executable_mutations={report['optimization']['executable_physical_mutations']})"
+        ),
         "",
         "## Current blockers",
         "",
