@@ -47,7 +47,9 @@ The platform must establish one governed semantic source of truth and make downs
    - Snowflake SQL using the governed Semantic View
    - Cortex Agent using the same Semantic View
    - managed MCP exposing the governed Agent rather than unrestricted SQL
-   - Power BI and Excel using the governed Microsoft semantic path when available
+   - Power BI and Excel using the governed Microsoft semantic path when the target account exposes the required endpoint/capability
+   - automated Power BI parity capture through Execute DAX Queries when an actual supported Power BI semantic model is available
+   - Excel remains a separate governed live/XMLA evidence surface; Power BI API evidence never substitutes for Excel evidence
    - no client-side recreation of governed derived measures for parity certification
 
 5. Performance and scale layer
@@ -93,7 +95,7 @@ at the same:
 - role/security context;
 - metric definition.
 
-Connectivity alone is not parity.
+Connectivity alone is not parity. A Power BI Execute DAX Queries result can certify the Power BI semantic-model surface only when it comes from the governed model under the intended security context; it does not certify Excel. Excel must produce its own governed live/XMLA evidence.
 
 A Power BI report or Excel workbook that connects to Snowflake but recreates CEDED_LOSS_RATIO, CEDED_PREMIUM_RATE, or any other governed metric locally does not pass semantic certification.
 
@@ -126,7 +128,9 @@ Live certification must separately prove:
 - Semantic View server verification/deployment;
 - direct versus semantic benchmark evidence;
 - Cortex Agent/MCP runtime evidence;
-- Power BI/Excel governed semantic parity when the required endpoint is enabled.
+- Power BI governed semantic parity through live/XMLA and/or Execute DAX Queries evidence when the target Power BI semantic model supports it;
+- Excel governed semantic parity through its own live/XMLA client evidence;
+- target-account capability/entitlement detection for the Snowflake Semantic Views XMLA endpoint rather than assuming repository configuration proves availability.
 
 Repository-green is not the same as live-environment-certified.
 
