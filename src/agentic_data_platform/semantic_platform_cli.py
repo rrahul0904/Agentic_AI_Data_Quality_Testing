@@ -1037,11 +1037,17 @@ def certification_plan(
     deploy_ai: bool,
     apply_cdc_events: bool = False,
     verify_cdc_idempotency: bool = False,
+    analyze_optimization: bool = False,
+    run_optimization_diagnostics: bool = False,
 ) -> dict[str, Any]:
     if iterations < 1 or iterations > 100:
         raise ValueError("iterations must be between 1 and 100")
     if verify_cdc_idempotency and not apply_cdc_events:
         raise ValueError("verify_cdc_idempotency requires apply_cdc_events")
+    if run_optimization_diagnostics and not analyze_optimization:
+        raise ValueError(
+            "run_optimization_diagnostics requires analyze_optimization"
+        )
     required = {
         "data_manifest": workspace / "data" / "manifest.json",
         "snowflake_ddl": workspace / "snowflake" / "001_raw_tables.sql",
@@ -1076,6 +1082,8 @@ def certification_plan(
             "agent_runtime_smoke": deploy_ai,
             "apply_cdc": apply_cdc_events,
             "verify_cdc_idempotency": verify_cdc_idempotency,
+            "analyze_optimization": analyze_optimization,
+            "run_optimization_diagnostics": run_optimization_diagnostics,
         },
         "benchmark": {
             "mode": "both",
@@ -1088,6 +1096,26 @@ def certification_plan(
         "evidence": {
             "directory": str(workspace / "evidence"),
             "workload_analysis": str(workspace / "evidence" / "workload_analysis.json"),
+            "query_history": (
+                str(workspace / "evidence" / "query_history.json")
+                if analyze_optimization
+                else None
+            ),
+            "optimization_summary": (
+                str(workspace / "evidence" / "optimization_analysis_summary.json")
+                if analyze_optimization
+                else None
+            ),
+            "optimization_experiments": (
+                str(workspace / "evidence" / "optimization_experiments.sql")
+                if analyze_optimization
+                else None
+            ),
+            "optimization_diagnostics": (
+                str(workspace / "evidence" / "optimization_diagnostics.json")
+                if run_optimization_diagnostics
+                else None
+            ),
             "agent_smoke": str(workspace / "evidence" / "agent_smoke.json") if deploy_ai else None,
             "cdc_application": str(workspace / "evidence" / "cdc_application.json") if apply_cdc_events else None,
             "certification_manifest": str(workspace / "evidence" / "certification_manifest.json"),
