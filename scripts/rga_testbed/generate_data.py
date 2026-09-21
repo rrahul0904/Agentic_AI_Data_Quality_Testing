@@ -14,7 +14,7 @@ import shutil
 from collections import defaultdict
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, TextIO
 
 import yaml
 
@@ -62,41 +62,93 @@ def sha256(path: Path) -> str:
 
 
 class Writer:
-    def __init__(self, output: Path, config: dict[str, Any], generation_id: str) -> None:
+    """Streaming CSV writer with per-entity rotation and bounded memory."""
+
+    def __init__(
+        self,
+        output: Path,
+        config: dict[str, Any],
+        generation_id: str,
+        rows_per_file: int,
+    ) -> None:
+        if rows_per_file < 1:
+            raise ValueError("rows_per_file must be positive")
         self.output = output
         self.config = config
         self.generation_id = generation_id
+        self.rows_per_file = rows_per_file
         self.sequence: defaultdict[str, int] = defaultdict(int)
         self.files: list[dict[str, Any]] = []
         self.counts: defaultdict[str, int] = defaultdict(int)
+        self._active: dict[str, dict[str, Any]] = {}
 
-    def write(self, entity: str, rows: list[dict[str, Any]]) -> None:
-        if not rows:
-            return
+    def _open(self, entity: str) -> dict[str, Any]:
         spec = self.config["entities"][entity]
         self.sequence[entity] += 1
         folder = self.output / "csv" / entity
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{entity}_{self.sequence[entity]:05d}.csv"
         columns = list(spec["columns"]) + ["_generation_id"]
-        with path.open("w", newline="", encoding="utf-8") as handle:
-            writer = csv.DictWriter(handle, fieldnames=columns, lineterminator="\n")
-            writer.writeheader()
-            for row in rows:
-                payload = {key: row.get(key) for key in spec["columns"]}
-                payload["_generation_id"] = self.generation_id
-                writer.writerow({key: _serialize(value) for key, value in payload.items()})
-        self.counts[entity] += len(rows)
+        handle: TextIO = path.open("w", newline="", encoding="utf-8")
+        csv_writer = csv.DictWriter(
+            handle,
+            fieldnames=columns,
+            lineterminator="\n",
+        )
+        csv_writer.writeheader()
+        active = {
+            "path": path,
+            "handle": handle,
+            "writer": csv_writer,
+            "row_count": 0,
+            "target": spec["target"],
+            "columns": columns,
+        }
+        self._active[entity] = active
+        return active
+
+    def _close_entity(self, entity: str) -> None:
+        active = self._active.pop(entity, None)
+        if not active:
+            return
+        handle: TextIO = active["handle"]
+        handle.close()
+        path: Path = active["path"]
         self.files.append(
             {
                 "entity": entity,
                 "file": path.relative_to(self.output).as_posix(),
-                "row_count": len(rows),
+                "row_count": int(active["row_count"]),
                 "byte_count": path.stat().st_size,
                 "checksum": sha256(path),
-                "target": spec["target"],
+                "target": active["target"],
             }
         )
+
+    def write_row(self, entity: str, row: dict[str, Any]) -> None:
+        active = self._active.get(entity)
+        if active is None:
+            active = self._open(entity)
+        elif int(active["row_count"]) >= self.rows_per_file:
+            self._close_entity(entity)
+            active = self._open(entity)
+
+        spec = self.config["entities"][entity]
+        payload = {key: row.get(key) for key in spec["columns"]}
+        payload["_generation_id"] = self.generation_id
+        active["writer"].writerow(
+            {key: _serialize(value) for key, value in payload.items()}
+        )
+        active["row_count"] += 1
+        self.counts[entity] += 1
+
+    def write(self, entity: str, rows: Iterable[dict[str, Any]]) -> None:
+        for row in rows:
+            self.write_row(entity, row)
+
+    def close(self) -> None:
+        for entity in list(self._active):
+            self._close_entity(entity)
 
 
 def _serialize(value: Any) -> Any:
@@ -135,8 +187,8 @@ def build_dataset(
         sort_keys=True,
     )
     generation_id = "rga_" + hashlib.sha256(fingerprint.encode()).hexdigest()[:16]
-    writer = Writer(output, config, generation_id)
     rows_per_file = int(preset["rows_per_file"])
+    writer = Writer(output, config, generation_id, rows_per_file)
 
     currencies = (("US", "USD"), ("CA", "CAD"), ("GB", "GBP"), ("AU", "AUD"))
     segments = ("LIFE", "LIVING_BENEFITS", "GROUP", "HEALTH")
@@ -195,44 +247,58 @@ def build_dataset(
     writer.write("products", products)
 
     policy_count = int(preset["policies"])
-    for start in range(1, policy_count + 1, rows_per_file):
-        lives: list[dict[str, Any]] = []
-        policies: list[dict[str, Any]] = []
-        coverages: list[dict[str, Any]] = []
-        underwriting: list[dict[str, Any]] = []
-        premiums: list[dict[str, Any]] = []
-        exposure: list[dict[str, Any]] = []
-        claims: list[dict[str, Any]] = []
-        payments: list[dict[str, Any]] = []
-        reserves: list[dict[str, Any]] = []
-        end = min(policy_count + 1, start + rows_per_file)
-        for idx in range(start, end):
-            treaty = treaties[(idx * 7) % len(treaties)]
-            cedant = next(item for item in cedants if item["cedant_id"] == treaty["cedant_id"])
-            product = products[(idx - 1) % len(products)]
-            insured_id = f"INS{idx:012d}"
-            age = 18 + (idx * 13) % 63
-            birth = reference_date - timedelta(days=int(age * 365.2425 + idx % 365))
-            smoker = idx % 7 == 0
-            bmi = round(19.0 + (idx * 17 % 150) / 10.0, 2)
-            lives.append(
-                {
-                    "insured_id": insured_id,
-                    "synthetic_name": f"Synthetic Life {idx:012d}",
-                    "birth_date": birth,
-                    "sex_code": "F" if idx % 2 else "M",
-                    "country_code": cedant["country_code"],
-                    "smoker_flag": smoker,
-                    "bmi": bmi,
-                }
-            )
-            issue_date = reference_date - timedelta(days=180 + (idx * 29) % 3650)
-            status = "ACTIVE" if idx % 11 else ("LAPSED" if idx % 3 else "CLAIMED")
-            sum_assured = float((50_000, 100_000, 250_000, 500_000, 1_000_000)[idx % 5])
-            mortality_factor = 0.0008 + max(age - 35, 0) * 0.00005 + (0.0012 if smoker else 0)
-            annual_premium = round(sum_assured * mortality_factor * (1.0 + max(bmi - 30, 0) * 0.02), 2)
-            policy_id = f"POL{idx:012d}"
-            policy = {
+    cedant_by_id = {row["cedant_id"]: row for row in cedants}
+
+    for idx in range(1, policy_count + 1):
+        treaty = treaties[(idx * 7) % len(treaties)]
+        cedant = cedant_by_id[treaty["cedant_id"]]
+        product = products[(idx - 1) % len(products)]
+        insured_id = f"INS{idx:012d}"
+        age = 18 + (idx * 13) % 63
+        birth = reference_date - timedelta(
+            days=int(age * 365.2425 + idx % 365)
+        )
+        smoker = idx % 7 == 0
+        bmi = round(19.0 + (idx * 17 % 150) / 10.0, 2)
+        writer.write_row(
+            "insured_lives",
+            {
+                "insured_id": insured_id,
+                "synthetic_name": f"Synthetic Life {idx:012d}",
+                "birth_date": birth,
+                "sex_code": "F" if idx % 2 else "M",
+                "country_code": cedant["country_code"],
+                "smoker_flag": smoker,
+                "bmi": bmi,
+            },
+        )
+
+        issue_date = reference_date - timedelta(
+            days=180 + (idx * 29) % 3650
+        )
+        status = (
+            "ACTIVE"
+            if idx % 11
+            else ("LAPSED" if idx % 3 else "CLAIMED")
+        )
+        sum_assured = float(
+            (50_000, 100_000, 250_000, 500_000, 1_000_000)[idx % 5]
+        )
+        mortality_factor = (
+            0.0008
+            + max(age - 35, 0) * 0.00005
+            + (0.0012 if smoker else 0)
+        )
+        annual_premium = round(
+            sum_assured
+            * mortality_factor
+            * (1.0 + max(bmi - 30, 0) * 0.02),
+            2,
+        )
+        policy_id = f"POL{idx:012d}"
+        writer.write_row(
+            "policies",
+            {
                 "policy_id": policy_id,
                 "treaty_id": treaty["treaty_id"],
                 "cedant_id": cedant["cedant_id"],
@@ -243,71 +309,150 @@ def build_dataset(
                 "sum_assured": sum_assured,
                 "annual_premium": annual_premium,
                 "currency_code": cedant["currency_code"],
-            }
-            policies.append(policy)
-            coverages.append(
-                {
-                    "coverage_id": f"COV{idx:012d}A",
-                    "policy_id": policy_id,
-                    "coverage_type": product["product_type"],
-                    "benefit_amount": sum_assured,
-                    "effective_date": issue_date,
-                    "expiry_date": issue_date + timedelta(days=365 * (20 if product["product_type"] == "LIFE" else 10)),
-                }
+            },
+        )
+        writer.write_row(
+            "coverages",
+            {
+                "coverage_id": f"COV{idx:012d}A",
+                "policy_id": policy_id,
+                "coverage_type": product["product_type"],
+                "benefit_amount": sum_assured,
+                "effective_date": issue_date,
+                "expiry_date": issue_date
+                + timedelta(
+                    days=365
+                    * (20 if product["product_type"] == "LIFE" else 10)
+                ),
+            },
+        )
+
+        risk_score = round(
+            age * 0.55 + bmi * 0.75 + (18 if smoker else 0),
+            3,
+        )
+        decision = (
+            "DECLINED"
+            if risk_score > 75
+            else ("RATED" if risk_score > 55 else "STANDARD")
+        )
+        writer.write_row(
+            "underwriting_cases",
+            {
+                "underwriting_case_id": f"UW{idx:012d}",
+                "policy_id": policy_id,
+                "insured_id": insured_id,
+                "decision_date": issue_date
+                - timedelta(days=7 + idx % 21),
+                "risk_class": (
+                    "HIGH"
+                    if risk_score > 65
+                    else (
+                        "MODERATE"
+                        if risk_score > 45
+                        else "PREFERRED"
+                    )
+                ),
+                "decision": decision,
+                "risk_score": risk_score,
+            },
+        )
+
+        ceded_share = float(treaty["ceded_share_pct"])
+        years_inforce = max(
+            1,
+            min(
+                5,
+                (reference_date - issue_date).days // 365 + 1,
+            ),
+        )
+        for year_offset in range(years_inforce):
+            accounting_date = min(
+                issue_date + timedelta(days=365 * year_offset),
+                reference_date,
             )
-            risk_score = round(age * 0.55 + bmi * 0.75 + (18 if smoker else 0), 3)
-            decision = "DECLINED" if risk_score > 75 else ("RATED" if risk_score > 55 else "STANDARD")
-            underwriting.append(
+            writer.write_row(
+                "premiums",
                 {
-                    "underwriting_case_id": f"UW{idx:012d}",
+                    "premium_txn_id": (
+                        f"PREM{idx:012d}{year_offset:02d}"
+                    ),
                     "policy_id": policy_id,
-                    "insured_id": insured_id,
-                    "decision_date": issue_date - timedelta(days=7 + idx % 21),
-                    "risk_class": "HIGH" if risk_score > 65 else ("MODERATE" if risk_score > 45 else "PREFERRED"),
-                    "decision": decision,
-                    "risk_score": risk_score,
-                }
+                    "treaty_id": treaty["treaty_id"],
+                    "cedant_id": cedant["cedant_id"],
+                    "accounting_date": accounting_date,
+                    "gross_premium": annual_premium,
+                    "ceded_premium": round(
+                        annual_premium * ceded_share,
+                        2,
+                    ),
+                    "currency_code": cedant["currency_code"],
+                },
             )
-            ceded_share = float(treaty["ceded_share_pct"])
-            years_inforce = max(1, min(5, (reference_date - issue_date).days // 365 + 1))
-            for year_offset in range(years_inforce):
-                accounting_date = min(issue_date + timedelta(days=365 * year_offset), reference_date)
-                premiums.append(
-                    {
-                        "premium_txn_id": f"PREM{idx:012d}{year_offset:02d}",
-                        "policy_id": policy_id,
-                        "treaty_id": treaty["treaty_id"],
-                        "cedant_id": cedant["cedant_id"],
-                        "accounting_date": accounting_date,
-                        "gross_premium": annual_premium,
-                        "ceded_premium": round(annual_premium * ceded_share, 2),
-                        "currency_code": cedant["currency_code"],
-                    }
+
+        if status == "ACTIVE":
+            for month_offset in range(12):
+                month = _month_start(
+                    reference_date,
+                    -month_offset,
                 )
-            if status == "ACTIVE":
-                for month_offset in range(12):
-                    month = _month_start(reference_date, -month_offset)
-                    if month >= date(issue_date.year, issue_date.month, 1):
-                        exposure.append(
-                            {
-                                "exposure_id": f"EXP{idx:012d}{month:%Y%m}",
-                                "policy_id": policy_id,
-                                "treaty_id": treaty["treaty_id"],
-                                "cedant_id": cedant["cedant_id"],
-                                "exposure_month": month,
-                                "exposed_amount": sum_assured,
-                                "exposure_fraction": 1.0,
-                                "currency_code": cedant["currency_code"],
-                            }
-                        )
-            if idx % 37 == 0:
-                event_date = min(issue_date + timedelta(days=365 + (idx * 17) % 1800), reference_date - timedelta(days=5))
-                reported_date = min(event_date + timedelta(days=1 + idx % 30), reference_date)
-                claim_status = ("PAID", "OPEN", "DENIED")[idx % 3]
-                claim_amount = round(sum_assured * (1.0 if claim_status != "DENIED" else 0.2), 2)
-                ceded_claim = round(claim_amount * ceded_share, 2)
-                claim_id = f"CLM{idx:012d}"
-                claims.append({
+                if month >= date(
+                    issue_date.year,
+                    issue_date.month,
+                    1,
+                ):
+                    writer.write_row(
+                        "exposure_monthly",
+                        {
+                            "exposure_id": (
+                                f"EXP{idx:012d}{month:%Y%m}"
+                            ),
+                            "policy_id": policy_id,
+                            "treaty_id": treaty["treaty_id"],
+                            "cedant_id": cedant["cedant_id"],
+                            "exposure_month": month,
+                            "exposed_amount": sum_assured,
+                            "exposure_fraction": 1.0,
+                            "currency_code": cedant[
+                                "currency_code"
+                            ],
+                        },
+                    )
+
+        if idx % 37 == 0:
+            event_date = min(
+                issue_date
+                + timedelta(
+                    days=365 + (idx * 17) % 1800
+                ),
+                reference_date - timedelta(days=5),
+            )
+            reported_date = min(
+                event_date + timedelta(days=1 + idx % 30),
+                reference_date,
+            )
+            claim_status = (
+                "PAID",
+                "OPEN",
+                "DENIED",
+            )[idx % 3]
+            claim_amount = round(
+                sum_assured
+                * (
+                    1.0
+                    if claim_status != "DENIED"
+                    else 0.2
+                ),
+                2,
+            )
+            ceded_claim = round(
+                claim_amount * ceded_share,
+                2,
+            )
+            claim_id = f"CLM{idx:012d}"
+            writer.write_row(
+                "claims",
+                {
                     "claim_id": claim_id,
                     "policy_id": policy_id,
                     "treaty_id": treaty["treaty_id"],
@@ -315,38 +460,54 @@ def build_dataset(
                     "event_date": event_date,
                     "reported_date": reported_date,
                     "claim_status": claim_status,
-                    "cause_code": ("NATURAL", "CANCER", "CARDIO", "ACCIDENT")[idx % 4],
+                    "cause_code": (
+                        "NATURAL",
+                        "CANCER",
+                        "CARDIO",
+                        "ACCIDENT",
+                    )[idx % 4],
                     "claim_amount": claim_amount,
                     "ceded_claim_amount": ceded_claim,
                     "currency_code": cedant["currency_code"],
-                })
-                if claim_status == "PAID":
-                    payments.append({
+                },
+            )
+            if claim_status == "PAID":
+                writer.write_row(
+                    "claim_payments",
+                    {
                         "claim_payment_id": f"CPY{idx:012d}",
                         "claim_id": claim_id,
-                        "payment_date": min(reported_date + timedelta(days=10 + idx % 45), reference_date),
+                        "payment_date": min(
+                            reported_date
+                            + timedelta(
+                                days=10 + idx % 45
+                            ),
+                            reference_date,
+                        ),
                         "payment_amount": ceded_claim,
-                        "currency_code": cedant["currency_code"],
-                    })
-                elif claim_status == "OPEN":
-                    reserves.append({
+                        "currency_code": cedant[
+                            "currency_code"
+                        ],
+                    },
+                )
+            elif claim_status == "OPEN":
+                writer.write_row(
+                    "claim_reserves",
+                    {
                         "reserve_id": f"RSV{idx:012d}",
                         "claim_id": claim_id,
                         "valuation_date": reference_date,
-                        "case_reserve_amount": round(ceded_claim * 0.9, 2),
-                        "currency_code": cedant["currency_code"],
-                    })
-        writer.write("insured_lives", lives)
-        writer.write("policies", policies)
-        writer.write("coverages", coverages)
-        writer.write("underwriting_cases", underwriting)
-        for batch in chunks(premiums, rows_per_file):
-            writer.write("premiums", batch)
-        for batch in chunks(exposure, rows_per_file):
-            writer.write("exposure_monthly", batch)
-        writer.write("claims", claims)
-        writer.write("claim_payments", payments)
-        writer.write("claim_reserves", reserves)
+                        "case_reserve_amount": round(
+                            ceded_claim * 0.9,
+                            2,
+                        ),
+                        "currency_code": cedant[
+                            "currency_code"
+                        ],
+                    },
+                )
+
+    writer.close()
 
     manifest = {
         "domain": config["domain"],
