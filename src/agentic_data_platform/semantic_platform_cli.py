@@ -449,6 +449,7 @@ def optimize(
     history_path = evidence_dir / "query_history.json"
     analysis_path = evidence_dir / "workload_analysis.json"
     experiments_path = evidence_dir / "optimization_experiments.sql"
+    summary_path = evidence_dir / "optimization_analysis_summary.json"
     reports = sorted(evidence_dir.glob("benchmark-c*-both.json"))
     database = None
     release_manifest = workspace / "release" / "release_manifest.json"
@@ -505,6 +506,7 @@ def optimize(
                 "analysis": str(analysis_path),
                 "experiments": str(experiments_path),
                 "diagnostics": str(evidence_dir / "optimization_diagnostics.json"),
+                "summary": str(summary_path),
             },
             "run_diagnostics": run_diagnostics,
             "policy": (
@@ -592,7 +594,7 @@ def optimize(
             )
         diagnostics_summary = json.loads(diagnostics.stdout)
 
-    return {
+    report = {
         "status": "PASS",
         "workspace": str(workspace),
         "query_history": collector_summary,
@@ -611,6 +613,7 @@ def optimize(
             "analysis": str(analysis_path),
             "experiments": str(experiments_path),
             "diagnostics": str(diagnostics_path),
+            "summary": str(summary_path),
         },
         "policy": analysis.get("policy"),
         "truth_boundary": (
@@ -619,6 +622,12 @@ def optimize(
             "or warehouse changes automatically."
         ),
     }
+    summary_path.write_text(
+        json.dumps(report, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
+    report["report"] = str(summary_path)
+    return report
 
 
 def evaluate_optimization(
