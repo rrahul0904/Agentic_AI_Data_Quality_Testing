@@ -1808,6 +1808,80 @@ def governed_evidence_plan(
     }
 
 
+def capture_power_bi_evidence(
+    workspace: Path,
+    *,
+    evidence_dir: Path,
+    security_context: str,
+    workspace_id: str | None = None,
+    dataset_id: str | None = None,
+    effective_username: str | None = None,
+    roles: list[str] | None = None,
+    max_rows: int = 100000,
+    query_timeout: int = 300,
+    confirm: bool = False,
+    dry_run: bool = False,
+    overwrite: bool = False,
+) -> dict[str, Any]:
+    manifest = workspace / "release" / "parity" / "parity_manifest.json"
+    if not manifest.exists():
+        raise FileNotFoundError(f"parity manifest not found: {manifest}")
+
+    args = [
+        "--manifest",
+        str(manifest),
+        "--evidence-dir",
+        str(evidence_dir),
+        "--security-context",
+        security_context,
+        "--max-rows",
+        str(max_rows),
+        "--query-timeout",
+        str(query_timeout),
+    ]
+    if workspace_id:
+        args += ["--workspace-id", workspace_id]
+    if dataset_id:
+        args += ["--dataset-id", dataset_id]
+    if effective_username:
+        args += ["--effective-username", effective_username]
+    for role in roles or []:
+        args += ["--role", role]
+    if overwrite:
+        args.append("--overwrite")
+    if dry_run:
+        args.append("--dry-run")
+    elif confirm:
+        args.append("--confirm")
+
+    result = _run(
+        _python_script("capture_power_bi_parity_evidence.py", *args),
+        capture=True,
+    )
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            result.stdout.strip()
+            or result.stderr.strip()
+            or "Power BI parity capture returned invalid output"
+        ) from exc
+    if result.returncode != 0:
+        if dry_run and payload.get("status") == "DRY_RUN":
+            return payload
+        raise RuntimeError(
+            payload.get("error")
+            or "; ".join(payload.get("errors", []))
+            or result.stdout.strip()
+            or result.stderr.strip()
+        )
+    payload["consumer_evidence"] = consumer_parity_plan(
+        workspace,
+        evidence_dir,
+    )
+    return payload
+
+
 def capture_governed_evidence(
     workspace: Path,
     *,
