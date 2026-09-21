@@ -15,9 +15,9 @@ from typing import Any
 import yaml
 
 try:
-    from scripts.rga_testbed.semantic_contract import DEFAULT_CONTRACT, load_semantic_contract, mart_fqn
+    from scripts.rga_testbed.semantic_contract import DEFAULT_CONTRACT, domain_guidance, load_semantic_contract, mart_fqn
 except ModuleNotFoundError:
-    from semantic_contract import DEFAULT_CONTRACT, load_semantic_contract, mart_fqn
+    from semantic_contract import DEFAULT_CONTRACT, domain_guidance, load_semantic_contract, mart_fqn
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT = ROOT / "rga-snowflake-data-platform" / "interchange" / "rga_reinsurance_performance.ossie.yml"
@@ -117,14 +117,12 @@ def build_ossie_model(database: str, contract_path: Path = DEFAULT_CONTRACT) -> 
         "performance": contract["performance"],
     }
 
+    guidance = domain_guidance(contract)
     semantic_model = {
         "name": contract["name"].lower(),
         "description": contract["description"],
         "ai_context": {
-            "instructions": (
-                "Use this model for governed synthetic Life & Health reinsurance analytics. "
-                "Do not reinterpret governed metric definitions."
-            )
+            "instructions": guidance["ossie_instructions"]
         },
         "datasets": [
             {
@@ -132,7 +130,7 @@ def build_ossie_model(database: str, contract_path: Path = DEFAULT_CONTRACT) -> 
                 "source": mart_fqn(contract),
                 "primary_key": [item.lower() for item in contract["grain"]],
                 "unique_keys": [[item.lower() for item in contract["grain"]]],
-                "description": "Governed monthly reinsurance performance mart.",
+                "description": guidance["dataset_description"],
                 "fields": fields,
             }
         ],
