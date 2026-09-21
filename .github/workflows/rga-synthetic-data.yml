@@ -337,6 +337,64 @@ jobs:
           render = json.load(open("/tmp/rga-optimization-render-summary.json"))
           assert render["executable_physical_mutations"] == 0
           PY
+          python - <<'PY'
+          import json
+
+          def report(p95_direct, p95_semantic, signature):
+              results = []
+              for variant in ("direct", "semantic"):
+                  for iteration in (1, 2):
+                      results.append({
+                          "status": "PASS",
+                          "query_name": "monthly_loss_ratio_by_cedant",
+                          "variant": variant,
+                          "iteration": iteration,
+                          "result_sha256": signature,
+                      })
+              return {
+                  "status": "PASS",
+                  "concurrency": 10,
+                  "result_parity": {"status": "PASS"},
+                  "results": results,
+                  "summary": {
+                      "variants": {
+                          "direct": {
+                              "p95_client_elapsed_ms": p95_direct,
+                              "bytes_scanned": 1000000,
+                              "queued_overload_ms": 0,
+                              "remote_spill_bytes": 0,
+                          },
+                          "semantic": {
+                              "p95_client_elapsed_ms": p95_semantic,
+                              "bytes_scanned": 800000,
+                              "queued_overload_ms": 0,
+                              "remote_spill_bytes": 0,
+                          },
+                      }
+                  },
+              }
+
+          json.dump(report(1000, 1200, "stable"), open("/tmp/optimization-before.json", "w"))
+          json.dump(report(800, 900, "stable"), open("/tmp/optimization-after.json", "w"))
+          json.dump(report(700, 800, "drifted"), open("/tmp/optimization-after-drift.json", "w"))
+          PY
+          semantic-platform evaluate-optimization \
+            --before /tmp/optimization-before.json \
+            --after /tmp/optimization-after.json \
+            --target-variant both \
+            --min-p95-improvement-pct 10 >/tmp/optimization-accept.json
+          grep -q '"decision": "ACCEPT"' /tmp/optimization-accept.json
+          set +e
+          semantic-platform evaluate-optimization \
+            --before /tmp/optimization-before.json \
+            --after /tmp/optimization-after-drift.json \
+            --target-variant both \
+            --min-p95-improvement-pct 10 >/tmp/optimization-reject.json
+          optimization_reject_code=$?
+          set -e
+          test "$optimization_reject_code" -eq 3
+          grep -q '"decision": "REJECT"' /tmp/optimization-reject.json
+          grep -q '"semantic_contract_preserved": false' /tmp/optimization-reject.json
       - name: Generate cross-consumer semantic parity suite
         run: python scripts/rga_testbed/generate_parity_suite.py --output /tmp/rga-parity
       - name: Build governed semantic release bundle
