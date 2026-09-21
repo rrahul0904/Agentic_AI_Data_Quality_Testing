@@ -425,6 +425,27 @@ jobs:
           grep -q 'without --confirm' /tmp/power-bi-evidence-refusal.json
       - name: Build governed semantic release bundle
         run: python scripts/rga_testbed/build_semantic_release.py --output /tmp/rga-release --source-sha "$GITHUB_SHA"
+      - name: Certify semantic platform cross-domain portability
+        run: |
+          python scripts/rga_testbed/build_semantic_release.py \
+            --contract config/examples/banking_semantic_contract.yml \
+            --database BANKING_ANALYTICS \
+            --output /tmp/banking-semantic-release \
+            --source-sha "$GITHUB_SHA" >/tmp/banking-release.json
+          grep -q '"status": "PASS"' /tmp/banking-release.json
+          test -f /tmp/banking-semantic-release/release_manifest.json
+          test -f /tmp/banking-semantic-release/semantic/banking_account_performance.yml
+          test -f /tmp/banking-semantic-release/ai/create_agent.sql
+          test -f /tmp/banking-semantic-release/interchange/banking_account_performance.ossie.yml
+          test ! -d /tmp/banking-semantic-release/multi_fact
+          grep -q 'BANKING_ACCOUNT_PERFORMANCE_AGENT' /tmp/banking-semantic-release/ai/create_agent.sql
+          grep -q 'BANKING_ACCOUNT_PERFORMANCE_MCP' /tmp/banking-semantic-release/ai/create_mcp_server.sql
+          grep -q 'banking_account_performance_cross_consumer_semantic_parity' /tmp/banking-semantic-release/parity/parity_manifest.json
+          if grep -R -i -E 'rga_|rga |reinsurance|cedant|treaty' /tmp/banking-semantic-release \
+            --include='*.json' --include='*.yml' --include='*.yaml' --include='*.sql' --include='*.md' --include='*.dax'; then
+            echo "domain leakage detected in generic semantic release"
+            exit 1
+          fi
       - name: Certify Snowflake governed evidence capture dry-run
         run: |
           python scripts/rga_testbed/capture_snowflake_parity_evidence.py --manifest /tmp/rga-parity/parity_manifest.json --evidence-dir /tmp/rga-governed-evidence --security-context ROLE_ANALYST --max-rows 1000 --dry-run >/tmp/snowflake-evidence-dry-run.json
