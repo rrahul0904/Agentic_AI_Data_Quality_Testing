@@ -66,6 +66,9 @@ function formatDuration(start?: string | null, end?: string | null): string {
 
 function humanStatus(value?: string | null): string {
   const status = String(value ?? "").toUpperCase();
+  if (status === "VERIFIED_TOOL_RESPONSE" || status === "TOOL_EVIDENCE_ONLY") return "Evidence collected";
+  if (status === "LIVE_RESPONSE") return "AI explanation completed";
+  if (status === "LIVE_ERROR") return "AI explanation unavailable";
   if (status === "SUCCESS" || status === "COMPLETED" || status === "PASS" || status === "PASSED") return "Passed";
   if (status === "FAILED" || status === "ERROR" || status === "FAIL") return "Failed";
   if (status === "QUEUED" || status === "RUNNING" || status === "MONITORING") return "In progress";
@@ -216,6 +219,7 @@ export default function AgentPage() {
         {response?.error && <div className={styles.dangerStrip}>{response.error}</div>}
         {response?.agent?.error && <div className={styles.dangerStrip}>Live agent unavailable: {response.agent.error}</div>}
         {response && !response.error && readable && <div className={styles.sectionStack}>
+          <h3>Answer</h3>
           <section className={styles.answerCard}>
             <div className={styles.answerHeader}><span className={styles.answerEyebrow}>CURRENT STATUS</span><span className={styles.answerStatus}>{humanStatus(resultRecord(response.result).status ?? response.agent?.status)}</span></div>
             <h2>{readable.headline}</h2>
@@ -223,10 +227,9 @@ export default function AgentPage() {
             <div className={styles.answerFacts}>{readable.facts.map((item) => <div className={styles.answerFact} key={item.label}><small>{item.label}</small><strong className={item.tone === "warn" ? styles.answerWarn : item.tone === "good" ? styles.answerGood : ""}>{item.value}</strong></div>)}</div>
             <div className={styles.answerMeta}>Based on exact connector evidence · updated {readable.updated}</div>
           </section>
-          <section><h3>What supports this</h3><div className={styles.summaryList}>{[...(readable.facts.map((item) => ({ fact: `${item.label}: ${item.value}`, status: item.tone === "warn" ? "ATTENTION" : "OBSERVED" }))), ...supportingFacts.map((item) => ({ fact: typeof item.fact === "string" ? item.fact : "Observed evidence", status: typeof item.status === "string" ? item.status : "OBSERVED" }))].map((item, index) => <div className={styles.summaryRow} key={`${item.fact}-${index}`}><span>{item.fact}</span><strong>{item.status}</strong></div>)}</div></section>
-          <section><h3>What remains unknown</h3><div className={styles.infoStrip}><span>i</span><div>{(readable.unknowns.length ? readable.unknowns : ["No additional uncertainty was returned."]).map((item, index) => <p key={`${item}-${index}`}>{item}</p>)}</div></div></section>
-          <section><h3>Recommended next step</h3><div className={styles.callout}><strong>{readable.nextAction}</strong></div></section>
-          <section><h3>Evidence links</h3><div className={styles.summaryList}>{evidenceLinks.length ? evidenceLinks.map((item, index) => <div className={styles.summaryRow} key={`${typeof item.reference === "string" ? item.reference : item.type ?? "evidence"}-${index}`}><span>{typeof item.label === "string" ? item.label : "Evidence record"}<small>{typeof item.type === "string" ? item.type : "evidence"} · {typeof item.reference === "string" ? item.reference : "No reference"}</small></span><span className={styles.evidenceActions}><strong>{typeof item.status === "string" ? item.status : "not checked"}</strong>{evidenceHref(item.href) ? <a href={evidenceHref(item.href)!}>Open</a> : null}</span></div>) : <div className={styles.summaryRow}><span>No evidence links returned</span><strong>—</strong></div>}</div></section>
+          <section><h3>Evidence</h3><div className={styles.summaryList}>{[...(readable.facts.map((item) => ({ fact: `${item.label}: ${item.value}`, status: item.tone === "warn" ? "ATTENTION" : "OBSERVED" }))), ...supportingFacts.map((item) => ({ fact: typeof item.fact === "string" ? item.fact : "Observed evidence", status: typeof item.status === "string" ? item.status : "OBSERVED" }))].map((item, index) => <div className={styles.summaryRow} key={`${item.fact}-${index}`}><span>{item.fact}</span><strong>{item.status}</strong></div>)}</div><div className={styles.summaryList}>{evidenceLinks.length ? evidenceLinks.map((item, index) => <div className={styles.summaryRow} key={`${typeof item.reference === "string" ? item.reference : item.type ?? "evidence"}-${index}`}><span>{typeof item.label === "string" ? item.label : "Evidence record"}<small>{typeof item.type === "string" ? item.type : "evidence"} · {typeof item.reference === "string" ? item.reference : "No reference"}</small></span><span className={styles.evidenceActions}><strong>{typeof item.status === "string" ? item.status : "not checked"}</strong>{evidenceHref(item.href) ? <a href={evidenceHref(item.href)!}>Open</a> : null}</span></div>) : <div className={styles.summaryRow}><span>No evidence links returned</span><strong>—</strong></div>}</div></section>
+          <section><h3>Uncertainty</h3><div className={styles.infoStrip}><span>i</span><div>{(readable.unknowns.length ? readable.unknowns : ["No additional uncertainty was returned."]).map((item, index) => <p key={`${item}-${index}`}>{item}</p>)}</div></div></section>
+          <section><h3>Next action</h3><div className={styles.callout}><strong>{readable.nextAction}</strong></div></section>
           <details><summary>Technical evidence</summary>
           <section><h3>Interpretation mode</h3><div className={styles.summaryRow}><span>{readable.mode}</span><strong>{readable.updated}</strong></div></section>
           {response.answer && !/evidence collection completed with status/i.test(response.answer) && <section><h3>Full AI answer</h3><p className={styles.rawNarrative}>{response.answer}</p></section>}
