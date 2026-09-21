@@ -466,12 +466,12 @@ function ProjectDesignView({ defaultView = "roles", navActive = "design", contex
   };
 
   const openAiStatus = capabilities.openai && typeof capabilities.openai === "object" ? String((capabilities.openai as Record<string, unknown>).status || "UNAVAILABLE") : "UNAVAILABLE";
-  const analysisActions = <div className={local.analysisActions}><span className={`${local.status} ${tone(report?.status || "NOT_RUN")}`}>{report?.status || "NOT RUN"}</span><button className={styles.secondary} disabled={busy} onClick={() => void runAnalysis()}>{busy ? "Analyzing accepted discovery…" : "Run automated analysis"}</button></div>;
+  const analysisActions = <div className={local.analysisActions}><span className={`${local.status} ${tone(report?.status || "NOT_RUN")}`}>{report?.status || "NOT RUN"}</span><button className={styles.secondary} disabled={busy} onClick={() => void runAnalysis()}>{busy ? "Organizing catalog…" : "Run automated analysis"}</button></div>;
 
-  return <ProjectManagementShell phase={view === "map" ? "map" : "objects"} navActive={view === "map" ? "map" : navActive} contextOnly={contextOnly} title={view === "map" ? "Map flows" : "Objects & flows"} description={view === "map" ? "Explore evidence-backed relationships one pipeline at a time." : ""} headerActions={analysisActions}>
+  return <ProjectManagementShell phase={view === "map" ? "map" : "objects"} navActive={view === "map" ? "map" : navActive} contextOnly={contextOnly} title={view === "map" ? "Lineage" : "Catalog"} description={view === "map" ? "Explore evidence-backed relationships one pipeline at a time." : ""} headerActions={analysisActions}>
     {notice && <div className={notice.tone === "good" ? styles.successStrip : styles.dangerStrip}>{notice.text}</div>}
 
-    {!report ? <section className={styles.panel}><header className={styles.panelHead}><div><h2>No accepted-discovery analysis</h2><p>Run analysis to classify the saved discovery catalog. No static fallback will be displayed.</p></div></header></section> : <>
+    {!report ? <section className={styles.panel}><header className={styles.panelHead}><div><h2>No catalog analysis yet</h2><p>Run analysis to organize the saved discovery catalog.</p></div><button className={styles.primary} disabled={busy} onClick={() => void runAnalysis()}>{busy ? "Organizing catalog…" : "Run analysis"}</button></header></section> : <>
       <section className={local.metrics}>
         <article><span>Discovered objects</span><strong>{report.summary.top_level_assets}</strong><small>{report.summary.child_assets} columns and job tasks</small></article>
         <article><span>Detected pipeline flows</span><strong>{report.summary.pipelines}</strong><small>{report.summary.relationships} technical links reviewed by rules</small></article>

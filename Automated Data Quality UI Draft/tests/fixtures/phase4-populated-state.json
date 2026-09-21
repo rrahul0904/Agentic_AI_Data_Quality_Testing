@@ -1,0 +1,42 @@
+{
+  "fixture_id": "phase4-populated-operator-console-v1",
+  "fixture_type": "TEST_ONLY_UI_STATE",
+  "scope": {
+    "project_id": "fixture-project",
+    "environment": "fixture",
+    "discovery_snapshot_id": "discovery_fixture_001",
+    "plan_id": "plan_fixture_001",
+    "run_id": "run_fixture_001"
+  },
+  "catalog": {
+    "status": "PASS",
+    "assets": [
+      {"id": "asset_source_orders", "name": "postgres.public.orders", "kind": "source_table", "lineage_state": "DISCOVERED"},
+      {"id": "asset_model_orders", "name": "stg_orders", "kind": "dbt_model", "lineage_state": "PLANNED"},
+      {"id": "asset_target_orders", "name": "ANALYTICS.RAW.ORDERS", "kind": "warehouse_table", "lineage_state": "OBSERVED"}
+    ]
+  },
+  "lineage": {
+    "status": "PASS",
+    "links": [
+      {"id": "link_source_model", "source": "asset_source_orders", "target": "asset_model_orders", "lineage_state": "PLANNED"},
+      {"id": "link_model_target", "source": "asset_model_orders", "target": "asset_target_orders", "lineage_state": "OBSERVED"}
+    ]
+  },
+  "rules": {
+    "status": "PASS",
+    "items": [
+      {"id": "rule_orders_not_null", "asset_id": "asset_model_orders", "state": "APPROVED", "latest_result": "PASS"},
+      {"id": "rule_orders_unique", "asset_id": "asset_model_orders", "state": "APPROVED", "latest_result": "FAIL"},
+      {"id": "rule_orders_freshness", "asset_id": "asset_target_orders", "state": "DRAFT", "latest_result": "NOT_CHECKED"}
+    ]
+  },
+  "monitoring": {
+    "status": "PASS",
+    "states": [
+      {"run_id": "run_fixture_001", "status": "COMPLETED", "execution_status": "PASS", "verification_status": "VERIFIED", "data_quality_status": "PASS", "evidence_status": "VERIFIED"},
+      {"run_id": "run_fixture_002", "status": "FAILED", "execution_status": "FAILED", "verification_status": "NOT_CHECKED", "data_quality_status": "NOT_CHECKED", "evidence_status": "AVAILABLE"},
+      {"run_id": "run_fixture_003", "status": "PARTIAL", "execution_status": "PASS", "verification_status": "PENDING", "data_quality_status": "NOT_CHECKED", "evidence_status": "PARTIAL"}
+    ]
+  }
+}

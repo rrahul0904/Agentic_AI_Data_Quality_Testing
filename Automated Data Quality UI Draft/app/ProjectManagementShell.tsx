@@ -25,7 +25,7 @@ const phases: Array<{ id: ManagementPhase; title: string; detail: string; href: 
   { id: "definition", title: "Define project", detail: "Business boundary", href: "/register-project?phase=definition" },
   { id: "connections", title: "Connect systems", detail: "Configure and test", href: "/register-project?phase=connections" },
   { id: "discovery", title: "Discover assets", detail: "Run and select", href: "/register-project?phase=discovery" },
-  { id: "map", title: "Map flows", detail: "Evidence graph", href: "/map-flows" },
+  { id: "map", title: "Lineage", detail: "Evidence graph", href: "/map-flows" },
   { id: "rules", title: "Define quality rules", detail: "Deterministic checks", href: "/test-plan?view=contracts&mode=review" },
   { id: "review", title: "Review and run", detail: "Approve and execute", href: "/test-plan?view=execution&mode=review" },
 ];

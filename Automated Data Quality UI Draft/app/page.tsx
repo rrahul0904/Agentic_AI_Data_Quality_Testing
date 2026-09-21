@@ -79,6 +79,11 @@ function plural(count: number, singular: string, multiple = `${singular}s`): str
   return `${count} ${count === 1 ? singular : multiple}`;
 }
 
+function connectionSummary(passing: number, total: number): string {
+  if (!total) return "NOT CHECKED";
+  return `${passing} healthy · ${Math.max(0, total - passing)} needs review`;
+}
+
 export default function HomePage() {
   const [data, setData] = useState<Operations | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -260,7 +265,7 @@ export default function HomePage() {
           <div className={styles.statusCardFooter}><span>Failed-run evidence only</span><ScopedLink href="/incidents">Review incidents →</ScopedLink></div>
         </article>
         <article className={styles.statusCard}>
-          <div className={styles.statusCardHeader}><span>Connection health</span><StatusBadge value={!totalConnections ? "NOT_CHECKED" : passingConnections === totalConnections ? "READY" : "UNCERTAIN"} label={totalConnections ? `${passingConnections}/${totalConnections} ${passingConnections === totalConnections ? "PASSING" : "NEEDS REVIEW"}` : "NOT CHECKED"} /></div>
+          <div className={styles.statusCardHeader}><span>Connection health</span><StatusBadge value={!totalConnections ? "NOT_CHECKED" : passingConnections === totalConnections ? "READY" : "UNCERTAIN"} label={connectionSummary(passingConnections, totalConnections)} /></div>
           <strong>{totalConnections ? `${passingConnections} of ${totalConnections}` : "—"}</strong>
           <small>{totalConnections ? (passingConnections === totalConnections ? "All registered adapters passed their latest check." : "One or more adapters need attention.") : "No saved connection checks are available."}</small>
           <div className={styles.statusCardFooter}><span>Last check: {formatDate(latestConnectionCheck, "Not checked")}</span><Link href="/register-project">Review connections →</Link></div>
@@ -315,7 +320,7 @@ export default function HomePage() {
           </section>
 
           <section className={styles.panel}>
-            <header className={styles.panelHead}><div><h2>Connection health</h2><p>Compact adapter status for the current project.</p></div><div className={styles.panelActions}><StatusBadge value={!totalConnections ? "NOT_CHECKED" : passingConnections === totalConnections ? "READY" : "UNCERTAIN"} label={totalConnections ? `${passingConnections}/${totalConnections} ${passingConnections === totalConnections ? "PASSING" : "NEEDS REVIEW"}` : "NOT CHECKED"} /><button className={styles.secondary} disabled={busy} onClick={() => void loadLiveEvidence()}>{busy ? "Syncing…" : "Sync connections"}</button></div></header>
+            <header className={styles.panelHead}><div><h2>Connection health</h2><p>Compact adapter status for the current project.</p></div><div className={styles.panelActions}><StatusBadge value={!totalConnections ? "NOT_CHECKED" : passingConnections === totalConnections ? "READY" : "UNCERTAIN"} label={connectionSummary(passingConnections, totalConnections)} /><button className={styles.secondary} disabled={busy} onClick={() => void loadLiveEvidence()}>{busy ? "Syncing…" : "Sync connections"}</button></div></header>
             <div className={styles.connectionList}>{integrations.map(([name, value]) => { const state = connectionState(value); const count = value.object_count ?? value.registered_dag_count ?? (asPayload(value.resource_counts).model) ?? (Array.isArray(value.models) ? value.models.length : undefined); const freshness = label(value.freshness ?? "NOT REFRESHED"); return <div className={styles.connectionRow} key={name}><span className={`${styles.connectionDot} ${state === "PASSING" ? styles.dotGood : state === "ATTENTION" ? styles.dotBad : styles.dotUnknown}`}></span><div><strong>{name.toUpperCase()}</strong><small>{state === "PASSING" ? `${count === undefined ? "Available" : `${count} observed assets`}` : display(value.reason ?? value.runtime_error ?? value.detail, "Adapter needs review")} · {freshness.toLowerCase()}</small></div><StatusBadge value={state === "PASSING" ? "READY" : state === "ATTENTION" ? "FAILED" : "NOT_CHECKED"} label={label(state)} /></div>; })}</div>
             <Link className={styles.tableLink} href="/register-project">Open connection manager →</Link>
           </section>

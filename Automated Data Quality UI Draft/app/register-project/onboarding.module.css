@@ -19,12 +19,12 @@
 .connectionFacts span, .connectionFacts strong { display: block; }
 .connectionFacts span { color: #7d8983; font-size: 7px; text-transform: uppercase; letter-spacing: .04em; }
 .connectionFacts strong { margin-top: 3px; overflow-wrap: anywhere; color: #35453d; font-size: 8px; line-height: 1.35; }
-.connectionTableWrap { max-height: 320px; overflow-x: auto; overflow-y: scroll; scrollbar-gutter: stable; border: 1px solid #dfe6e2; border-radius: 10px; scrollbar-color: #86a99a #edf3ef; scrollbar-width: auto; }
+.connectionTableWrap { max-height: 320px; overflow-x: auto; overflow-y: scroll; scrollbar-gutter: stable; border: 1px solid #dfe6e2; border-radius: 10px; scrollbar-color: #86a99a #edf3ef; scrollbar-width: auto; container-type: inline-size; }
 .connectionTableWrap:focus-visible { outline: 3px solid rgba(23, 131, 91, .22); outline-offset: 3px; }
 .connectionTableWrap::-webkit-scrollbar { width: 12px; height: 12px; }
 .connectionTableWrap::-webkit-scrollbar-track { background: #edf3ef; border-radius: 10px; }
 .connectionTableWrap::-webkit-scrollbar-thumb { min-height: 42px; border: 3px solid #edf3ef; border-radius: 10px; background: #86a99a; }
-.connectionTable { width: 100%; min-width: 0; table-layout: fixed; border-collapse: collapse; font-size: 8px; }
+.connectionTable { width: 100%; min-width: 860px; table-layout: fixed; border-collapse: collapse; font-size: 8px; }
 .connectionTable th:nth-child(1), .connectionTable td:nth-child(1) { width: 24%; }
 .connectionTable th:nth-child(2), .connectionTable td:nth-child(2) { width: 13%; }
 .connectionTable th:nth-child(3), .connectionTable td:nth-child(3) { width: 12%; }
@@ -32,14 +32,14 @@
 .connectionTable th:nth-child(5), .connectionTable td:nth-child(5) { width: 15%; }
 .connectionTable th:nth-child(6), .connectionTable td:nth-child(6) { width: 23%; }
 .connectionTable th { position: sticky; top: 0; z-index: 1; padding: 9px 10px; background: #f4f7f5; color: #718078; text-align: left; font-size: 7px; text-transform: uppercase; letter-spacing: .06em; }
-.connectionTable td { padding: 10px; border-top: 1px solid #e8eeeb; vertical-align: middle; color: #4d5d55; }
+.connectionTable td { padding: 10px; border-top: 1px solid #e8eeeb; vertical-align: middle; color: #4d5d55; overflow-wrap: anywhere; }
 .connectionTable tbody tr:hover { background: #fbfdfc; }
 .connectionName { display: grid; gap: 3px; min-width: 0; width: 100%; padding: 0; border: 0; background: transparent; color: #244538; text-align: left; cursor: pointer; }
 .connectionName strong { font-size: 9px; }
 .connectionName small { color: #7a8780; font-size: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .adapterDetail { display: block; margin-top: 3px; color: #718078; font-size: 7px; line-height: 1.3; }
 .failureReason { display: block; max-width: 210px; margin-top: 4px; color: #a43d42; font-size: 7px; line-height: 1.35; }
-.tableActions { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; min-width: 0; }
+.tableActions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 220px; }
 .tableActions button { padding: 6px 7px; font-size: 7px; }
 .empty { min-height: 160px; display: grid; place-content: center; text-align: center; color: #67716c; border: 1px dashed #cad3cf; border-radius: 12px; }
 .empty strong { color: #24312b; font-size: 16px; }
@@ -241,9 +241,17 @@
 .drawer > footer { margin-top: auto; padding-top: 16px; border-top: 1px solid #e3e8e5; display: flex; justify-content: flex-end; gap: 8px; }
 .secretNote { background: #f4f7f5; border-radius: 9px; padding: 12px; display: grid; gap: 3px; color: #48544e; }
 .projectFooter { position: static; }
-.projectActions { display: grid; grid-template-columns: minmax(250px, 1.4fr) repeat(4, minmax(118px, 1fr)); align-items: stretch; gap: 8px 10px; min-width: 0; }
-.projectActions > :first-child { min-width: 0; }
-.projectActions > button { width: 100%; min-height: 42px; padding-inline: 10px; font-size: 13px; white-space: nowrap; }
+.projectHeader { container-type: inline-size; align-items: flex-start; }
+.projectHeaderCopy { min-width: 0; flex: 1 1 360px; }
+.projectActions { display: flex; flex: 1 1 720px; min-width: 0; align-items: stretch; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.projectActions > :first-child { flex: 1 1 220px; min-width: 180px; }
+.projectActions > button { flex: 0 1 auto; min-height: 42px; padding-inline: 13px; font-size: 13px; white-space: nowrap; }
+.projectMoreActions { position: relative; display: flex; align-items: stretch; }
+.projectMoreActions > summary { display: inline-flex; align-items: center; min-height: 42px; padding: 9px 13px; border: 1px solid #dce3df; border-radius: 8px; background: white; color: #55635d; cursor: pointer; font-size: 13px; font-weight: 800; list-style: none; }
+.projectMoreActions > summary::-webkit-details-marker { display: none; }
+.projectMoreActions[open] > summary { border-color: #7db89f; background: #f1faf5; }
+.projectMoreActions > div { position: absolute; z-index: 5; top: calc(100% + 6px); right: 0; min-width: 180px; padding: 7px; border: 1px solid #dce3df; border-radius: 8px; background: white; box-shadow: 0 12px 30px rgba(20, 37, 30, .14); }
+.projectMoreActions .danger { width: 100%; }
 .managementFrame { display: grid; grid-template-columns: 208px minmax(0, 1fr); gap: 14px; align-items: start; }
 .managementNav { position: sticky; top: 12px; display: grid; gap: 4px; padding: 10px; border: 1px solid #dfe6e2; border-radius: 11px; background: #f8faf9; }
 .navSectionLabel { margin: 11px 8px 4px; color: #7c8983; font-size: 7px; font-weight: 900; letter-spacing: .1em; }
@@ -413,7 +421,8 @@
 @media (max-width: 920px) { .discoveryScopeGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 600px) { .sourceTableChooser, .assetDiscoveryStep > header { grid-template-columns: 1fr; display: grid; } .sourceTableChooser button, .assetDiscoveryStep button { justify-self: start; } .discoveryScopeGrid { grid-template-columns: 1fr 1fr; } .addedSourceTable > header { flex-direction: column; } }
 @media (max-width: 920px) { .onboardingFacts, .onboardingRelated { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 1260px) { .projectActions { grid-template-columns: minmax(220px, 1fr) repeat(2, minmax(118px, 1fr)); } .projectActions > :first-child { grid-column: 1 / -1; } }
+@container (max-width: 1060px) { .projectHeader { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; } .projectActions { justify-content: flex-start; } }
+@container (max-width: 760px) { .projectActions > :first-child { flex-basis: 100%; } .projectActions > button, .projectMoreActions { flex: 1 1 calc(50% - 8px); } .projectMoreActions > summary { justify-content: center; width: 100%; } }
 @media (max-width: 600px) { .onboardingTableSummary { grid-template-columns: 34px minmax(0, 1fr); } .onboardingTableSummary > b { grid-column: 2; width: max-content; } .onboardingFacts, .onboardingColumns, .onboardingRelated { grid-template-columns: 1fr; } }
 @media (max-width: 860px) { .managementFrame { grid-template-columns: 1fr; } .managementNav { position: static; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; } .navSectionLabel { grid-column: 1 / -1; margin-bottom: 0; } }
 @media (max-width: 600px) { .managementNav { grid-template-columns: 1fr; } .lifecycleSummary { grid-template-columns: 1fr; } }
@@ -438,3 +447,20 @@
 
 @media (max-width: 1360px) { .catalogToolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: "search search" "environment layer" "connector type" "reset count"; } }
 @media (max-width: 600px) { .catalogToolbar { grid-template-columns: 1fr; grid-template-areas: "search" "environment" "layer" "connector" "type" "reset" "count"; } }
+
+@container (max-width: 780px) {
+  .connectionTable { min-width: 0; }
+  .connectionTable thead { display: none; }
+  .connectionTable, .connectionTable tbody, .connectionTable tr, .connectionTable td { display: block; width: 100%; }
+  .connectionTable tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; padding: 14px 12px; border-top: 1px solid #e8eeeb; }
+  .connectionTable tbody tr:first-child { border-top: 0; }
+  .connectionTable td { padding: 0; border-top: 0; min-width: 0; }
+  .connectionTable td:nth-child(1), .connectionTable td:nth-child(6) { grid-column: 1 / -1; }
+  .connectionTable td:nth-child(2)::before, .connectionTable td:nth-child(3)::before, .connectionTable td:nth-child(4)::before, .connectionTable td:nth-child(5)::before { display: block; margin-bottom: 3px; color: #718078; font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+  .connectionTable td:nth-child(2)::before { content: "Adapter"; }
+  .connectionTable td:nth-child(3)::before { content: "Environment"; }
+  .connectionTable td:nth-child(4)::before { content: "Test status"; }
+  .connectionTable td:nth-child(5)::before { content: "Last tested"; }
+  .connectionTable td:nth-child(6) { padding-top: 2px; }
+  .tableActions { min-width: 0; gap: 7px; }
+}

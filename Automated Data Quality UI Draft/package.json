@@ -9,6 +9,8 @@
     "start": "next start",
     "verify:browser": "node scripts/verify-onboarding-browser.mjs",
     "verify:browser:phase8": "node scripts/verify-phase8-browser.mjs",
+    "verify:contracts": "node scripts/verify-phase3-contracts.mjs",
+    "verify:fixtures": "node scripts/verify-phase4-fixtures.mjs",
     "verify:release": "node scripts/release-gate-browser.mjs",
     "measure:performance": "node scripts/measure-phase6-performance.mjs",
     "typecheck": "tsc --noEmit",

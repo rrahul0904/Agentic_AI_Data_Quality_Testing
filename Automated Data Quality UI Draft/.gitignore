@@ -1,0 +1,5 @@
+.next/
+.next-development/
+.next-production/
+node_modules/
+*.tsbuildinfo

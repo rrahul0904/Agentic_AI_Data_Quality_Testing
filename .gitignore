@@ -62,3 +62,14 @@ credentials*.json
 # Read-only parity reference clones and generated analysis
 .reference/
 .reference-analysis/
+
+# Canonical application worktrees and local release artifacts
+/Automated Data Quality Testing/
+/Automated Data Quality UI/
+/fresh/
+/recovery_snapshots/
+/artifacts/
+/.review/
+**/.review/
+Automated Data Quality UI Draft/.ade-ui/
+Automated Data Quality UI Draft/artifacts/

@@ -150,6 +150,12 @@ export default function ActionsPage() {
       const value = await call(undefined, requestedRunId ? `/api/actions?run_id=${encodeURIComponent(requestedRunId)}` : "/api/actions");
       setCapabilities(value.capabilities);
       setHasActiveScope(typeof value.source_table_scope_id === "string" && value.source_table_scope_id.length > 0);
+      if (value.workspace && typeof value.workspace === "object") {
+        const workspace = value.workspace as { projectId?: unknown; environment?: unknown };
+        if (typeof workspace.projectId === "string" && typeof workspace.environment === "string") {
+          setWorkspaceScope({ project: workspace.projectId, environment: workspace.environment });
+        }
+      }
       const persistedRuns = (value.runs?.items ?? []) as Run[];
       const activeRun = (requestedRunId ? persistedRuns.find((item) => item.run_id === requestedRunId) : null)
         ?? (!requestedRunId ? persistedRuns.find((item) => ["QUEUED", "SUBMITTING", "VERIFYING", "MONITORING", "AWAITING_CONTINUATION", "RUNNING", "UNCERTAIN", "OUTCOME_UNKNOWN"].includes(item.state)) : null);
@@ -253,7 +259,6 @@ export default function ActionsPage() {
     <PageHeader eyebrow="AUTOMATED DATA QUALITY / JOBS" title="Run jobs" description="Choose one operation or an explicit sequence, preview the exact scope, approve it, then track execution and quality separately." status={<StatusBadge value={capabilities?.status ?? "CONNECTING"} label={statusLabel(capabilities?.status ?? "CONNECTING")} />} />
     <div className={local.scopeContext} aria-label="Current project and environment scope"><span>Scope</span><label>Project<input aria-label="Project scope" value={workspaceScope?.project ?? ""} placeholder="Loading project scope" readOnly /></label><label>Environment<select aria-label="Environment scope" value={workspaceScope?.environment ?? ""} disabled={!workspaceScope} onChange={(event) => { const next = new URL(window.location.href); next.searchParams.set("environment", event.target.value); window.location.assign(next.toString()); }}><option value="">Loading environment scope</option><option value="development">Development</option><option value="staging">Staging</option><option value="production">Production</option></select></label></div>
     {notice && <div className={notice.tone === "error" ? styles.dangerStrip : styles.successStrip}>{notice.text}</div>}
-    {!hasActiveScope ? <section className={styles.panel} aria-label="Run jobs onboarding required"><div className={styles.infoStrip}><span>i</span><div><strong>Select a source table before running jobs</strong><p>Run Jobs shows only the selected table's discovered jobs and evidence. Historical records are retained but remain hidden until a table is selected.</p><a className={styles.tableLink} href="/register-project?phase=onboarding">Open Data Onboarding →</a></div></div></section> : <>
     <nav className={local.executionFlow} aria-label="Job execution flow"><a className={local.executionFlowActive} href="#plan-workspace"><b>1</b><span>Choose</span><small>Operation and scope</small></a><a href="#preview-plan"><b>2</b><span>Preview</span><small>Exact steps</small></a><a href="#approval-control"><b>3</b><span>Approve</span><small>Human approval</small></a><a href="#execution-monitor"><b>4</b><span>Track results</span><small>Run and quality outcome</small></a></nav>
     {demoReadiness && <section className={`${styles.panel} ${local.readiness}`} aria-label="Controlled live-demo readiness">
       <header className={styles.panelHead}><div><span className={styles.eyebrow}>CONTROLLED DEMO BASELINE</span><h2>Demo readiness</h2><p>Configuration and read-only checks for the selected project. This panel never runs or resets a pipeline.</p></div><div className={local.readinessActions}><button className={styles.secondary} disabled={readinessBusy} onClick={() => void loadDemoReadiness(true)}>{readinessBusy ? "Checking…" : "Check connectivity"}</button><button className={styles.secondary} disabled={readinessBusy} onClick={() => void loadDemoReadiness(false, true)}>{readinessBusy ? "Verifying…" : "Verify model"}</button></div></header>
@@ -311,7 +316,6 @@ export default function ActionsPage() {
       {planned?.status === "BLOCKED" && <section className={styles.panel}><h3>Permanent blocks</h3><div className={local.blocks}>{((capabilities?.capabilities.permanent_blocks as string[]) ?? []).map((item) => <p key={item}>× {item}</p>)}</div></section>}
       <details className={`${styles.panel} ${local.collapsiblePanel}`} open><summary>Approval contract <span>Binding and expiry</span></summary><div className={local.collapsibleBody}><dl><div><dt>Binding</dt><dd>{capabilities?.approval.binding ?? "—"}</dd></div><div><dt>Single use</dt><dd>{capabilities?.approval.single_use ? "Yes" : "—"}</dd></div><div><dt>Maximum TTL</dt><dd>{capabilities?.approval.maximum_ttl_minutes ?? "—"} min</dd></div></dl></div></details>
     </aside></div>
-    </>}
   </DraftShell>;
 }
 
