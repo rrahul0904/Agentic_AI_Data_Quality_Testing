@@ -397,6 +397,32 @@ jobs:
           grep -q '"semantic_contract_preserved": false' /tmp/optimization-reject.json
       - name: Generate cross-consumer semantic parity suite
         run: python scripts/rga_testbed/generate_parity_suite.py --output /tmp/rga-parity
+      - name: Certify Power BI governed evidence dry-run
+        run: |
+          test "$(find /tmp/rga-parity -maxdepth 1 -name '*.powerbi.dax' | wc -l)" -eq 3
+          python scripts/rga_testbed/capture_power_bi_parity_evidence.py \
+            --manifest /tmp/rga-parity/parity_manifest.json \
+            --evidence-dir /tmp/rga-governed-evidence \
+            --security-context ROLE_ANALYST \
+            --max-rows 1000 \
+            --dry-run >/tmp/power-bi-evidence-dry-run.json
+          grep -q '"status": "DRY_RUN"' /tmp/power-bi-evidence-dry-run.json
+          grep -q '"case_count": 3' /tmp/power-bi-evidence-dry-run.json
+          python - <<'PY'
+          import json
+          plan = json.load(open("/tmp/power-bi-evidence-dry-run.json"))
+          assert all(item["dax_exists"] for item in plan["cases"])
+          assert plan["api"] == "Power BI Execute DAX Queries (Apache Arrow)"
+          PY
+          set +e
+          python scripts/rga_testbed/capture_power_bi_parity_evidence.py \
+            --manifest /tmp/rga-parity/parity_manifest.json \
+            --evidence-dir /tmp/rga-governed-evidence \
+            --security-context ROLE_ANALYST >/tmp/power-bi-evidence-refusal.json
+          power_bi_code=$?
+          set -e
+          test "$power_bi_code" -eq 2
+          grep -q 'without --confirm' /tmp/power-bi-evidence-refusal.json
       - name: Build governed semantic release bundle
         run: python scripts/rga_testbed/build_semantic_release.py --output /tmp/rga-release --source-sha "$GITHUB_SHA"
       - name: Certify Snowflake governed evidence capture dry-run
