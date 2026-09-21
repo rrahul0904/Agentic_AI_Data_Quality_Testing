@@ -34,6 +34,8 @@ def test_parity_suite_requires_all_four_consumers(tmp_path: Path):
         assert case["power_bi"]["expected_metrics"] == case["metrics"]
         assert case["excel"]["expected_metrics"] == case["metrics"]
         assert case["power_bi"]["allow_local_metric_reimplementation"] is False
+        assert case["power_bi"]["capture_api"] == "executeDaxQueries"
+        assert case["power_bi"]["dax_file"].endswith(".powerbi.dax")
         assert case["excel"]["allow_local_metric_reimplementation"] is False
 
 
@@ -44,7 +46,7 @@ def test_parity_suite_emits_reference_sql_for_every_case(tmp_path: Path):
     )
     files = module.generate(tmp_path, "RGA_SYNTHETIC_TESTBED")
     manifest = json.loads((tmp_path / "parity_manifest.json").read_text(encoding="utf-8"))
-    assert len(files) == len(manifest["cases"]) + 1
+    assert len(files) == (len(manifest["cases"]) * 2) + 1
     for case in manifest["cases"]:
         sql_path = tmp_path / case["reference"]["sql_file"]
         assert sql_path.exists()
@@ -53,6 +55,15 @@ def test_parity_suite_emits_reference_sql_for_every_case(tmp_path: Path):
         assert "RGA_SYNTHETIC_TESTBED.SEMANTIC.RGA_REINSURANCE_PERFORMANCE" in sql
         for metric in case["metrics"]:
             assert metric in sql
+
+        dax_path = tmp_path / case["power_bi"]["dax_file"]
+        assert dax_path.exists()
+        dax = dax_path.read_text(encoding="utf-8")
+        assert dax.startswith("EVALUATE\n")
+        for dimension in case["dimensions"]:
+            assert f"[{dimension}]" in dax
+        for metric in case["metrics"]:
+            assert f"[{metric}]" in dax
 
 
 def test_parity_cases_share_metric_and_dimension_contract():
@@ -68,3 +79,23 @@ def test_parity_cases_share_metric_and_dimension_contract():
         assert case["acceptance"]["same_metric_definition"] is True
         assert case["acceptance"]["same_dimensional_grain"] is True
         assert case["acceptance"]["same_security_context"] is True
+
+
+def test_power_bi_dax_uses_canonical_table_and_no_local_metric_formula():
+    module = load_module(
+        "rga_power_bi_dax_test",
+        ROOT / "scripts" / "rga_testbed" / "generate_parity_suite.py",
+    )
+    contract = module.load_semantic_contract(
+        ROOT / "config" / "rga_semantic_contract.yml",
+        "RGA_SYNTHETIC_TESTBED",
+    )
+    query = contract["verified_queries"][0]
+    dax = module.power_bi_dax(contract, query)
+
+    assert "'REINSURANCE_PERFORMANCE'" in dax
+    assert "SUMMARIZECOLUMNS" in dax
+    for metric in query["metrics"]:
+        assert f"[{metric}]" in dax
+    assert "NULLIF" not in dax
+    assert "SUM(" not in dax
