@@ -98,7 +98,7 @@ def checklist(database: str, contract_path: Path = DEFAULT_CONTRACT) -> str:
     return f"""# Microsoft Consumer Parity Checklist
 
 Governing object: {semantic_view_fqn(contract)}
-Canonical source: config/rga_semantic_contract.yml
+Canonical source: {contract_path.as_posix()}
 
 ## Power BI
 
