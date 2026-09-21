@@ -968,7 +968,7 @@ def test_governed_evidence_dry_run_without_power_bi_keeps_both_microsoft_surface
 
 
 def test_release_uses_database_from_non_rga_contract_when_not_overridden(tmp_path: Path):
-    contract = ROOT / "config" / "examples" / "banking_semantic_contract.yml"
+    contract = cli.REPO_ROOT / "config" / "examples" / "banking_semantic_contract.yml"
     output = tmp_path / "banking-release"
     release = cli.release(
         output,
