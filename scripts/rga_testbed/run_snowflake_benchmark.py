@@ -287,6 +287,29 @@ def summarize(results: list[dict[str, Any]], wall_seconds: float) -> dict[str, A
                 for item in subset
                 if item["status"] == "PASS"
             ),
+            "partitions_scanned": sum(
+                int(item.get("partitions_scanned") or 0)
+                for item in subset
+                if item["status"] == "PASS"
+            ),
+            "partitions_total": sum(
+                int(item.get("partitions_total") or 0)
+                for item in subset
+                if item["status"] == "PASS"
+            ),
+            "query_acceleration_bytes_scanned": sum(
+                int(item.get("query_acceleration_bytes_scanned") or 0)
+                for item in subset
+                if item["status"] == "PASS"
+            ),
+            "query_acceleration_upper_limit_scale_factor": max(
+                [
+                    float(item.get("query_acceleration_upper_limit_scale_factor") or 0)
+                    for item in subset
+                    if item["status"] == "PASS"
+                ]
+                or [0]
+            ),
             "telemetry_missing": sum(
                 item.get("telemetry_status") != "FOUND"
                 for item in subset
