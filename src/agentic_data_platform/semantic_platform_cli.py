@@ -433,6 +433,169 @@ def scale_test(
     return report
 
 
+def optimize(
+    workspace: Path,
+    *,
+    days: int = 14,
+    limit: int = 10000,
+    query_tag_prefix: str = "RGA_SEMANTIC_BENCHMARK",
+    confirm: bool = False,
+    dry_run: bool = False,
+    include_query_text: bool = False,
+) -> dict[str, Any]:
+    manifest = workspace / "release" / "benchmarks" / "manifest.json"
+    evidence_dir = workspace / "evidence"
+    history_path = evidence_dir / "query_history.json"
+    analysis_path = evidence_dir / "workload_analysis.json"
+    experiments_path = evidence_dir / "optimization_experiments.sql"
+    reports = sorted(evidence_dir.glob("benchmark-c*-both.json"))
+    database = None
+    release_manifest = workspace / "release" / "release_manifest.json"
+    if release_manifest.exists():
+        payload = json.loads(release_manifest.read_text(encoding="utf-8"))
+        database = payload.get("database")
+
+    collector_args = [
+        "--days",
+        str(days),
+        "--limit",
+        str(limit),
+        "--query-tag-prefix",
+        query_tag_prefix,
+        "--output",
+        str(history_path),
+    ]
+    if database:
+        collector_args += ["--database", str(database)]
+    if include_query_text:
+        collector_args.append("--include-query-text")
+
+    if dry_run:
+        collector = _run(
+            _python_script(
+                "collect_query_history.py",
+                *collector_args,
+                "--dry-run",
+            ),
+            capture=True,
+        )
+        try:
+            history_plan = json.loads(collector.stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                collector.stdout.strip()
+                or collector.stderr.strip()
+                or "Query History collector returned invalid dry-run output"
+            ) from exc
+        if collector.returncode != 0:
+            raise RuntimeError(history_plan.get("errors") or collector.stdout.strip())
+        return {
+            "status": "DRY_RUN",
+            "workspace": str(workspace),
+            "benchmark_manifest": {
+                "path": str(manifest),
+                "exists": manifest.exists(),
+            },
+            "benchmark_reports": [str(path) for path in reports],
+            "benchmark_report_count": len(reports),
+            "query_history": history_plan,
+            "outputs": {
+                "history": str(history_path),
+                "analysis": str(analysis_path),
+                "experiments": str(experiments_path),
+            },
+            "policy": (
+                "Optimization is evidence-driven. Diagnostics and cost/eligibility estimates "
+                "may be generated; physical mutations remain commented out and require "
+                "before/after benchmark approval."
+            ),
+        }
+
+    _require_confirm(confirm, "live Snowflake workload optimization analysis")
+    if not manifest.exists():
+        raise RuntimeError(
+            "benchmark manifest is missing; run semantic-platform demo-build first"
+        )
+    if not reports:
+        raise RuntimeError(
+            "benchmark evidence is missing; run semantic-platform certify-live or live benchmark sweeps first"
+        )
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+
+    collector = _run(
+        _python_script(
+            "collect_query_history.py",
+            *collector_args,
+            "--confirm",
+        ),
+        capture=True,
+    )
+    if collector.returncode != 0:
+        raise RuntimeError(collector.stdout.strip() or collector.stderr.strip())
+    collector_summary = json.loads(collector.stdout)
+
+    analysis_args = [
+        "--manifest",
+        str(manifest),
+        "--history",
+        str(history_path),
+        "--output",
+        str(analysis_path),
+    ]
+    for report in reports:
+        analysis_args += ["--report", str(report)]
+    analysis_run = _run(
+        _python_script("analyze_workload.py", *analysis_args),
+        capture=True,
+    )
+    if analysis_run.returncode != 0:
+        raise RuntimeError(
+            analysis_run.stdout.strip() or analysis_run.stderr.strip()
+        )
+    analysis_summary = json.loads(analysis_run.stdout)
+    analysis = json.loads(analysis_path.read_text(encoding="utf-8"))
+
+    renderer = _run(
+        _python_script(
+            "render_optimization_experiments.py",
+            "--analysis",
+            str(analysis_path),
+            "--output",
+            str(experiments_path),
+        ),
+        capture=True,
+    )
+    if renderer.returncode != 0:
+        raise RuntimeError(renderer.stdout.strip() or renderer.stderr.strip())
+    renderer_summary = json.loads(renderer.stdout)
+
+    return {
+        "status": "PASS",
+        "workspace": str(workspace),
+        "query_history": collector_summary,
+        "benchmark_report_count": len(reports),
+        "recommendation_count": int(analysis_summary.get("recommendations", 0)),
+        "history_experiment_count": int(
+            analysis_summary.get("history_experiments", 0)
+        ),
+        "experiment_count": int(renderer_summary.get("experiment_count", 0)),
+        "executable_physical_mutations": int(
+            renderer_summary.get("executable_physical_mutations", 0)
+        ),
+        "outputs": {
+            "history": str(history_path),
+            "analysis": str(analysis_path),
+            "experiments": str(experiments_path),
+        },
+        "policy": analysis.get("policy"),
+        "truth_boundary": (
+            "This produces evidence-backed optimization experiments only. It does not "
+            "apply clustering, Search Optimization, QAS, Dynamic Tables, materializations, "
+            "or warehouse changes automatically."
+        ),
+    }
+
+
 def snowflake_demo(
     workspace: Path,
     *,
@@ -1702,6 +1865,21 @@ def build_parser() -> argparse.ArgumentParser:
     scale.add_argument("--parquet", action="store_true")
     scale.add_argument("--row-group-size", type=int, default=100000)
 
+    optimizer = sub.add_parser(
+        "optimize",
+        help="Collect Query History and build guarded Snowflake acceleration experiments.",
+    )
+    optimizer.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE)
+    optimizer.add_argument("--days", type=int, default=14)
+    optimizer.add_argument("--limit", type=int, default=10000)
+    optimizer.add_argument(
+        "--query-tag-prefix",
+        default="RGA_SEMANTIC_BENCHMARK",
+    )
+    optimizer.add_argument("--include-query-text", action="store_true")
+    optimizer.add_argument("--confirm", action="store_true")
+    optimizer.add_argument("--dry-run", action="store_true")
+
     live = sub.add_parser("snowflake-demo", help="Run the generated demo through Snowflake and dbt.")
     live.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE)
     live.add_argument("--confirm", action="store_true")
@@ -1840,6 +2018,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             print(_json(result))
             return 0
+        if args.command == "optimize":
+            result = optimize(
+                args.workspace,
+                days=args.days,
+                limit=args.limit,
+                query_tag_prefix=args.query_tag_prefix,
+                confirm=args.confirm,
+                dry_run=args.dry_run,
+                include_query_text=args.include_query_text,
+            )
+            print(_json(result))
+            return 0 if result["status"] in {"PASS", "DRY_RUN"} else 1
         if args.command == "snowflake-demo":
             print(
                 _json(
