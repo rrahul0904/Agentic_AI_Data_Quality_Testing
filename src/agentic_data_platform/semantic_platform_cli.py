@@ -301,6 +301,101 @@ def _dbt_profiles(dbt_dir: Path) -> Path:
     return target
 
 
+def scale_test(
+    workspace: Path,
+    *,
+    preset: str,
+    policies: int,
+    seed: int,
+    memory_limit: str,
+) -> dict[str, Any]:
+    if policies < 1:
+        raise ValueError("policies must be positive")
+    data_dir = workspace / "scale-data"
+    evidence_dir = workspace / "evidence"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    generation_report_path = evidence_dir / "generation_scale.json"
+
+    generation = _run(
+        _python_script(
+            "benchmark_generation.py",
+            "--preset",
+            preset,
+            "--policies",
+            str(policies),
+            "--seed",
+            str(seed),
+            "--output",
+            str(data_dir),
+            "--report",
+            str(generation_report_path),
+        ),
+        capture=True,
+    )
+    try:
+        generation_report = json.loads(generation.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            generation.stdout.strip()
+            or generation.stderr.strip()
+            or "generation scale benchmark returned invalid output"
+        ) from exc
+    if generation.returncode != 0 or generation_report.get("status") != "PASS":
+        raise RuntimeError(
+            generation_report.get("error")
+            or generation.stdout.strip()
+            or generation.stderr.strip()
+        )
+
+    validation = _run(
+        _python_script(
+            "validate_dataset_duckdb.py",
+            "--input",
+            str(data_dir),
+            "--memory-limit",
+            memory_limit,
+        ),
+        capture=True,
+    )
+    try:
+        validation_report = json.loads(validation.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            validation.stdout.strip()
+            or validation.stderr.strip()
+            or "DuckDB scale validator returned invalid output"
+        ) from exc
+    if validation.returncode != 0 or validation_report.get("status") != "PASS":
+        raise RuntimeError(
+            validation_report.get("error")
+            or json.dumps(validation_report)
+        )
+
+    report = {
+        "status": "PASS",
+        "workspace": str(workspace),
+        "data": str(data_dir),
+        "preset": preset,
+        "policies": policies,
+        "seed": seed,
+        "memory_limit": memory_limit,
+        "generation": generation_report,
+        "validation": validation_report,
+        "truth_boundary": (
+            "This certifies local streaming generation and out-of-core relational "
+            "validation at the executed policy count only. It does not certify "
+            "100M policies, Snowflake load scale, warehouse concurrency, or production SLA."
+        ),
+    }
+    report_path = evidence_dir / "scale_test.json"
+    report_path.write_text(
+        json.dumps(report, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    report["report"] = str(report_path)
+    return report
+
+
 def snowflake_demo(
     workspace: Path,
     *,
@@ -1554,6 +1649,20 @@ def build_parser() -> argparse.ArgumentParser:
     rel.add_argument("--baseline", type=Path)
     rel.add_argument("--source-sha")
 
+    scale = sub.add_parser(
+        "scale-test",
+        help="Run local streaming generation plus out-of-core relational validation.",
+    )
+    scale.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE)
+    scale.add_argument(
+        "--preset",
+        choices=("tiny", "small", "medium", "large", "stress"),
+        default="tiny",
+    )
+    scale.add_argument("--policies", type=int, required=True)
+    scale.add_argument("--seed", type=int, default=42)
+    scale.add_argument("--memory-limit", default="512MB")
+
     live = sub.add_parser("snowflake-demo", help="Run the generated demo through Snowflake and dbt.")
     live.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE)
     live.add_argument("--confirm", action="store_true")
@@ -1679,6 +1788,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if args.command == "release":
             print(_json(release(args.output, database=args.database, contract=args.contract, baseline=args.baseline, source_sha=args.source_sha)))
+            return 0
+        if args.command == "scale-test":
+            result = scale_test(
+                args.workspace,
+                preset=args.preset,
+                policies=args.policies,
+                seed=args.seed,
+                memory_limit=args.memory_limit,
+            )
+            print(_json(result))
             return 0
         if args.command == "snowflake-demo":
             print(
