@@ -199,6 +199,18 @@ async function navigate(client, path, options = {}) {
   return { ...state, screenshotPath };
 }
 
+async function clickClientRoute(client, selector, expectedPath, label) {
+  const clicked = await client.eval(`(() => {
+    const link = document.querySelector(${JSON.stringify(selector)});
+    if (!link) return false;
+    link.click();
+    return true;
+  })()`);
+  if (!clicked) throw new Error(`${label} link was not rendered`);
+  await waitFor(client, `window.location.pathname === ${JSON.stringify(expectedPath)} && document.readyState === 'complete' && Boolean(document.querySelector('main'))`, `${label} route`);
+  return pageState(client);
+}
+
 async function refresh(client, options = {}) {
   const { marker, text, label = "route refresh" } = options;
   await client.send("Page.reload", { ignoreCache: true });
@@ -369,6 +381,46 @@ try {
     await client.send("Emulation.setPageScaleFactor", { pageScaleFactor: viewport.pageScaleFactor });
     const capture = viewport.name === "1280x720" || viewport.name === "1440x900";
     await resetMonitoringStorage(client);
+
+    const overview = await navigate(client, "/", {
+      api: ["/api/operations"],
+      marker: "h1",
+      text: "Overview",
+      screenshot: capture,
+      viewportName: `${viewport.name}-overview`,
+      label: `${viewport.name} overview`,
+    });
+    report.routeChecks.push({ name: "Overview current scoped state", viewport: viewport.name, ...overview });
+    if (overview.screenshotPath) report.screenshots.push(overview.screenshotPath);
+    report.journeys.push({
+      name: "Overview → Monitoring client navigation",
+      viewport: viewport.name,
+      passed: true,
+      ...(await clickClientRoute(client, 'a[href*="/monitoring"]', "/monitoring", "Overview to Monitoring")),
+    });
+    report.journeys.push({
+      name: "Refresh Monitoring after client navigation",
+      viewport: viewport.name,
+      passed: true,
+      ...(await refresh(client, { marker: "h1", text: "Monitoring", label: `${viewport.name} monitoring after client navigation` })),
+    });
+
+    const askAi = await navigate(client, "/agent", {
+      api: ["/api/agent"],
+      marker: "h1",
+      text: "Ask AI",
+      screenshot: capture,
+      viewportName: `${viewport.name}-ask-ai`,
+      label: `${viewport.name} Ask AI`,
+    });
+    report.routeChecks.push({ name: "Ask AI current scoped state", viewport: viewport.name, ...askAi });
+    if (askAi.screenshotPath) report.screenshots.push(askAi.screenshotPath);
+    report.journeys.push({
+      name: "Refresh Ask AI route",
+      viewport: viewport.name,
+      passed: true,
+      ...(await refresh(client, { marker: "h1", text: "Ask AI", label: `${viewport.name} Ask AI refresh` })),
+    });
 
     const monitoring = await navigate(client, "/monitoring", {
       api: ["/api/monitoring"],
