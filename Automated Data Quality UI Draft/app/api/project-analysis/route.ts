@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { currentWorkspaceState, hasCurrentWorkspaceAnalysis, markCurrentWorkspaceStage, projectSlug, resolveWorkspace, workspaceQuery, type WorkspaceScope } from "../../../lib/server-workspace";
+import { isPhase4Fixture, phase4AnalysisWorkspace } from "../../../lib/server-test-fixture";
 
 export const dynamic = "force-dynamic";
 
@@ -93,6 +94,7 @@ async function acceptedDiscoverySnapshot(scope: WorkspaceScope): Promise<Record<
 
 export async function GET(request: Request) {
   try {
+    if (isPhase4Fixture(request)) return Response.json(await phase4AnalysisWorkspace(), { headers: { "Cache-Control": "no-store", "X-ADQ-Test-Fixture": "phase4" } });
     const scope = await resolveWorkspace(request);
     const currentState = await currentWorkspaceState(scope);
     if (!currentState.sourceTableScopeId) {

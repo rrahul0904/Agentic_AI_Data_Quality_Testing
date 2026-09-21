@@ -94,3 +94,14 @@ test("Phase 4 populated-state fixture is explicitly test-only and covers outcome
   assert.ok((fixture.rules?.items?.length ?? 0) >= 3);
   assert.deepEqual(new Set((fixture.monitoring?.states ?? []).map((item) => item.status)), new Set(["COMPLETED", "FAILED", "PARTIAL"]));
 });
+
+test("populated browser fixtures are explicitly gated and exercised by the release gate", async () => {
+  const fixtureServer = await readFile(new URL("../lib/server-test-fixture.ts", import.meta.url), "utf8");
+  const gate = await readFile(new URL("../scripts/release-gate-browser.mjs", import.meta.url), "utf8");
+  assert.match(fixtureServer, /ADQ_UI_TEST_FIXTURES !== "1"/);
+  assert.match(fixtureServer, /project_id.*fixture-project/);
+  assert.match(fixtureServer, /TEST_ONLY_UI_FIXTURE/);
+  assert.match(gate, /Populated Catalog test-only fixture/);
+  assert.match(gate, /Populated Lineage test-only fixture/);
+  assert.match(gate, /Populated Rules test-only fixture/);
+});

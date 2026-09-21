@@ -4,8 +4,10 @@ export function currentWorkspaceParams(): URLSearchParams {
   const result = new URLSearchParams();
   const projectId = current.get("project_id");
   const environment = current.get("environment");
+  const fixture = current.get("fixture");
   if (projectId) result.set("project_id", projectId);
   if (environment) result.set("environment", environment);
+  if (fixture) result.set("fixture", fixture);
   return result;
 }
 

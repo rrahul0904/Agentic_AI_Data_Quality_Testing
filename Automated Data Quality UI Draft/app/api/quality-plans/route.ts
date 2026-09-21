@@ -1,4 +1,5 @@
 import { currentWorkspaceState, hasCurrentWorkspaceAnalysis, hasCurrentWorkspacePlan, markCurrentWorkspaceStage, recordMatchesCurrentTable, resolveWorkspace, workspaceQuery } from "../../../lib/server-workspace";
+import { isPhase4Fixture, phase4QualityWorkspace } from "../../../lib/server-test-fixture";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,7 @@ async function backend(endpoint: string, init?: RequestInit, timeoutMs = 30000):
 
 export async function GET(request: Request) {
   try {
+    if (isPhase4Fixture(request)) return Response.json(await phase4QualityWorkspace(), { headers: { "Cache-Control": "no-store", "X-ADQ-Test-Fixture": "phase4" } });
     const scope = await resolveWorkspace(request);
     const currentState = await currentWorkspaceState(scope);
     if (!currentState.sourceTableScopeId) {

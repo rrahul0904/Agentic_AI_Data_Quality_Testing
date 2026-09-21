@@ -21,6 +21,14 @@ function routeUrl(path) {
   return url.toString();
 }
 
+function fixtureRouteUrl(path) {
+  const url = new URL(path, base);
+  url.searchParams.set("fixture", "phase4");
+  url.searchParams.set("project_id", "fixture-project");
+  url.searchParams.set("environment", "fixture");
+  return url.toString();
+}
+
 function slug(value) {
   return String(value).replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase();
 }
@@ -168,8 +176,9 @@ async function navigate(client, path, options = {}) {
     screenshot = false,
     viewportName = "default",
     label = path,
+    fixture = false,
   } = options;
-  await client.send("Page.navigate", { url: routeUrl(path) });
+  await client.send("Page.navigate", { url: fixture ? fixtureRouteUrl(path) : routeUrl(path) });
   await waitFor(client, "document.readyState === 'complete' && Boolean(document.querySelector('main'))", `${label} document`);
   for (const resource of api) {
     await waitFor(
@@ -380,7 +389,7 @@ try {
       viewportName: `${viewport.name}-catalog`,
       label: `${viewport.name} Catalog`,
     });
-    report.routeChecks.push({ name: "Catalog empty/populated state", viewport: viewport.name, ...catalog });
+    report.routeChecks.push({ name: "Catalog current scoped state", viewport: viewport.name, ...catalog });
     if (catalog.screenshotPath) report.screenshots.push(catalog.screenshotPath);
 
     const lineage = await navigate(client, "/map-flows", {
@@ -391,7 +400,7 @@ try {
       viewportName: `${viewport.name}-lineage`,
       label: `${viewport.name} Lineage`,
     });
-    report.routeChecks.push({ name: "Lineage empty/populated state", viewport: viewport.name, ...lineage });
+    report.routeChecks.push({ name: "Lineage current scoped state", viewport: viewport.name, ...lineage });
     if (lineage.screenshotPath) report.screenshots.push(lineage.screenshotPath);
 
     const rules = await navigate(client, "/test-plan?view=contracts&mode=manage", {
@@ -400,7 +409,43 @@ try {
       text: "Quality rules",
       label: `${viewport.name} Quality rules`,
     });
-    report.routeChecks.push({ name: "Rules empty/populated state", viewport: viewport.name, ...rules });
+    report.routeChecks.push({ name: "Rules current scoped state", viewport: viewport.name, ...rules });
+
+    const fixtureCatalog = await navigate(client, "/objects-flows", {
+      fixture: true,
+      api: ["/api/project-analysis"],
+      marker: "h1",
+      text: "postgres.public.orders",
+      screenshot: capture,
+      viewportName: `${viewport.name}-fixture-catalog`,
+      label: `${viewport.name} populated Catalog fixture`,
+    });
+    report.routeChecks.push({ name: "Populated Catalog test-only fixture", viewport: viewport.name, ...fixtureCatalog });
+    if (fixtureCatalog.screenshotPath) report.screenshots.push(fixtureCatalog.screenshotPath);
+
+    const fixtureLineage = await navigate(client, "/map-flows", {
+      fixture: true,
+      api: ["/api/project-analysis"],
+      marker: "[aria-label='Interactive pipeline graph']",
+      text: "stg_orders",
+      screenshot: capture,
+      viewportName: `${viewport.name}-fixture-lineage`,
+      label: `${viewport.name} populated Lineage fixture`,
+    });
+    report.routeChecks.push({ name: "Populated Lineage test-only fixture", viewport: viewport.name, ...fixtureLineage });
+    if (fixtureLineage.screenshotPath) report.screenshots.push(fixtureLineage.screenshotPath);
+
+    const fixtureRules = await navigate(client, "/test-plan?view=contracts&mode=manage", {
+      fixture: true,
+      api: ["/api/quality-plans"],
+      marker: '[aria-label="Quality rules"]',
+      text: "orders not null",
+      screenshot: capture,
+      viewportName: `${viewport.name}-fixture-rules`,
+      label: `${viewport.name} populated Rules fixture`,
+    });
+    report.routeChecks.push({ name: "Populated Rules test-only fixture", viewport: viewport.name, ...fixtureRules });
+    if (fixtureRules.screenshotPath) report.screenshots.push(fixtureRules.screenshotPath);
 
     const history = await navigate(client, "/test-plan?view=execution&mode=manage&tab=history", {
       api: ["/api/quality-plans"],
