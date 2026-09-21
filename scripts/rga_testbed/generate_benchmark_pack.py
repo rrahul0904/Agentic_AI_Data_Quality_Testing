@@ -7,9 +7,9 @@ import json
 from pathlib import Path
 
 try:
-    from scripts.rga_testbed.semantic_contract import DEFAULT_CONTRACT, load_semantic_contract, mart_fqn, semantic_view_fqn
+    from scripts.rga_testbed.semantic_contract import DEFAULT_CONTRACT, contract_slug, load_semantic_contract, mart_fqn, semantic_view_fqn
 except ModuleNotFoundError:
-    from semantic_contract import DEFAULT_CONTRACT, load_semantic_contract, mart_fqn, semantic_view_fqn
+    from semantic_contract import DEFAULT_CONTRACT, contract_slug, load_semantic_contract, mart_fqn, semantic_view_fqn
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT = ROOT / "rga-snowflake-data-platform" / "benchmarks"
@@ -95,12 +95,20 @@ def generate(output: Path, database: str, contract_path: Path = DEFAULT_CONTRACT
                 "semantic_sql": semantic_path.name,
             }
         )
+    benchmark_cfg = contract.get("benchmark", {}) or {}
+    default_slug = contract_slug(contract)
     manifest = {
-        "name": "rga_semantic_performance_benchmark",
+        "name": str(
+            benchmark_cfg.get("name")
+            or f"{default_slug}_semantic_performance_benchmark"
+        ),
         "database": database,
         "semantic_contract": str(contract_path),
         "semantic_view": semantic_view_fqn(contract),
-        "query_tag": "RGA_SEMANTIC_BENCHMARK",
+        "query_tag": str(
+            benchmark_cfg.get("query_tag")
+            or f"{default_slug.upper()}_SEMANTIC_BENCHMARK"
+        ),
         "queries": entries,
         "recommended_concurrency": contract["performance"]["concurrency"],
         "acceptance": {
