@@ -123,7 +123,7 @@ def build_suite(database: str, contract_path: Path = DEFAULT_CONTRACT) -> dict:
             }
         )
     return {
-        "name": "rga_cross_consumer_semantic_parity",
+        "name": f"{contract['name'].lower()}_cross_consumer_semantic_parity",
         "canonical_contract": str(contract_path),
         "semantic_view": semantic_view_fqn(contract),
         "required_consumers": ["snowflake_semantic_view", "cortex_agent_mcp", "power_bi", "excel"],
