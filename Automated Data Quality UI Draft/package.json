@@ -1,0 +1,31 @@
+{
+  "name": "automated-data-quality-ui-draft",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "verify:browser": "node scripts/verify-onboarding-browser.mjs",
+    "verify:browser:phase8": "node scripts/verify-phase8-browser.mjs",
+    "verify:release": "node scripts/release-gate-browser.mjs",
+    "measure:performance": "node scripts/measure-phase6-performance.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types tests/*.test.ts"
+  },
+  "dependencies": {
+    "next": "15.5.24",
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  },
+  "overrides": {
+    "postcss": "8.5.28"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.3",
+    "@types/react": "19.1.6",
+    "@types/react-dom": "19.1.5",
+    "typescript": "5.8.3"
+  }
+}
