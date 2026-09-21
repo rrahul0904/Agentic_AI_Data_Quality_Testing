@@ -65,6 +65,7 @@ def build_plan(database: str, contract_path: Path = DEFAULT_CONTRACT) -> dict[st
 
     return {
         "semantic_view": semantic_view_fqn(contract),
+        "table_alias": contract["table_alias"],
         "max_staleness_sec": int(semantic_cfg["max_staleness_sec"]),
         "warehouse_env": semantic_cfg["warehouse_env"],
         "semantic_sql": {
@@ -105,9 +106,10 @@ def render_materialization_sql(plan: dict[str, Any]) -> str:
         f"ALTER SEMANTIC VIEW {view} SET MAX_STALENESS = {plan['max_staleness_sec']};",
         "",
     ]
+    table_alias = plan["table_alias"]
     for item in plan["semantic_sql"]["materializations"]:
-        dimensions = ", ".join(f"REINSURANCE_PERFORMANCE.{name}" for name in item["dimensions"])
-        metrics = ", ".join(f"REINSURANCE_PERFORMANCE.{name}" for name in item["metrics"])
+        dimensions = ", ".join(f"{table_alias}.{name}" for name in item["dimensions"])
+        metrics = ", ".join(f"{table_alias}.{name}" for name in item["metrics"])
         lines.extend(
             [
                 f"-- {item['query_id']}: {item['question']}",
@@ -132,17 +134,18 @@ def render_materialization_sql(plan: dict[str, Any]) -> str:
 
 def declarative_materializations(plan: dict[str, Any]) -> dict[str, Any]:
     materializations = []
+    table_alias = plan["table_alias"]
     for item in plan["semantic_sql"]["materializations"]:
         materializations.append(
             {
                 "name": item["name"],
                 "warehouse": "<MATERIALIZATION_WAREHOUSE>",
                 "dimensions": [
-                    {"table": "REINSURANCE_PERFORMANCE", "name": name}
+                    {"table": table_alias, "name": name}
                     for name in item["dimensions"]
                 ],
                 "metrics": [
-                    {"table": "REINSURANCE_PERFORMANCE", "name": name}
+                    {"table": table_alias, "name": name}
                     for name in item["metrics"]
                 ],
             }
