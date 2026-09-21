@@ -2432,15 +2432,38 @@ def build_parser() -> argparse.ArgumentParser:
 
     capture_governed = sub.add_parser(
         "capture-governed-evidence",
-        help="Capture live Snowflake Semantic View and Cortex Agent parity rows.",
+        help="Capture live Snowflake, Cortex Agent, and optionally Power BI parity rows.",
     )
     capture_governed.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE)
     capture_governed.add_argument("--evidence-dir", type=Path, required=True)
     capture_governed.add_argument("--security-context", required=True)
     capture_governed.add_argument("--max-rows", type=int, default=10000)
+    capture_governed.add_argument("--capture-power-bi", action="store_true")
+    capture_governed.add_argument("--power-bi-workspace-id")
+    capture_governed.add_argument("--power-bi-dataset-id")
+    capture_governed.add_argument("--power-bi-effective-username")
+    capture_governed.add_argument("--power-bi-role", action="append", default=[])
+    capture_governed.add_argument("--power-bi-query-timeout", type=int, default=300)
     capture_governed.add_argument("--overwrite", action="store_true")
     capture_governed.add_argument("--confirm", action="store_true")
     capture_governed.add_argument("--dry-run", action="store_true")
+
+    capture_power_bi = sub.add_parser(
+        "capture-power-bi-evidence",
+        help="Capture governed Power BI parity rows through Execute DAX Queries.",
+    )
+    capture_power_bi.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE)
+    capture_power_bi.add_argument("--evidence-dir", type=Path, required=True)
+    capture_power_bi.add_argument("--security-context", required=True)
+    capture_power_bi.add_argument("--power-bi-workspace-id")
+    capture_power_bi.add_argument("--power-bi-dataset-id")
+    capture_power_bi.add_argument("--power-bi-effective-username")
+    capture_power_bi.add_argument("--power-bi-role", action="append", default=[])
+    capture_power_bi.add_argument("--max-rows", type=int, default=100000)
+    capture_power_bi.add_argument("--query-timeout", type=int, default=300)
+    capture_power_bi.add_argument("--overwrite", action="store_true")
+    capture_power_bi.add_argument("--confirm", action="store_true")
+    capture_power_bi.add_argument("--dry-run", action="store_true")
 
     prepare_consumers = sub.add_parser(
         "prepare-consumer-evidence",
@@ -2598,6 +2621,29 @@ def main(argv: Sequence[str] | None = None) -> int:
                 evidence_dir=args.evidence_dir,
                 security_context=args.security_context,
                 max_rows=args.max_rows,
+                confirm=args.confirm,
+                dry_run=args.dry_run,
+                overwrite=args.overwrite,
+                capture_power_bi=args.capture_power_bi,
+                power_bi_workspace_id=args.power_bi_workspace_id,
+                power_bi_dataset_id=args.power_bi_dataset_id,
+                power_bi_effective_username=args.power_bi_effective_username,
+                power_bi_roles=args.power_bi_role,
+                power_bi_query_timeout=args.power_bi_query_timeout,
+            )
+            print(_json(result))
+            return 0 if result["status"] in {"PASS", "DRY_RUN"} else 1
+        if args.command == "capture-power-bi-evidence":
+            result = capture_power_bi_evidence(
+                args.workspace,
+                evidence_dir=args.evidence_dir,
+                security_context=args.security_context,
+                workspace_id=args.power_bi_workspace_id,
+                dataset_id=args.power_bi_dataset_id,
+                effective_username=args.power_bi_effective_username,
+                roles=args.power_bi_role,
+                max_rows=args.max_rows,
+                query_timeout=args.query_timeout,
                 confirm=args.confirm,
                 dry_run=args.dry_run,
                 overwrite=args.overwrite,
