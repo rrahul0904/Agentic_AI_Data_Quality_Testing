@@ -801,3 +801,71 @@ def test_optimize_live_path_is_fail_closed_without_confirm(tmp_path: Path):
         assert "without --confirm" in str(exc)
     else:
         raise AssertionError("live optimization analysis must require confirmation")
+
+
+def test_live_certification_plan_includes_optimization_evidence_when_requested(tmp_path: Path):
+    workspace = tmp_path / "demo"
+    plan = cli.certification_plan(
+        workspace,
+        concurrency=[1, 5, 10],
+        iterations=2,
+        deploy_ai=False,
+        analyze_optimization=True,
+        run_optimization_diagnostics=True,
+    )
+    assert plan["deployment"]["analyze_optimization"] is True
+    assert plan["deployment"]["run_optimization_diagnostics"] is True
+    assert plan["evidence"]["query_history"].endswith("query_history.json")
+    assert plan["evidence"]["optimization_summary"].endswith(
+        "optimization_analysis_summary.json"
+    )
+    assert plan["evidence"]["optimization_experiments"].endswith(
+        "optimization_experiments.sql"
+    )
+    assert plan["evidence"]["optimization_diagnostics"].endswith(
+        "optimization_diagnostics.json"
+    )
+
+
+def test_live_certification_rejects_diagnostics_without_optimization_analysis(tmp_path: Path):
+    try:
+        cli.certification_plan(
+            tmp_path,
+            concurrency=[1],
+            iterations=1,
+            deploy_ai=False,
+            analyze_optimization=False,
+            run_optimization_diagnostics=True,
+        )
+    except ValueError as exc:
+        assert "requires analyze_optimization" in str(exc)
+    else:
+        raise AssertionError(
+            "optimization diagnostics must require optimization analysis"
+        )
+
+
+def test_optimize_dry_run_uses_only_explicit_benchmark_reports(tmp_path: Path):
+    workspace = tmp_path / "demo"
+    selected = [
+        tmp_path / "selected-c1.json",
+        tmp_path / "selected-c10.json",
+    ]
+    # A stale-looking workspace file must not appear when explicit reports are supplied.
+    stale = workspace / "evidence" / "benchmark-c50-both.json"
+    stale.parent.mkdir(parents=True, exist_ok=True)
+    stale.write_text("{}", encoding="utf-8")
+
+    result = cli.optimize(
+        workspace,
+        days=14,
+        limit=500,
+        query_tag_prefix="RGA_SEMANTIC_BENCHMARK",
+        confirm=False,
+        dry_run=True,
+        benchmark_reports=selected,
+    )
+    assert result["status"] == "DRY_RUN"
+    assert result["benchmark_report_count"] == 2
+    assert result["benchmark_reports"] == sorted(str(path) for path in selected)
+    assert str(stale) not in result["benchmark_reports"]
