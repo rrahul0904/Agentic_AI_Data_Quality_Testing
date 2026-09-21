@@ -621,6 +621,53 @@ def optimize(
     }
 
 
+def evaluate_optimization(
+    *,
+    before_reports: list[Path],
+    after_reports: list[Path],
+    target_variant: str = "both",
+    min_p95_improvement_pct: float = 10.0,
+    max_scan_regression_pct: float = 25.0,
+    output: Path | None = None,
+) -> dict[str, Any]:
+    if not before_reports or not after_reports:
+        raise ValueError("before_reports and after_reports are required")
+    args = [
+        "--target-variant",
+        target_variant,
+        "--min-p95-improvement-pct",
+        str(min_p95_improvement_pct),
+        "--max-scan-regression-pct",
+        str(max_scan_regression_pct),
+    ]
+    for path in before_reports:
+        args += ["--before", str(path)]
+    for path in after_reports:
+        args += ["--after", str(path)]
+    if output:
+        args += ["--output", str(output)]
+
+    result = _run(
+        _python_script("evaluate_optimization_experiment.py", *args),
+        capture=True,
+    )
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            result.stdout.strip()
+            or result.stderr.strip()
+            or "optimization evaluator returned invalid output"
+        ) from exc
+    if result.returncode not in (0, 3):
+        raise RuntimeError(
+            payload.get("error")
+            or result.stdout.strip()
+            or result.stderr.strip()
+        )
+    return payload
+
+
 def snowflake_demo(
     workspace: Path,
     *,
@@ -1906,6 +1953,21 @@ def build_parser() -> argparse.ArgumentParser:
     optimizer.add_argument("--confirm", action="store_true")
     optimizer.add_argument("--dry-run", action="store_true")
 
+    evaluator = sub.add_parser(
+        "evaluate-optimization",
+        help="Compare before/after benchmark evidence and gate a physical optimization.",
+    )
+    evaluator.add_argument("--before", type=Path, action="append", required=True)
+    evaluator.add_argument("--after", type=Path, action="append", required=True)
+    evaluator.add_argument(
+        "--target-variant",
+        choices=("direct", "semantic", "both"),
+        default="both",
+    )
+    evaluator.add_argument("--min-p95-improvement-pct", type=float, default=10.0)
+    evaluator.add_argument("--max-scan-regression-pct", type=float, default=25.0)
+    evaluator.add_argument("--output", type=Path)
+
     live = sub.add_parser("snowflake-demo", help="Run the generated demo through Snowflake and dbt.")
     live.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE)
     live.add_argument("--confirm", action="store_true")
@@ -2057,6 +2119,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             print(_json(result))
             return 0 if result["status"] in {"PASS", "DRY_RUN"} else 1
+        if args.command == "evaluate-optimization":
+            result = evaluate_optimization(
+                before_reports=args.before,
+                after_reports=args.after,
+                target_variant=args.target_variant,
+                min_p95_improvement_pct=args.min_p95_improvement_pct,
+                max_scan_regression_pct=args.max_scan_regression_pct,
+                output=args.output,
+            )
+            print(_json(result))
+            return 0 if result.get("decision") == "ACCEPT" else 3
         if args.command == "snowflake-demo":
             print(
                 _json(
