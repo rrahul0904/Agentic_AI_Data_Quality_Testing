@@ -308,6 +308,8 @@ def scale_test(
     policies: int,
     seed: int,
     memory_limit: str,
+    parquet: bool = False,
+    row_group_size: int = 100000,
 ) -> dict[str, Any]:
     if policies < 1:
         raise ValueError("policies must be positive")
@@ -371,6 +373,40 @@ def scale_test(
             or json.dumps(validation_report)
         )
 
+    parquet_report = None
+    parquet_dir = workspace / "parquet"
+    if parquet:
+        parquet_result = _run(
+            _python_script(
+                "materialize_parquet.py",
+                "--input",
+                str(data_dir),
+                "--output",
+                str(parquet_dir),
+                "--memory-limit",
+                memory_limit,
+                "--row-group-size",
+                str(row_group_size),
+            ),
+            capture=True,
+        )
+        try:
+            parquet_report = json.loads(parquet_result.stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                parquet_result.stdout.strip()
+                or parquet_result.stderr.strip()
+                or "Parquet materialization returned invalid output"
+            ) from exc
+        if (
+            parquet_result.returncode != 0
+            or parquet_report.get("status") != "PASS"
+        ):
+            raise RuntimeError(
+                parquet_report.get("error")
+                or json.dumps(parquet_report)
+            )
+
     report = {
         "status": "PASS",
         "workspace": str(workspace),
@@ -381,6 +417,7 @@ def scale_test(
         "memory_limit": memory_limit,
         "generation": generation_report,
         "validation": validation_report,
+        "parquet": parquet_report,
         "truth_boundary": (
             "This certifies local streaming generation and out-of-core relational "
             "validation at the executed policy count only. It does not certify "
@@ -1662,6 +1699,8 @@ def build_parser() -> argparse.ArgumentParser:
     scale.add_argument("--policies", type=int, required=True)
     scale.add_argument("--seed", type=int, default=42)
     scale.add_argument("--memory-limit", default="512MB")
+    scale.add_argument("--parquet", action="store_true")
+    scale.add_argument("--row-group-size", type=int, default=100000)
 
     live = sub.add_parser("snowflake-demo", help="Run the generated demo through Snowflake and dbt.")
     live.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE)
@@ -1796,6 +1835,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 policies=args.policies,
                 seed=args.seed,
                 memory_limit=args.memory_limit,
+                parquet=args.parquet,
+                row_group_size=args.row_group_size,
             )
             print(_json(result))
             return 0
