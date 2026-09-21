@@ -39,6 +39,40 @@ def semantic_sql(contract: dict, query: dict) -> str:
     return "\n".join(parts) + "\n"
 
 
+def _dax_identifier(name: str) -> str:
+    return str(name).replace("]", "]]")
+
+
+def _dax_table(name: str) -> str:
+    return "'" + str(name).replace("'", "''") + "'"
+
+
+def power_bi_dax(contract: dict, query: dict) -> str:
+    table = _dax_table(contract["table_alias"])
+    dimensions = query.get("dimensions", [])
+    metrics = query["metrics"]
+    if not dimensions:
+        args = ",\n    ".join(
+            f'\"{_dax_identifier(metric)}\", [{_dax_identifier(metric)}]'
+            for metric in metrics
+        )
+        return "EVALUATE\nROW(\n    " + args + "\n)\n"
+
+    parts = [
+        f"{table}[{_dax_identifier(name)}]"
+        for name in dimensions
+    ]
+    parts.extend(
+        f'\"{_dax_identifier(metric)}\", [{_dax_identifier(metric)}]'
+        for metric in metrics
+    )
+    return (
+        "EVALUATE\nSUMMARIZECOLUMNS(\n    "
+        + ",\n    ".join(parts)
+        + "\n)\n"
+    )
+
+
 def build_suite(database: str, contract_path: Path = DEFAULT_CONTRACT) -> dict:
     contract = load_semantic_contract(contract_path, database)
     cases = []
@@ -67,6 +101,8 @@ def build_suite(database: str, contract_path: Path = DEFAULT_CONTRACT) -> dict:
                     "expected_metrics": query["metrics"],
                     "expected_dimensions": query.get("dimensions", []),
                     "allow_local_metric_reimplementation": False,
+                    "dax_file": f"{query['id']}.powerbi.dax",
+                    "capture_api": "executeDaxQueries",
                 },
                 "excel": {
                     "consumer": "excel",
@@ -104,6 +140,10 @@ def generate(output: Path, database: str, contract_path: Path = DEFAULT_CONTRACT
         path = output / f"{query['id']}.reference.sql"
         path.write_text(semantic_sql(contract, query), encoding="utf-8")
         written.append(path)
+
+        dax_path = output / f"{query['id']}.powerbi.dax"
+        dax_path.write_text(power_bi_dax(contract, query), encoding="utf-8")
+        written.append(dax_path)
     manifest = output / "parity_manifest.json"
     manifest.write_text(json.dumps(suite, indent=2) + "\n", encoding="utf-8")
     written.append(manifest)
