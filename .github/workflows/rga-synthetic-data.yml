@@ -165,7 +165,7 @@ jobs:
         run: python scripts/rga_testbed/validate_dataset.py --input /tmp/rga-smoke
       - name: Certify bounded-memory generator scale slice
         run: |
-          semantic-platform scale-test --workspace /tmp/rga-scale --preset tiny --policies 10000 --seed 42 --memory-limit 256MB >/tmp/rga-scale.json
+          semantic-platform scale-test --workspace /tmp/rga-scale --preset tiny --policies 10000 --seed 42 --memory-limit 256MB --parquet --row-group-size 10000 >/tmp/rga-scale.json
           python - <<'PY'
           import json
           report = json.load(open("/tmp/rga-scale.json"))
@@ -176,11 +176,16 @@ jobs:
           assert report["generation"]["peak_rss_mb"] < 256
           assert report["validation"]["status"] == "PASS"
           assert report["validation"]["engine"] == "duckdb_out_of_core"
+          assert report["parquet"]["status"] == "PASS"
+          assert report["parquet"]["format"] == "parquet"
+          assert report["parquet"]["counts"] == report["generation"]["entity_counts"]
           assert "does not certify 100M policies" in report["truth_boundary"]
           PY
           test -f /tmp/rga-scale/evidence/generation_scale.json
           test -f /tmp/rga-scale/evidence/scale_test.json
+          test -f /tmp/rga-scale/parquet/manifest.json
           grep -q '"bounded_memory_by_policy_count": true' /tmp/rga-scale/scale-data/manifest.json
+          grep -q '"compression": "zstd"' /tmp/rga-scale/parquet/manifest.json
       - name: Generate CDC and late-arriving fixtures
         run: |
           python scripts/rga_testbed/generate_change_events.py --input /tmp/rga-smoke --output /tmp/rga-cdc --events-per-type 5
