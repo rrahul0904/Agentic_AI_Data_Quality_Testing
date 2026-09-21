@@ -513,7 +513,7 @@ jobs:
           grep -q 'RGA_SYNTHETIC_TESTBED.SEMANTIC.RGA_REINSURANCE_PERFORMANCE' /tmp/rga-ai/create_agent.sql
           grep -q 'CORTEX_AGENT_RUN' /tmp/rga-ai/create_mcp_server.sql
           ! grep -q 'SYSTEM_EXECUTE_SQL' /tmp/rga-ai/mcp_spec.yml
-          grep -q 'private_preview_feature_gate' /tmp/rga-microsoft/consumer_contract.json
+          grep -q 'account_entitlement_or_feature_gate_required' /tmp/rga-microsoft/consumer_contract.json
           grep -q 'required_connection_mode' /tmp/rga-microsoft/consumer_contract.json
           grep -q '<XMLA_ENDPOINT_NAME>' /tmp/rga-microsoft/xmla_setup.template.sql
           grep -q 'Direct-connection fallback is connectivity evidence, not semantic-parity certification' /tmp/rga-microsoft/PARITY_CHECKLIST.md
