@@ -516,6 +516,11 @@ def build_dataset(
         "seed": seed,
         "reference_date": reference_date.isoformat(),
         "settings": preset,
+        "generator": {
+            "row_emission": "streaming_rotating_csv",
+            "rows_per_file": rows_per_file,
+            "bounded_memory_by_policy_count": True,
+        },
         "counts": dict(sorted(writer.counts.items())),
         "files": writer.files,
         "relationships": {
