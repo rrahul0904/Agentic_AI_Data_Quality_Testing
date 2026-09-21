@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Any
 
 import yaml
@@ -83,3 +84,56 @@ def mart_fqn(contract: dict[str, Any]) -> str:
 
 def metric_names(contract: dict[str, Any]) -> list[str]:
     return [item["name"] for item in contract["metrics"]]
+
+
+def contract_slug(contract: dict[str, Any]) -> str:
+    value = re.sub(r"[^a-z0-9]+", "_", str(contract["name"]).lower()).strip("_")
+    if not value:
+        raise ValueError("Semantic contract name cannot produce an empty slug")
+    return value
+
+
+def ai_object_names(contract: dict[str, Any]) -> dict[str, str]:
+    configured = contract.get("ai_objects", {}) or {}
+    base = re.sub(r"[^A-Z0-9]+", "_", str(contract["name"]).upper()).strip("_")
+    tool_default = re.sub(r"[^A-Za-z0-9]+", "_", str(contract["name"]).title()).strip("_")
+    return {
+        "agent_name": str(configured.get("agent_name") or f"{base}_AGENT"),
+        "mcp_name": str(configured.get("mcp_name") or f"{base}_MCP"),
+        "tool_name": str(configured.get("tool_name") or f"{tool_default}_Analyst"),
+        "tool_title": str(configured.get("tool_title") or f"Governed {contract['name']} Agent"),
+    }
+
+
+def domain_guidance(contract: dict[str, Any]) -> dict[str, str]:
+    configured = contract.get("domain_guidance", {}) or {}
+    description = str(contract.get("description") or contract["name"])
+    return {
+        "agent_response": str(
+            configured.get("agent_response")
+            or f"Answer concisely using only governed analytics for {description}."
+        ),
+        "agent_orchestration": str(
+            configured.get("agent_orchestration")
+            or "Use the governed analytical tool for business questions. Do not invent measures, "
+            "recalculate governed metrics independently, or bypass the semantic view."
+        ),
+        "tool_description": str(
+            configured.get("tool_description")
+            or f"Answers governed analytics questions for {description} using the canonical semantic view."
+        ),
+        "mcp_description": str(
+            configured.get("mcp_description")
+            or f"Use this governed agent for analytics over {description}. "
+            "All business measures are sourced from the canonical Snowflake Semantic View."
+        ),
+        "ossie_instructions": str(
+            configured.get("ossie_instructions")
+            or f"Use this model for governed analytics over {description}. "
+            "Do not reinterpret governed metric definitions."
+        ),
+        "dataset_description": str(
+            configured.get("dataset_description")
+            or f"Governed dataset backing {contract['name']}."
+        ),
+    }
