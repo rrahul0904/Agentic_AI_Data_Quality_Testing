@@ -253,7 +253,7 @@ with DAG(
             f"cd {REPO} && "
             'REPORT_ARGS=""; '
             'for c in $(echo "{{ params.certification_concurrency }}" | tr "," " "); do '
-            f'REPORT_ARGS="$REPORT_ARGS --report {EVIDENCE_DIR}/benchmark-c[object Object]-both.json"; '
+            f'REPORT_ARGS="$REPORT_ARGS --report {EVIDENCE_DIR}/benchmark-c${c}-both.json"; '
             "done; "
             f"semantic-platform optimize --workspace {WORKSPACE} "
             '$REPORT_ARGS --confirm '
