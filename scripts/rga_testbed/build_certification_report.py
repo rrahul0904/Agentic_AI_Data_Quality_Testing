@@ -84,6 +84,7 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
     consumer_path = workspace / "evidence" / "cross_consumer_parity.json"
     agent_path = workspace / "evidence" / "agent_smoke.json"
     cdc_path = workspace / "evidence" / "cdc_application.json"
+    scale_path = workspace / "evidence" / "scale_test.json"
     workload_path = workspace / "evidence" / "workload_analysis.json"
 
     release = _load(release_path)
@@ -91,6 +92,7 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
     consumer = _load(consumer_path)
     agent = _load(agent_path)
     cdc = _load(cdc_path)
+    scale = _load(scale_path)
     workload = _load(workload_path)
     evidence_status = _consumer_evidence_status(workspace, evidence_dir)
 
@@ -99,6 +101,7 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
     consumer_status = consumer.get("status") if consumer else "PENDING"
     agent_status = agent.get("status") if agent else "PENDING"
     cdc_status = cdc.get("status") if cdc else "PENDING"
+    scale_status = scale.get("status") if scale else "PENDING"
 
     blockers: list[str] = []
     if not release:
@@ -109,6 +112,8 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
         blockers.append("cross-consumer Snowflake/AI/Power BI/Excel parity has not passed")
     if cdc and cdc_status != "PASS":
         blockers.append("CDC correction/late-arrival certification evidence exists but has not passed")
+    if scale and scale_status != "PASS":
+        blockers.append("local generator/out-of-core scale evidence exists but has not passed")
     if evidence_status["status"] != "COMPLETE":
         blockers.append(
             "consumer evidence is incomplete "
@@ -164,6 +169,36 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
             "verify_idempotency": cdc.get("verify_idempotency") if cdc else None,
             "source_event_count": cdc.get("source_event_count") if cdc else None,
         },
+        "scale_validation": {
+            "status": scale_status,
+            "path": str(scale_path),
+            "policies": scale.get("policies") if scale else None,
+            "total_rows": (
+                scale.get("generation", {}).get("total_rows")
+                if scale
+                else None
+            ),
+            "peak_rss_mb": (
+                scale.get("generation", {}).get("peak_rss_mb")
+                if scale
+                else None
+            ),
+            "validation_engine": (
+                scale.get("validation", {}).get("engine")
+                if scale
+                else None
+            ),
+            "parquet_status": (
+                scale.get("parquet", {}).get("status")
+                if scale and isinstance(scale.get("parquet"), dict)
+                else None
+            ),
+            "truth_boundary": (
+                scale.get("truth_boundary")
+                if scale
+                else "No local scale-test evidence has been recorded."
+            ),
+        },
         "consumer_parity": {
             "status": consumer_status,
             "path": str(consumer_path),
@@ -203,6 +238,14 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Live Snowflake runtime: **{report['live_runtime']['status']}**",
         f"- Cortex Agent runtime: **{report['agent_runtime']['status']}**",
         f"- CDC correction/late-arrival cycle: **{report['change_data']['status']}**",
+        (
+            "- Local generator/out-of-core scale: "
+            f"**{report['scale_validation']['status']}** "
+            f"(policies={report['scale_validation']['policies']}, "
+            f"rows={report['scale_validation']['total_rows']}, "
+            f"peak_rss_mb={report['scale_validation']['peak_rss_mb']}, "
+            f"parquet={report['scale_validation']['parquet_status']})"
+        ),
         f"- Cross-consumer parity: **{report['consumer_parity']['status']}**",
         (
             "- Consumer evidence: "
