@@ -173,6 +173,8 @@ def test_certification_report_marks_production_only_after_all_surfaces_pass(tmp_
     assert report["scale_validation"]["peak_rss_mb"] == 72.5
     assert report["scale_validation"]["validation_engine"] == "duckdb_out_of_core"
     assert report["scale_validation"]["parquet_status"] == "PASS"
+    assert report["optimization"]["requested"] is False
+    assert report["optimization"]["status"] == "NOT_REQUESTED"
 
     generated = module.generate(
         workspace,
@@ -249,3 +251,143 @@ def test_certification_report_blocks_when_existing_scale_evidence_failed(tmp_pat
     report = module.build_report(workspace, evidence_dir)
     assert report["scale_validation"]["status"] == "FAIL"
     assert any("scale evidence" in blocker for blocker in report["blockers"])
+
+
+def test_certification_report_surfaces_passing_requested_optimization(tmp_path: Path):
+    module = _module()
+    workspace = tmp_path / "demo"
+    evidence_dir = workspace / "external-evidence"
+
+    _write(workspace / "release" / "release_manifest.json", {"source_sha": "abc"})
+    _write(
+        workspace / "release" / "parity" / "parity_manifest.json",
+        _parity_manifest(),
+    )
+    _write(
+        workspace / "evidence" / "certification_manifest.json",
+        {
+            "status": "PASS",
+            "acceptance": {
+                "optimization_analysis_pass": True,
+                "optimization_diagnostics_pass": True,
+            },
+            "optimization": {
+                "requested": True,
+                "diagnostics_requested": True,
+                "status": "PASS",
+                "diagnostics_status": "PASS",
+                "recommendation_count": 2,
+                "history_experiment_count": 3,
+                "experiment_count": 5,
+                "executable_physical_mutations": 0,
+                "truth_boundary": "No physical mutations were applied.",
+            },
+        },
+    )
+    _write(
+        workspace / "evidence" / "optimization_analysis_summary.json",
+        {
+            "status": "PASS",
+            "recommendation_count": 2,
+            "history_experiment_count": 3,
+            "experiment_count": 5,
+            "executable_physical_mutations": 0,
+            "truth_boundary": "No physical mutations were applied.",
+        },
+    )
+    _write(
+        workspace / "evidence" / "optimization_diagnostics.json",
+        {"status": "PASS", "statement_count": 4},
+    )
+
+    report = module.build_report(workspace, evidence_dir)
+    assert report["optimization"]["requested"] is True
+    assert report["optimization"]["diagnostics_requested"] is True
+    assert report["optimization"]["status"] == "PASS"
+    assert report["optimization"]["diagnostics_status"] == "PASS"
+    assert report["optimization"]["recommendation_count"] == 2
+    assert report["optimization"]["history_experiment_count"] == 3
+    assert report["optimization"]["experiment_count"] == 5
+    assert report["optimization"]["executable_physical_mutations"] == 0
+    assert not any("physical-optimization analysis" in item for item in report["blockers"])
+    assert not any("optimization diagnostics" in item for item in report["blockers"])
+
+
+def test_certification_report_blocks_failed_requested_optimization(tmp_path: Path):
+    module = _module()
+    workspace = tmp_path / "demo"
+    evidence_dir = workspace / "external-evidence"
+
+    _write(workspace / "release" / "release_manifest.json", {"source_sha": "abc"})
+    _write(
+        workspace / "release" / "parity" / "parity_manifest.json",
+        _parity_manifest(),
+    )
+    _write(
+        workspace / "evidence" / "certification_manifest.json",
+        {
+            "status": "INCOMPLETE",
+            "acceptance": {
+                "optimization_analysis_pass": False,
+                "optimization_diagnostics_pass": False,
+            },
+            "optimization": {
+                "requested": True,
+                "diagnostics_requested": True,
+                "status": "FAIL",
+                "diagnostics_status": "FAIL",
+                "executable_physical_mutations": 0,
+            },
+        },
+    )
+
+    report = module.build_report(workspace, evidence_dir)
+    assert report["optimization"]["requested"] is True
+    assert any(
+        "physical-optimization analysis has not passed" in item
+        for item in report["blockers"]
+    )
+    assert any(
+        "optimization diagnostics have not passed" in item
+        for item in report["blockers"]
+    )
+
+
+def test_certification_report_blocks_executable_optimization_mutation(tmp_path: Path):
+    module = _module()
+    workspace = tmp_path / "demo"
+    evidence_dir = workspace / "external-evidence"
+
+    _write(workspace / "release" / "release_manifest.json", {"source_sha": "abc"})
+    _write(
+        workspace / "release" / "parity" / "parity_manifest.json",
+        _parity_manifest(),
+    )
+    _write(
+        workspace / "evidence" / "certification_manifest.json",
+        {
+            "status": "PASS",
+            "acceptance": {
+                "optimization_analysis_pass": True,
+            },
+            "optimization": {
+                "requested": True,
+                "diagnostics_requested": False,
+                "status": "PASS",
+                "executable_physical_mutations": 1,
+            },
+        },
+    )
+    _write(
+        workspace / "evidence" / "optimization_analysis_summary.json",
+        {
+            "status": "PASS",
+            "executable_physical_mutations": 1,
+        },
+    )
+
+    report = module.build_report(workspace, evidence_dir)
+    assert any(
+        "zero executable physical-mutation invariant" in item
+        for item in report["blockers"]
+    )
