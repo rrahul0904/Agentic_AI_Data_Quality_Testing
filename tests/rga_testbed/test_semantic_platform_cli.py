@@ -726,3 +726,38 @@ def test_live_certification_rejects_idempotency_without_cdc(tmp_path: Path):
         assert "requires apply_cdc_events" in str(exc)
     else:
         raise AssertionError("CDC idempotency verification must require CDC application")
+
+
+def test_scale_test_runs_streaming_generation_and_duckdb_validation(tmp_path: Path):
+    report = cli.scale_test(
+        tmp_path / "scale-workspace",
+        preset="tiny",
+        policies=30,
+        seed=42,
+        memory_limit="128MB",
+    )
+    assert report["status"] == "PASS"
+    assert report["policies"] == 30
+    assert report["generation"]["status"] == "PASS"
+    assert report["generation"]["row_emission"] == "streaming_rotating_csv"
+    assert report["generation"]["total_rows"] > 30
+    assert report["generation"]["peak_rss_mb"] > 0
+    assert report["validation"]["status"] == "PASS"
+    assert report["validation"]["engine"] == "duckdb_out_of_core"
+    assert Path(report["report"]).exists()
+    assert "does not certify 100M policies" in report["truth_boundary"]
+
+
+def test_scale_test_rejects_non_positive_policy_count(tmp_path: Path):
+    try:
+        cli.scale_test(
+            tmp_path,
+            preset="tiny",
+            policies=0,
+            seed=42,
+            memory_limit="128MB",
+        )
+    except ValueError as exc:
+        assert "policies must be positive" in str(exc)
+    else:
+        raise AssertionError("scale test must reject non-positive policy counts")
