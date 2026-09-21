@@ -965,3 +965,48 @@ def test_governed_evidence_dry_run_without_power_bi_keeps_both_microsoft_surface
     assert result["status"] == "DRY_RUN"
     assert result["external_consumers_remaining"] == ["power_bi", "excel"]
     assert "power_bi" not in result
+
+
+def test_release_uses_database_from_non_rga_contract_when_not_overridden(tmp_path: Path):
+    contract = ROOT / "config" / "examples" / "banking_semantic_contract.yml"
+    output = tmp_path / "banking-release"
+    release = cli.release(
+        output,
+        database=None,
+        contract=contract,
+        baseline=None,
+        source_sha="test-sha",
+    )
+    assert release["database"] == "BANKING_ANALYTICS"
+    assert release["semantic_view"] == (
+        "BANKING_ANALYTICS.SEMANTIC.BANKING_ACCOUNT_PERFORMANCE"
+    )
+
+
+def test_optimize_derives_query_tag_from_workspace_benchmark_manifest(tmp_path: Path):
+    workspace = tmp_path / "banking"
+    manifest = workspace / "release" / "benchmarks" / "manifest.json"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "query_tag": "BANKING_ACCOUNT_PERFORMANCE_SEMANTIC_BENCHMARK",
+                "queries": [],
+                "acceptance": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = cli.optimize(
+        workspace,
+        days=14,
+        limit=100,
+        query_tag_prefix=None,
+        confirm=False,
+        dry_run=True,
+    )
+    assert result["status"] == "DRY_RUN"
+    assert (
+        result["query_history"]["query_tag_prefix"]
+        == "BANKING_ACCOUNT_PERFORMANCE_SEMANTIC_BENCHMARK"
+    )
