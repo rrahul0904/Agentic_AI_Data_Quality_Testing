@@ -11,6 +11,26 @@ export type WorkspaceScope = {
   requestedEnvironment?: string;
 };
 
+/**
+ * A monotonically increasing revision for UI-owned workflow state. It is
+ * deliberately separate from connection profiles: changing or clearing an
+ * active source-table scope must invalidate UI representations without
+ * changing connection ids, credentials references, or project association.
+ */
+export function workflowGeneration(value: unknown): number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+export function nextWorkflowGeneration(value: unknown): number {
+  return workflowGeneration(value) + 1;
+}
+
+export function workspaceRevision(scope: Pick<WorkspaceScope, "projectId" | "environment">, generation: unknown): string {
+  const project = projectSlug(scope.projectId) || "data-quality-project";
+  const environment = clean(scope.environment, 100).toLowerCase() || "development";
+  return `${project}:${environment}:${workflowGeneration(generation)}`;
+}
+
 export type CurrentWorkspaceState = {
   sourceTableScopeId: string;
   analysisScopeId: string;

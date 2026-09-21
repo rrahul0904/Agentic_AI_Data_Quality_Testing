@@ -5,7 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import type { ConnectionProfile, ConnectionTestResult, DiscoveredAsset, DiscoveryCategory, DiscoveryResult, OnboardingBootstrap, PipelineLayer, SelectedSourceTable } from "../../../lib/onboarding";
 import { validateConnectionProfile, validateDiscoveryEvidence } from "../../../lib/onboarding";
-import { projectSlug, resolveWorkspace, workspaceCookieHeaders, type WorkspaceScope } from "../../../lib/server-workspace";
+import { nextWorkflowGeneration, projectSlug, resolveWorkspace, workspaceCookieHeaders, workspaceRevision, type WorkspaceScope } from "../../../lib/server-workspace";
 import { isPhase4Fixture, phase4OnboardingWorkspace } from "../../../lib/server-test-fixture";
 
 export const dynamic = "force-dynamic";
@@ -138,6 +138,8 @@ function profileFingerprint(profile: ConnectionProfile): string {
 }
 
 type WorkflowState = {
+  /** Incremented whenever the active source-table scope changes or is cleared. */
+  workspaceGeneration?: number;
   tests: Record<string, ConnectionTestResult>;
   discoveries: Record<string, DiscoveryResult>;
   selectedAssets: string[];
@@ -159,7 +161,29 @@ type ProjectRecord = {
 };
 
 function emptyWorkflowState(): WorkflowState {
-  return { tests: {}, discoveries: {}, discoveriesByTable: {}, selectedAssets: [] };
+  return { workspaceGeneration: 0, tests: {}, discoveries: {}, discoveriesByTable: {}, selectedAssets: [] };
+}
+
+function workflowGeneration(state: WorkflowState): number {
+  return typeof state.workspaceGeneration === "number" && Number.isSafeInteger(state.workspaceGeneration) && state.workspaceGeneration >= 0
+    ? state.workspaceGeneration
+    : 0;
+}
+
+function advanceWorkflowGeneration(state: WorkflowState): void {
+  state.workspaceGeneration = nextWorkflowGeneration(workflowGeneration(state));
+}
+
+function onboardingHeaders(scope: WorkspaceScope, state?: WorkflowState | number): Headers {
+  const headers = workspaceCookieHeaders(scope);
+  const generation = typeof state === "number" ? state : workflowGeneration(state ?? emptyWorkflowState());
+  const revision = workspaceRevision(scope, generation);
+  headers.set("X-ADQ-Workspace-Revision", revision);
+  // This is an opaque cache key, not an authentication value. It must remain
+  // readable so browser-side scoped URLs can separate a cleared scope from a
+  // prior session response even when a page owns its own fetch state.
+  headers.append("Set-Cookie", `ade-workspace-revision=${encodeURIComponent(revision)}; Path=/; SameSite=Strict`);
+  return headers;
 }
 
 function sourceTablesFromState(value: Partial<WorkflowState>): SelectedSourceTable[] {
@@ -199,7 +223,7 @@ async function writeProjectConnections(projectIdValue: string, profiles: Connect
 async function readProjectWorkflow(projectIdValue: string): Promise<WorkflowState> {
   try {
     const value = JSON.parse(await readFile(projectFile(projectIdValue, "workflow.json"), "utf8")) as Partial<WorkflowState>;
-    return { tests: value.tests && typeof value.tests === "object" ? value.tests : {}, discoveries: value.discoveries && typeof value.discoveries === "object" ? value.discoveries : {}, discoveriesByTable: value.discoveriesByTable && typeof value.discoveriesByTable === "object" ? value.discoveriesByTable as Record<string, Record<string, DiscoveryResult>> : {}, selectedAssets: Array.isArray(value.selectedAssets) ? value.selectedAssets.filter((item): item is string => typeof item === "string") : [], selectedSourceTable: value.selectedSourceTable && typeof value.selectedSourceTable === "object" ? value.selectedSourceTable as SelectedSourceTable : undefined, selectedSourceTables: sourceTablesFromState(value), sourceTableScopeId: typeof value.sourceTableScopeId === "string" ? value.sourceTableScopeId : undefined, analysisScopeId: typeof value.analysisScopeId === "string" ? value.analysisScopeId : undefined, qualityPlanScopeId: typeof value.qualityPlanScopeId === "string" ? value.qualityPlanScopeId : undefined, projectDefinition: value.projectDefinition, projectSavedAt: typeof value.projectSavedAt === "string" ? value.projectSavedAt : undefined };
+    return { workspaceGeneration: typeof value.workspaceGeneration === "number" ? value.workspaceGeneration : 0, tests: value.tests && typeof value.tests === "object" ? value.tests : {}, discoveries: value.discoveries && typeof value.discoveries === "object" ? value.discoveries : {}, discoveriesByTable: value.discoveriesByTable && typeof value.discoveriesByTable === "object" ? value.discoveriesByTable as Record<string, Record<string, DiscoveryResult>> : {}, selectedAssets: Array.isArray(value.selectedAssets) ? value.selectedAssets.filter((item): item is string => typeof item === "string") : [], selectedSourceTable: value.selectedSourceTable && typeof value.selectedSourceTable === "object" ? value.selectedSourceTable as SelectedSourceTable : undefined, selectedSourceTables: sourceTablesFromState(value), sourceTableScopeId: typeof value.sourceTableScopeId === "string" ? value.sourceTableScopeId : undefined, analysisScopeId: typeof value.analysisScopeId === "string" ? value.analysisScopeId : undefined, qualityPlanScopeId: typeof value.qualityPlanScopeId === "string" ? value.qualityPlanScopeId : undefined, projectDefinition: value.projectDefinition, projectSavedAt: typeof value.projectSavedAt === "string" ? value.projectSavedAt : undefined };
   } catch { return projectSlug(projectIdValue) === projectSlug(DEFAULT_PROJECT_NAME) ? readWorkflowState() : emptyWorkflowState(); }
 }
 
@@ -229,6 +253,7 @@ async function readWorkflowState(): Promise<WorkflowState> {
   try {
     const value = JSON.parse(await readFile(WORKFLOW_STATE_FILE, "utf8")) as Partial<WorkflowState>;
     return {
+      workspaceGeneration: typeof value.workspaceGeneration === "number" ? value.workspaceGeneration : 0,
       tests: value.tests && typeof value.tests === "object" ? value.tests : {},
       discoveries: value.discoveries && typeof value.discoveries === "object" ? value.discoveries : {},
       discoveriesByTable: value.discoveriesByTable && typeof value.discoveriesByTable === "object" ? value.discoveriesByTable as Record<string, Record<string, DiscoveryResult>> : {},
@@ -249,7 +274,13 @@ async function writeWorkflowState(state: WorkflowState): Promise<void> {
   await writeFile(WORKFLOW_STATE_FILE, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
 }
 
-async function runtimeSuggestions(scope: WorkspaceScope, projects: ProjectRecord[]): Promise<OnboardingBootstrap> {
+type OnboardingBootstrapResponse = OnboardingBootstrap & {
+  bootstrapState: "EMPTY" | "SAVED";
+  workspaceGeneration: number;
+  workspaceRevision: string;
+};
+
+async function runtimeSuggestions(scope: WorkspaceScope, projects: ProjectRecord[]): Promise<OnboardingBootstrapResponse> {
   const activeProject = projects.find((item) => item.id === scope.projectId) ?? projects[0];
   const [runtime, workflow, savedConnections] = await Promise.all([
     runtimeProfile(),
@@ -275,7 +306,19 @@ async function runtimeSuggestions(scope: WorkspaceScope, projects: ProjectRecord
     { id: "runtime-dbt", name: dbtLabel, kind: "dbt", environment: "Development", source: "runtime", enabled: true, updatedAt: now, config: { projectDir: dbtRoot, profilesPath: dbtProfilesPath, target: value(profile.dbt_target_profile) || "dev", dbtExecutable: "", manifestPath: dbtRoot ? path.join(dbtRoot, "target/manifest.json") : "", runResultsPath: dbtRoot ? path.join(dbtRoot, "target/run_results.json") : "" } },
     { id: "runtime-files", name: labelFrom(path.basename(fileRoot), "Files"), kind: "files", environment: "Development", source: "runtime", enabled: true, updatedAt: now, config: { storageType: "local", rootPath: fileRoot, includePattern: "**/*.{csv,parquet}", recursive: true } },
   ];
+  const hasSavedState = Boolean(
+    savedConnections.length
+    || Object.keys(workflow.tests).length
+    || Object.keys(workflow.discoveries).length
+    || Object.keys(workflow.discoveriesByTable ?? {}).length
+    || workflow.selectedAssets.length
+    || workflow.selectedSourceTable
+    || sourceTablesFromState(workflow).length,
+  );
   return {
+    bootstrapState: hasSavedState ? "SAVED" : "EMPTY",
+    workspaceGeneration: workflowGeneration(workflow),
+    workspaceRevision: workspaceRevision(scope, workflowGeneration(workflow)),
     project: { name: value(projectDefinition.name) || DEFAULT_PROJECT_NAME, domain: value(projectDefinition.domain), environment: value(projectDefinition.environment) || value(profile.environment) || "development", root: projectRoot },
     savedConnections: savedConnections.map((saved) => {
       const runtimeMatch = suggestedConnections.find((candidate) => candidate.id === saved.id && candidate.kind === saved.kind);
@@ -725,9 +768,12 @@ export async function GET(request: Request) {
     const activeScope: WorkspaceScope = activeProject && activeProject.id !== scope.projectId
       ? { ...scope, projectId: activeProject.id, name: value(activeProject.projectDefinition.name) || scope.name, environment: (value(activeProject.projectDefinition.environment) || scope.environment).toLowerCase() }
       : scope;
-    return Response.json(await runtimeSuggestions(activeScope, projects), { headers: workspaceCookieHeaders(activeScope) });
+    const bootstrap = await runtimeSuggestions(activeScope, projects);
+    return Response.json(bootstrap, { headers: onboardingHeaders(activeScope, bootstrap.workspaceGeneration) });
   }
-  catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Unable to load onboarding data" }, { status: 500 }); }
+  catch (error) {
+    return Response.json({ bootstrapState: "ERROR", error: error instanceof Error ? error.message : "Unable to load onboarding data" }, { status: 500, headers: { "Cache-Control": "no-store" } });
+  }
 }
 
 export async function POST(request: Request) {
@@ -806,12 +852,14 @@ export async function POST(request: Request) {
       state.sourceTableScopeId = body.selectedSourceTable.id;
       state.analysisScopeId = undefined;
       state.qualityPlanScopeId = undefined;
+      advanceWorkflowGeneration(state);
       await writeProjectWorkflow(scope.projectId, state);
-      return Response.json({ status: "SAVED", selectedSourceTable: state.selectedSourceTable, selectedSourceTables: state.selectedSourceTables }, { headers: workspaceCookieHeaders(scope) });
+      return Response.json({ status: "SAVED", selectedSourceTable: state.selectedSourceTable, selectedSourceTables: state.selectedSourceTables, workspaceRevision: workspaceRevision(scope, workflowGeneration(state)) }, { headers: onboardingHeaders(scope, state) });
     }
     if (body.action === "remove-source-table") {
       if (!body.sourceTableId) return Response.json({ error: "A source table id is required." }, { status: 400 });
       const state = await readProjectWorkflow(scope.projectId);
+      const previousScopeId = state.sourceTableScopeId;
       const remaining = sourceTablesFromState(state).filter((item) => item.id !== body.sourceTableId);
       state.selectedSourceTables = remaining;
       state.selectedSourceTable = remaining[remaining.length - 1];
@@ -822,10 +870,11 @@ export async function POST(request: Request) {
       // selection. Discovery, plans, runs, and evidence remain persisted for
       // audit/history and can be surfaced again when a table is reselected.
       if (!remaining.length) state.selectedAssets = [];
+      if (state.sourceTableScopeId !== previousScopeId) advanceWorkflowGeneration(state);
       // Discovery evidence is intentionally retained for audit/history even
       // when a table is removed from the active project selection.
       await writeProjectWorkflow(scope.projectId, state);
-      return Response.json({ status: "SAVED", selectedSourceTable: state.selectedSourceTable, selectedSourceTables: remaining }, { headers: workspaceCookieHeaders(scope) });
+      return Response.json({ status: "SAVED", selectedSourceTable: state.selectedSourceTable, selectedSourceTables: remaining, workspaceRevision: workspaceRevision(scope, workflowGeneration(state)) }, { headers: onboardingHeaders(scope, state) });
     }
     if (!body.profile) return Response.json({ error: "Connection profile is required" }, { status: 400 });
     if (body.action === "test") {
@@ -841,10 +890,11 @@ export async function POST(request: Request) {
         state.tests = {};
         state.discoveries = {};
         state.selectedAssets = [];
+        advanceWorkflowGeneration(state);
       }
       state.tests[body.profile.id] = result;
       await writeProjectWorkflow(scope.projectId, state);
-      return Response.json(result, { headers: workspaceCookieHeaders(scope) });
+      return Response.json(result, { headers: onboardingHeaders(scope, state) });
     }
     if (body.action === "discover") {
       const state = await readProjectWorkflow(scope.projectId);

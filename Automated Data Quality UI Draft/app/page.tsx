@@ -107,7 +107,6 @@ export default function HomePage() {
       const value = await response.json() as Operations;
       setData(value);
       setRefreshState("SNAPSHOT");
-      try { sessionStorage.setItem(`ade-operations-summary:${window.location.search}`, JSON.stringify(value)); } catch { /* Cache is best effort. */ }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to load operations");
     } finally {
@@ -128,7 +127,6 @@ export default function HomePage() {
       if (!response.ok) throw new Error(value.error || "Live operations refresh unavailable");
       setData(value);
       setRefreshState("LIVE");
-      try { sessionStorage.setItem(`ade-operations:${window.location.search}`, JSON.stringify(value)); } catch { /* Cache is best effort. */ }
     } catch (reason) {
       setRefreshState("ERROR");
       setError(reason instanceof Error ? reason.message : "Live operations refresh unavailable");
@@ -139,14 +137,6 @@ export default function HomePage() {
   };
 
   useEffect(() => {
-    const cacheKey = `ade-operations:${window.location.search}`;
-    const summaryKey = `ade-operations-summary:${window.location.search}`;
-    try {
-      const cached = sessionStorage.getItem(cacheKey);
-      const cachedSummary = sessionStorage.getItem(summaryKey);
-      if (cached) setData(JSON.parse(cached) as Operations);
-      else if (cachedSummary) setData(JSON.parse(cachedSummary) as Operations);
-    } catch { /* A cached snapshot is an optimization, never a source of truth. */ }
     let active = true;
     void loadSummary().finally(() => {
       if (active) void loadLiveEvidence();

@@ -37,18 +37,13 @@ function catalog(metadata: Record<string, unknown>, database = ""): Array<Record
 async function savedCatalog(scope: WorkspaceScope, connectionId: string): Promise<{ database: string; schema: string; items: Array<Record<string, unknown>> }> {
   try {
     const root = path.join(process.cwd(), ".ade-ui", "projects", projectSlug(scope.projectId));
-    const [connections, workflow, onboardingConnections, onboardingState] = await Promise.all([
+    const [connections, workflow] = await Promise.all([
       readFile(path.join(root, "connections.json"), "utf8").then((value) => JSON.parse(value) as Array<Record<string, unknown>>).catch(() => []),
       readFile(path.join(root, "workflow.json"), "utf8").then((value) => JSON.parse(value) as Record<string, unknown>),
-      readFile(path.join(process.cwd(), ".ade-ui", "onboarding-connections.json"), "utf8").then((value) => JSON.parse(value) as Array<Record<string, unknown>>).catch(() => []),
-      readFile(path.join(process.cwd(), ".ade-ui", "onboarding-state.json"), "utf8").then((value) => JSON.parse(value) as Record<string, unknown>).catch(() => ({})),
     ]);
-    const profiles = connections.length ? connections : onboardingConnections;
-    const profile = profiles.find((item) => item.id === connectionId) ?? {};
+    const profile = connections.find((item) => item.id === connectionId) ?? {};
     const config = profile.config && typeof profile.config === "object" ? profile.config as Record<string, unknown> : {};
-    const onboardingRecord = onboardingState as Record<string, unknown>;
-    const onboardingDiscoveries = onboardingRecord.discoveries && typeof onboardingRecord.discoveries === "object" ? onboardingRecord.discoveries as Record<string, unknown> : {};
-    const discoveries = workflow.discoveries && typeof workflow.discoveries === "object" ? workflow.discoveries as Record<string, unknown> : onboardingDiscoveries;
+    const discoveries = workflow.discoveries && typeof workflow.discoveries === "object" ? workflow.discoveries as Record<string, unknown> : {};
     const discovery = discoveries[connectionId] && typeof discoveries[connectionId] === "object" ? discoveries[connectionId] as Record<string, unknown> : {};
     const assets = Array.isArray(discovery.assets) ? discovery.assets : [];
     const items = assets.flatMap((asset) => {
