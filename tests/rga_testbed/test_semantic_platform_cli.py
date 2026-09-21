@@ -869,3 +869,99 @@ def test_optimize_dry_run_uses_only_explicit_benchmark_reports(tmp_path: Path):
     assert result["benchmark_report_count"] == 2
     assert result["benchmark_reports"] == sorted(str(path) for path in selected)
     assert str(stale) not in result["benchmark_reports"]
+
+
+def _write_minimal_power_bi_parity_workspace(workspace: Path) -> Path:
+    parity_dir = workspace / "release" / "parity"
+    parity_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "required_consumers": [
+            "snowflake_semantic_view",
+            "cortex_agent_mcp",
+            "power_bi",
+            "excel",
+        ],
+        "cases": [
+            {
+                "id": "q1",
+                "business_question": "What is metric A?",
+                "dimensions": ["DIMENSION_A"],
+                "metrics": ["METRIC_A"],
+                "reference": {"sql_file": "q1.reference.sql"},
+                "power_bi": {
+                    "dax_file": "q1.powerbi.dax",
+                    "capture_api": "executeDaxQueries",
+                },
+                "acceptance": {
+                    "require_captured_evidence": True,
+                    "allow_empty_result": False,
+                },
+            }
+        ],
+    }
+    (parity_dir / "parity_manifest.json").write_text(
+        json.dumps(manifest),
+        encoding="utf-8",
+    )
+    (parity_dir / "q1.powerbi.dax").write_text(
+        "EVALUATE ROW(\"DIMENSION_A\", \"A\", \"METRIC_A\", 1)",
+        encoding="utf-8",
+    )
+    return parity_dir
+
+
+def test_capture_power_bi_evidence_dry_run_needs_no_credentials(tmp_path: Path):
+    workspace = tmp_path / "demo"
+    _write_minimal_power_bi_parity_workspace(workspace)
+
+    result = cli.capture_power_bi_evidence(
+        workspace,
+        evidence_dir=tmp_path / "evidence",
+        security_context="ROLE_ANALYST",
+        confirm=False,
+        dry_run=True,
+    )
+    assert result["status"] == "DRY_RUN"
+    assert result["case_count"] == 1
+    assert result["cases"][0]["dax_exists"] is True
+    assert result["consumer_evidence"]["expected_evidence_count"] == 4
+    assert "Excel remains a separate" in result["truth_boundary"]
+
+
+def test_governed_evidence_dry_run_can_include_power_bi(tmp_path: Path):
+    workspace = tmp_path / "demo"
+    _write_minimal_power_bi_parity_workspace(workspace)
+
+    result = cli.capture_governed_evidence(
+        workspace,
+        evidence_dir=tmp_path / "evidence",
+        security_context="ROLE_ANALYST",
+        max_rows=500,
+        confirm=False,
+        dry_run=True,
+        capture_power_bi=True,
+        power_bi_query_timeout=120,
+    )
+    assert result["status"] == "DRY_RUN"
+    assert result["power_bi"]["status"] == "DRY_RUN"
+    assert result["external_consumers_remaining"] == ["excel"]
+
+
+def test_governed_evidence_dry_run_without_power_bi_keeps_both_microsoft_surfaces_pending(
+    tmp_path: Path,
+):
+    workspace = tmp_path / "demo"
+    _write_minimal_power_bi_parity_workspace(workspace)
+
+    result = cli.capture_governed_evidence(
+        workspace,
+        evidence_dir=tmp_path / "evidence",
+        security_context="ROLE_ANALYST",
+        max_rows=500,
+        confirm=False,
+        dry_run=True,
+        capture_power_bi=False,
+    )
+    assert result["status"] == "DRY_RUN"
+    assert result["external_consumers_remaining"] == ["power_bi", "excel"]
+    assert "power_bi" not in result
