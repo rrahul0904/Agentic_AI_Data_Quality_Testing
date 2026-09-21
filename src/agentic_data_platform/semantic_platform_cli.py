@@ -442,6 +442,7 @@ def optimize(
     confirm: bool = False,
     dry_run: bool = False,
     include_query_text: bool = False,
+    run_diagnostics: bool = False,
 ) -> dict[str, Any]:
     manifest = workspace / "release" / "benchmarks" / "manifest.json"
     evidence_dir = workspace / "evidence"
@@ -503,7 +504,9 @@ def optimize(
                 "history": str(history_path),
                 "analysis": str(analysis_path),
                 "experiments": str(experiments_path),
+                "diagnostics": str(evidence_dir / "optimization_diagnostics.json"),
             },
+            "run_diagnostics": run_diagnostics,
             "policy": (
                 "Optimization is evidence-driven. Diagnostics and cost/eligibility estimates "
                 "may be generated; physical mutations remain commented out and require "
@@ -569,6 +572,26 @@ def optimize(
         raise RuntimeError(renderer.stdout.strip() or renderer.stderr.strip())
     renderer_summary = json.loads(renderer.stdout)
 
+    diagnostics_summary = None
+    diagnostics_path = evidence_dir / "optimization_diagnostics.json"
+    if run_diagnostics:
+        diagnostics = _run(
+            _python_script(
+                "execute_optimization_diagnostics.py",
+                "--sql-file",
+                str(experiments_path),
+                "--output",
+                str(diagnostics_path),
+                "--confirm",
+            ),
+            capture=True,
+        )
+        if diagnostics.returncode != 0:
+            raise RuntimeError(
+                diagnostics.stdout.strip() or diagnostics.stderr.strip()
+            )
+        diagnostics_summary = json.loads(diagnostics.stdout)
+
     return {
         "status": "PASS",
         "workspace": str(workspace),
@@ -582,10 +605,12 @@ def optimize(
         "executable_physical_mutations": int(
             renderer_summary.get("executable_physical_mutations", 0)
         ),
+        "diagnostics": diagnostics_summary,
         "outputs": {
             "history": str(history_path),
             "analysis": str(analysis_path),
             "experiments": str(experiments_path),
+            "diagnostics": str(diagnostics_path),
         },
         "policy": analysis.get("policy"),
         "truth_boundary": (
@@ -1877,6 +1902,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="RGA_SEMANTIC_BENCHMARK",
     )
     optimizer.add_argument("--include-query-text", action="store_true")
+    optimizer.add_argument("--run-diagnostics", action="store_true")
     optimizer.add_argument("--confirm", action="store_true")
     optimizer.add_argument("--dry-run", action="store_true")
 
@@ -2027,6 +2053,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 confirm=args.confirm,
                 dry_run=args.dry_run,
                 include_query_text=args.include_query_text,
+                run_diagnostics=args.run_diagnostics,
             )
             print(_json(result))
             return 0 if result["status"] in {"PASS", "DRY_RUN"} else 1
