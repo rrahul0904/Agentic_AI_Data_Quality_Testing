@@ -2281,6 +2281,16 @@ def build_parser() -> argparse.ArgumentParser:
     certify.add_argument("--deploy-ai", action="store_true")
     certify.add_argument("--apply-cdc", action="store_true")
     certify.add_argument("--verify-cdc-idempotency", action="store_true")
+    certify.add_argument(
+        "--analyze-optimization",
+        action="store_true",
+        help="Collect Query History and generate guarded physical-optimization evidence.",
+    )
+    certify.add_argument(
+        "--run-optimization-diagnostics",
+        action="store_true",
+        help="Execute only allowlisted read-only optimization diagnostics.",
+    )
     certify.add_argument("--confirm", action="store_true")
     certify.add_argument("--dry-run", action="store_true")
 
@@ -2506,6 +2516,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 deploy_ai=args.deploy_ai,
                 apply_cdc_events=args.apply_cdc,
                 verify_cdc_idempotency=args.verify_cdc_idempotency,
+                analyze_optimization=args.analyze_optimization,
+                run_optimization_diagnostics=args.run_optimization_diagnostics,
             )
             print(_json(result))
             return 0 if result["status"] in {"PASS", "DRY_RUN"} else 1
