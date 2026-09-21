@@ -15,6 +15,8 @@ import os
 import shutil
 import subprocess
 import sys
+
+import yaml
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
@@ -438,7 +440,7 @@ def optimize(
     *,
     days: int = 14,
     limit: int = 10000,
-    query_tag_prefix: str = "RGA_SEMANTIC_BENCHMARK",
+    query_tag_prefix: str | None = None,
     confirm: bool = False,
     dry_run: bool = False,
     include_query_text: bool = False,
@@ -462,13 +464,20 @@ def optimize(
         payload = json.loads(release_manifest.read_text(encoding="utf-8"))
         database = payload.get("database")
 
+    resolved_query_tag = query_tag_prefix
+    if resolved_query_tag is None and manifest.exists():
+        benchmark_manifest = json.loads(manifest.read_text(encoding="utf-8"))
+        resolved_query_tag = benchmark_manifest.get("query_tag")
+    if resolved_query_tag is None:
+        resolved_query_tag = "SEMANTIC_PLATFORM_BENCHMARK"
+
     collector_args = [
         "--days",
         str(days),
         "--limit",
         str(limit),
         "--query-tag-prefix",
-        query_tag_prefix,
+        resolved_query_tag,
         "--output",
         str(history_path),
     ]
@@ -2270,28 +2279,51 @@ def certification_report(
     return json.loads(result.stdout)
 
 
+def _contract_metadata(contract: Path) -> dict[str, str]:
+    payload = yaml.safe_load(contract.read_text(encoding="utf-8"))
+    name = str(payload.get("name") or "").strip()
+    database = str(payload.get("database") or "").strip()
+    if not name or not database:
+        raise ValueError("semantic contract must define non-empty name and database")
+    slug = "".join(
+        ch.lower() if ch.isalnum() else "_"
+        for ch in name
+    )
+    slug = "_".join(part for part in slug.split("_") if part)
+    return {"name": name, "database": database, "slug": slug}
+
+
 def release(
-    output: Path,
+    output: Path | None,
     *,
-    database: str,
+    database: str | None,
     contract: Path,
     baseline: Path | None,
     source_sha: str | None,
 ) -> dict[str, Any]:
+    metadata = _contract_metadata(contract)
+    resolved_database = database or metadata["database"]
+    resolved_output = output
+    if resolved_output is None:
+        resolved_output = (
+            REPO_ROOT / "rga-snowflake-data-platform" / "release"
+            if contract.resolve() == DEFAULT_CONTRACT.resolve()
+            else REPO_ROOT / "artifacts" / "semantic_releases" / metadata["slug"]
+        )
     args = [
         "--contract",
         str(contract),
         "--database",
-        database,
+        resolved_database,
         "--output",
-        str(output),
+        str(resolved_output),
     ]
     if baseline:
         args += ["--baseline", str(baseline)]
     if source_sha:
         args += ["--source-sha", source_sha]
     _run_checked(_python_script("build_semantic_release.py", *args))
-    return json.loads((output / "release_manifest.json").read_text(encoding="utf-8"))
+    return json.loads((resolved_output / "release_manifest.json").read_text(encoding="utf-8"))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -2315,8 +2347,8 @@ def build_parser() -> argparse.ArgumentParser:
     demo.add_argument("--cdc-events-per-type", type=int, default=5)
 
     rel = sub.add_parser("release", help="Compile the governed semantic release bundle.")
-    rel.add_argument("--output", type=Path, default=REPO_ROOT / "rga-snowflake-data-platform" / "release")
-    rel.add_argument("--database", default="RGA_SYNTHETIC_TESTBED")
+    rel.add_argument("--output", type=Path)
+    rel.add_argument("--database")
     rel.add_argument("--contract", type=Path, default=DEFAULT_CONTRACT)
     rel.add_argument("--baseline", type=Path)
     rel.add_argument("--source-sha")
@@ -2346,7 +2378,7 @@ def build_parser() -> argparse.ArgumentParser:
     optimizer.add_argument("--limit", type=int, default=10000)
     optimizer.add_argument(
         "--query-tag-prefix",
-        default="RGA_SEMANTIC_BENCHMARK",
+        help="Override the benchmark query-tag prefix; otherwise derive it from the workspace benchmark manifest.",
     )
     optimizer.add_argument("--include-query-text", action="store_true")
     optimizer.add_argument(
