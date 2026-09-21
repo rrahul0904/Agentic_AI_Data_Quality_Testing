@@ -310,6 +310,11 @@ jobs:
           python scripts/rga_testbed/render_optimization_experiments.py \
             --analysis /tmp/rga-workload-analysis.json \
             --output /tmp/rga-optimization-experiments.sql >/tmp/rga-optimization-render-summary.json
+          python scripts/rga_testbed/execute_optimization_diagnostics.py \
+            --sql-file /tmp/rga-optimization-experiments.sql \
+            --dry-run >/tmp/rga-optimization-diagnostics-plan.json
+          grep -q '"status": "DRY_RUN"' /tmp/rga-optimization-diagnostics-plan.json
+          grep -q '"statement_count": 3' /tmp/rga-optimization-diagnostics-plan.json
           grep -q 'SYSTEM$ESTIMATE_QUERY_ACCELERATION' /tmp/rga-optimization-experiments.sql
           grep -q 'SYSTEM$CLUSTERING_INFORMATION' /tmp/rga-optimization-experiments.sql
           grep -q 'SYSTEM$ESTIMATE_SEARCH_OPTIMIZATION_COSTS' /tmp/rga-optimization-experiments.sql
