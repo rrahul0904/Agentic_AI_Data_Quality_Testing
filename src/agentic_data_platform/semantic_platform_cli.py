@@ -1242,6 +1242,8 @@ def certify_live(
     deploy_ai: bool,
     apply_cdc_events: bool = False,
     verify_cdc_idempotency: bool = False,
+    analyze_optimization: bool = False,
+    run_optimization_diagnostics: bool = False,
 ) -> dict[str, Any]:
     plan = certification_plan(
         workspace,
@@ -1250,6 +1252,8 @@ def certify_live(
         deploy_ai=deploy_ai,
         apply_cdc_events=apply_cdc_events,
         verify_cdc_idempotency=verify_cdc_idempotency,
+        analyze_optimization=analyze_optimization,
+        run_optimization_diagnostics=run_optimization_diagnostics,
     )
     if dry_run:
         return {"status": "DRY_RUN", **plan}
@@ -1291,6 +1295,7 @@ def certify_live(
             confirm=True,
             dry_run=False,
         )
+
     benchmark_runs: list[dict[str, Any]] = []
     report_paths: list[Path] = []
     for level in concurrency:
@@ -1304,14 +1309,18 @@ def certify_live(
         )
         report_path = evidence_dir / f"benchmark-c{level}-both.json"
         if not report_path.exists():
-            raise RuntimeError(f"benchmark evidence file was not created: {report_path}")
+            raise RuntimeError(
+                f"benchmark evidence file was not created: {report_path}"
+            )
         report = json.loads(report_path.read_text(encoding="utf-8"))
         report_paths.append(report_path)
         benchmark_runs.append(
             {
                 "concurrency": level,
                 "status": payload.get("status"),
-                "result_parity": report.get("result_parity", {}).get("status"),
+                "result_parity": report.get(
+                    "result_parity", {}
+                ).get("status"),
                 "summary": report.get("summary", {}),
                 "report": str(report_path),
             }
@@ -1320,39 +1329,126 @@ def certify_live(
     agent_answer_parity = None
     agent_parity_output = None
     if deploy_ai and agent_runtime:
-        agent_answer_parity = agent_benchmark_parity(agent_runtime, report_paths)
+        agent_answer_parity = agent_benchmark_parity(
+            agent_runtime,
+            report_paths,
+        )
         agent_parity_output = evidence_dir / "agent_result_parity.json"
-        agent_parity_output.write_text(json.dumps(agent_answer_parity, indent=2) + "\n", encoding="utf-8")
+        agent_parity_output.write_text(
+            json.dumps(agent_answer_parity, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
     workload_output = evidence_dir / "workload_analysis.json"
-    workload_args = [
-        "--manifest",
-        str(workspace / "release" / "benchmarks" / "manifest.json"),
-    ]
-    for report_path in report_paths:
-        workload_args += ["--report", str(report_path)]
-    workload_args += ["--output", str(workload_output)]
-    _run_checked(_python_script("analyze_workload.py", *workload_args))
-    workload = json.loads(workload_output.read_text(encoding="utf-8"))
+    optimization_report = None
+    if analyze_optimization:
+        optimization_report = optimize(
+            workspace,
+            days=14,
+            limit=10000,
+            query_tag_prefix="RGA_SEMANTIC_BENCHMARK",
+            confirm=True,
+            dry_run=False,
+            include_query_text=False,
+            run_diagnostics=run_optimization_diagnostics,
+            benchmark_reports=report_paths,
+        )
+        if optimization_report.get("status") != "PASS":
+            raise RuntimeError(
+                "optimization analysis did not pass during live certification"
+            )
+        workload_output = Path(
+            optimization_report["outputs"]["analysis"]
+        )
+    else:
+        workload_args = [
+            "--manifest",
+            str(
+                workspace
+                / "release"
+                / "benchmarks"
+                / "manifest.json"
+            ),
+        ]
+        for report_path in report_paths:
+            workload_args += ["--report", str(report_path)]
+        workload_args += ["--output", str(workload_output)]
+        _run_checked(
+            _python_script("analyze_workload.py", *workload_args)
+        )
 
-    all_benchmarks_pass = all(item["status"] == "PASS" for item in benchmark_runs)
-    all_parity_pass = all(item["result_parity"] == "PASS" for item in benchmark_runs)
+    workload = json.loads(
+        workload_output.read_text(encoding="utf-8")
+    )
+
+    all_benchmarks_pass = all(
+        item["status"] == "PASS" for item in benchmark_runs
+    )
+    all_parity_pass = all(
+        item["result_parity"] == "PASS"
+        for item in benchmark_runs
+    )
     telemetry_complete = all(
         int(variant.get("telemetry_missing", 0)) == 0
         for item in benchmark_runs
-        for variant in item.get("summary", {}).get("variants", {}).values()
+        for variant in item.get(
+            "summary", {}
+        ).get("variants", {}).values()
     )
-    agent_runtime_pass = True if not deploy_ai else bool(agent_runtime and agent_runtime.get("status") == "PASS")
+    agent_runtime_pass = (
+        True
+        if not deploy_ai
+        else bool(
+            agent_runtime
+            and agent_runtime.get("status") == "PASS"
+        )
+    )
     agent_answer_parity_pass = (
         True
         if not deploy_ai
-        else bool(agent_answer_parity and agent_answer_parity.get("status") == "PASS")
+        else bool(
+            agent_answer_parity
+            and agent_answer_parity.get("status") == "PASS"
+        )
     )
     cdc_application_pass = (
         True
         if not apply_cdc_events
-        else bool(cdc_application and cdc_application.get("status") == "PASS")
+        else bool(
+            cdc_application
+            and cdc_application.get("status") == "PASS"
+        )
     )
+    optimization_diagnostics_pass = (
+        True
+        if not run_optimization_diagnostics
+        else bool(
+            optimization_report
+            and isinstance(
+                optimization_report.get("diagnostics"),
+                dict,
+            )
+            and optimization_report["diagnostics"].get("status")
+            == "PASS"
+        )
+    )
+    optimization_analysis_pass = (
+        True
+        if not analyze_optimization
+        else bool(
+            optimization_report
+            and optimization_report.get("status") == "PASS"
+            and int(
+                optimization_report.get(
+                    "executable_physical_mutations",
+                    1,
+                )
+            )
+            == 0
+            and optimization_diagnostics_pass
+        )
+    )
+
     certification_pass = (
         all_benchmarks_pass
         and all_parity_pass
@@ -1360,35 +1456,103 @@ def certify_live(
         and agent_runtime_pass
         and agent_answer_parity_pass
         and cdc_application_pass
+        and optimization_analysis_pass
     )
 
-    release_manifest_path = workspace / "release" / "release_manifest.json"
-    release_manifest = json.loads(release_manifest_path.read_text(encoding="utf-8"))
+    release_manifest_path = (
+        workspace / "release" / "release_manifest.json"
+    )
+    release_manifest = json.loads(
+        release_manifest_path.read_text(encoding="utf-8")
+    )
+
+    external_remaining = [
+        (
+            "Snowflake-managed MCP client invocation evidence"
+            if deploy_ai
+            else "Cortex Agent/MCP live deployment, runtime smoke, and result parity"
+        ),
+        "Power BI XMLA governed parity",
+        "Excel XMLA governed parity",
+    ]
+    if not analyze_optimization:
+        external_remaining.append(
+            "Snowflake Query History physical-optimization analysis"
+        )
+    else:
+        external_remaining.append(
+            "application of any accepted physical optimization and its before/after acceptance gate"
+        )
+
     manifest = {
-        "certification_version": 1,
+        "certification_version": 2,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "status": "PASS" if certification_pass else "INCOMPLETE",
         "scope": "snowflake_semantic_runtime",
         "workspace": str(workspace),
         "source_sha": release_manifest.get("source_sha"),
-        "semantic_manifest_sha256": release_manifest.get("semantic_manifest_sha256"),
+        "semantic_manifest_sha256": release_manifest.get(
+            "semantic_manifest_sha256"
+        ),
         "environment": {
             "account": os.environ.get("SNOWFLAKE_ACCOUNT"),
             "warehouse": os.environ.get("SNOWFLAKE_WAREHOUSE"),
-            "role": os.environ.get("SNOWFLAKE_ROLE", "SYSADMIN"),
-            "database": os.environ.get("RGA_SNOWFLAKE_DATABASE", "RGA_SYNTHETIC_TESTBED"),
+            "role": os.environ.get(
+                "SNOWFLAKE_ROLE",
+                "SYSADMIN",
+            ),
+            "database": os.environ.get(
+                "RGA_SNOWFLAKE_DATABASE",
+                "RGA_SYNTHETIC_TESTBED",
+            ),
         },
         "acceptance": {
             "deployment_pass": deployment.get("status") == "PASS",
             "all_benchmarks_pass": all_benchmarks_pass,
             "all_direct_semantic_result_parity_pass": all_parity_pass,
             "query_history_telemetry_complete": telemetry_complete,
-            "agent_runtime_smoke_pass": agent_runtime_pass if deploy_ai else None,
-            "agent_result_parity_pass": agent_answer_parity_pass if deploy_ai else None,
-            "cdc_application_pass": cdc_application_pass if apply_cdc_events else None,
+            "agent_runtime_smoke_pass": (
+                agent_runtime_pass if deploy_ai else None
+            ),
+            "agent_result_parity_pass": (
+                agent_answer_parity_pass if deploy_ai else None
+            ),
+            "cdc_application_pass": (
+                cdc_application_pass
+                if apply_cdc_events
+                else None
+            ),
             "cdc_idempotency_verified": (
-                bool(cdc_application and cdc_application.get("idempotency_validation"))
+                bool(
+                    cdc_application
+                    and cdc_application.get(
+                        "idempotency_validation"
+                    )
+                )
                 if verify_cdc_idempotency
+                else None
+            ),
+            "optimization_analysis_pass": (
+                optimization_analysis_pass
+                if analyze_optimization
+                else None
+            ),
+            "optimization_diagnostics_pass": (
+                optimization_diagnostics_pass
+                if run_optimization_diagnostics
+                else None
+            ),
+            "optimization_zero_executable_mutations": (
+                (
+                    int(
+                        optimization_report.get(
+                            "executable_physical_mutations",
+                            1,
+                        )
+                    )
+                    == 0
+                )
+                if optimization_report
                 else None
             ),
         },
@@ -1398,8 +1562,16 @@ def certify_live(
                 "passed": agent_runtime.get("passed"),
                 "failed": agent_runtime.get("failed"),
                 "report": agent_runtime.get("report"),
-                "result_parity_status": agent_answer_parity.get("status") if agent_answer_parity else None,
-                "result_parity_report": str(agent_parity_output) if agent_parity_output else None,
+                "result_parity_status": (
+                    agent_answer_parity.get("status")
+                    if agent_answer_parity
+                    else None
+                ),
+                "result_parity_report": (
+                    str(agent_parity_output)
+                    if agent_parity_output
+                    else None
+                ),
             }
             if agent_runtime
             else None
@@ -1408,27 +1580,77 @@ def certify_live(
             {
                 "status": cdc_application.get("status"),
                 "report": cdc_application.get("report"),
-                "verify_idempotency": cdc_application.get("verify_idempotency"),
-                "source_event_count": cdc_application.get("source_event_count"),
+                "verify_idempotency": cdc_application.get(
+                    "verify_idempotency"
+                ),
+                "source_event_count": cdc_application.get(
+                    "source_event_count"
+                ),
             }
             if cdc_application
             else None
         ),
+        "optimization": (
+            {
+                "requested": True,
+                "diagnostics_requested": (
+                    run_optimization_diagnostics
+                ),
+                "status": optimization_report.get("status"),
+                "report": optimization_report.get("report"),
+                "recommendation_count": optimization_report.get(
+                    "recommendation_count"
+                ),
+                "history_experiment_count": optimization_report.get(
+                    "history_experiment_count"
+                ),
+                "experiment_count": optimization_report.get(
+                    "experiment_count"
+                ),
+                "executable_physical_mutations": optimization_report.get(
+                    "executable_physical_mutations"
+                ),
+                "diagnostics_status": (
+                    optimization_report.get(
+                        "diagnostics", {}
+                    ).get("status")
+                    if isinstance(
+                        optimization_report.get("diagnostics"),
+                        dict,
+                    )
+                    else None
+                ),
+                "outputs": optimization_report.get("outputs"),
+                "truth_boundary": optimization_report.get(
+                    "truth_boundary"
+                ),
+            }
+            if optimization_report
+            else {
+                "requested": False,
+                "diagnostics_requested": False,
+                "status": "NOT_REQUESTED",
+            }
+        ),
         "benchmark_runs": benchmark_runs,
         "workload_analysis": str(workload_output),
-        "acceleration_recommendation_count": len(workload.get("recommendations", [])),
-        "external_remaining": [
-            (
-                "Snowflake-managed MCP client invocation evidence"
-                if deploy_ai
-                else "Cortex Agent/MCP live deployment, runtime smoke, and result parity"
-            ),
-            "Power BI XMLA governed parity",
-            "Excel XMLA governed parity",
-        ],
+        "acceleration_recommendation_count": len(
+            workload.get("recommendations", [])
+        ),
+        "query_history_experiment_count": len(
+            workload.get(
+                "query_history", {}
+            ).get("experiments", [])
+        ),
+        "external_remaining": external_remaining,
     }
-    certification_path = evidence_dir / "certification_manifest.json"
-    certification_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    certification_path = (
+        evidence_dir / "certification_manifest.json"
+    )
+    certification_path.write_text(
+        json.dumps(manifest, indent=2) + "\n",
+        encoding="utf-8",
+    )
     return manifest
 
 
