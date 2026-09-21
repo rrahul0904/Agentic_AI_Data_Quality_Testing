@@ -1891,6 +1891,12 @@ def capture_governed_evidence(
     confirm: bool = False,
     dry_run: bool = False,
     overwrite: bool = False,
+    capture_power_bi: bool = False,
+    power_bi_workspace_id: str | None = None,
+    power_bi_dataset_id: str | None = None,
+    power_bi_effective_username: str | None = None,
+    power_bi_roles: list[str] | None = None,
+    power_bi_query_timeout: int = 300,
 ) -> dict[str, Any]:
     plan = governed_evidence_plan(
         workspace,
@@ -1899,7 +1905,27 @@ def capture_governed_evidence(
         max_rows=max_rows,
     )
     if dry_run:
-        return {"status": "DRY_RUN", **plan}
+        result: dict[str, Any] = {"status": "DRY_RUN", **plan}
+        if capture_power_bi:
+            result["power_bi"] = capture_power_bi_evidence(
+                workspace,
+                evidence_dir=evidence_dir,
+                security_context=security_context,
+                workspace_id=power_bi_workspace_id,
+                dataset_id=power_bi_dataset_id,
+                effective_username=power_bi_effective_username,
+                roles=power_bi_roles,
+                max_rows=max_rows,
+                query_timeout=power_bi_query_timeout,
+                confirm=False,
+                dry_run=True,
+                overwrite=overwrite,
+            )
+        result["external_consumers_remaining"] = (
+            ["excel"] if capture_power_bi else ["power_bi", "excel"]
+        )
+        return result
+
     _require_confirm(confirm, "live governed consumer evidence capture")
 
     configured_role = os.environ.get("SNOWFLAKE_ROLE")
@@ -1965,7 +1991,9 @@ def capture_governed_evidence(
         max_rows=max_rows,
     )
     if agent_report.get("status") != "PASS":
-        raise RuntimeError("Cortex Agent smoke failed; governed Agent evidence was not certified")
+        raise RuntimeError(
+            "Cortex Agent smoke failed; governed Agent evidence was not certified"
+        )
     agent_capture = agent_consumer_evidence(
         manifest,
         agent_report,
@@ -1974,22 +2002,56 @@ def capture_governed_evidence(
         overwrite=overwrite,
     )
 
+    power_bi_capture = None
+    if capture_power_bi:
+        power_bi_capture = capture_power_bi_evidence(
+            workspace,
+            evidence_dir=evidence_dir,
+            security_context=security_context,
+            workspace_id=power_bi_workspace_id,
+            dataset_id=power_bi_dataset_id,
+            effective_username=power_bi_effective_username,
+            roles=power_bi_roles,
+            max_rows=max_rows,
+            query_timeout=power_bi_query_timeout,
+            confirm=True,
+            dry_run=False,
+            overwrite=overwrite,
+        )
+
     status = (
         "PASS"
         if snowflake_report.get("status") == "PASS"
         and agent_capture.get("status") == "PASS"
+        and (
+            not capture_power_bi
+            or (
+                power_bi_capture is not None
+                and power_bi_capture.get("status") == "PASS"
+            )
+        )
         else "FAIL"
     )
     parity_plan = consumer_parity_plan(workspace, evidence_dir)
+    remaining = ["excel"] if capture_power_bi else ["power_bi", "excel"]
     return {
         "status": status,
         "security_context": security_context,
         "snowflake": snowflake_report,
         "agent": agent_capture,
+        "power_bi": power_bi_capture,
         "consumer_evidence": parity_plan,
+        "external_consumers_remaining": remaining,
         "next": (
-            "Capture the remaining Power BI and Excel PENDING evidence under the same security context, "
+            "Capture the remaining "
+            + " and ".join(remaining)
+            + " governed evidence under the same security-context label, "
             "then run semantic-platform certify-consumers."
+        ),
+        "security_context_note": (
+            "Snowflake role, Power BI authentication mode, effective username, and "
+            "Power BI roles are recorded separately in evidence; the shared "
+            "security_context value is the operator's cross-system equivalence label."
         ),
     }
 
