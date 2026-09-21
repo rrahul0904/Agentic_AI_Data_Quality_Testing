@@ -120,7 +120,7 @@ async function openTarget(devToolsSocket, url) {
   return response.json();
 }
 
-async function waitFor(client, expression, label, timeoutMs = 15000) {
+async function waitFor(client, expression, label, timeoutMs = 30000) {
   const started = Date.now();
   let last;
   while (Date.now() - started < timeoutMs) {
@@ -197,6 +197,15 @@ async function navigate(client, path, options = {}) {
     await writeFile(screenshotPath, Buffer.from(capture.data, "base64"));
   }
   return { ...state, screenshotPath };
+}
+
+async function refresh(client, options = {}) {
+  const { marker, text, label = "route refresh" } = options;
+  await client.send("Page.reload", { ignoreCache: true });
+  await waitFor(client, "document.readyState === 'complete' && Boolean(document.querySelector('main'))", `${label} document`);
+  if (marker) await waitFor(client, `Boolean(document.querySelector(${JSON.stringify(marker)}))`, `${label} marker ${marker}`);
+  if (text) await waitFor(client, `(document.body?.innerText || "").includes(${JSON.stringify(text)})`, `${label} text ${text}`);
+  return pageState(client);
 }
 
 async function pressTab(client) {
@@ -307,6 +316,9 @@ const report = {
   journeys: [],
   routeChecks: [],
   screenshots: [],
+  assetRequests: [],
+  assetFailures: [],
+  chunkErrors: [],
   failures: [],
   passed: false,
   note: "Read-only browser release gate. It plans no live pipeline operation and does not mutate connector/provider state.",
@@ -319,6 +331,25 @@ try {
   await client.connect();
   client.on("Log.entryAdded", (params) => {
     if (params.entry?.level === "error") client.consoleErrors.push(params.entry.text);
+  });
+  client.assetRequests = [];
+  client.assetFailures = [];
+  client.chunkErrors = [];
+  client.on("Network.responseReceived", (params) => {
+    const url = String(params.response?.url || "");
+    if (!url.includes("/_next/static/") || !/\.js(?:\?|$)/.test(url)) return;
+    const item = { url, status: params.response.status, mimeType: params.response.mimeType };
+    client.assetRequests.push(item);
+    if (params.response.status < 200 || params.response.status >= 300) client.assetFailures.push(item);
+  });
+  client.on("Network.loadingFailed", (params) => {
+    const url = String(params.url || "");
+    if (!url.includes("/_next/static/") || !/\.js(?:\?|$)/.test(url)) return;
+    client.assetFailures.push({ url, errorText: params.errorText, canceled: Boolean(params.canceled) });
+  });
+  client.on("Runtime.exceptionThrown", (params) => {
+    const description = String(params.exceptionDetails?.exception?.description || params.exceptionDetails?.text || "");
+    if (/ChunkLoadError|Loading chunk|failed to load chunk/i.test(description)) client.chunkErrors.push(description);
   });
   await Promise.all([
     client.send("Page.enable"),
@@ -366,6 +397,12 @@ try {
     });
     report.routeChecks.push({ name: "Direct /actions navigation", viewport: viewport.name, ...actions });
     if (actions.screenshotPath) report.screenshots.push(actions.screenshotPath);
+    report.journeys.push({
+      name: "Refresh direct /actions route",
+      viewport: viewport.name,
+      passed: true,
+      ...(await refresh(client, { marker: "#plan-workspace", text: "Run jobs", label: `${viewport.name} /actions refresh` })),
+    });
     const planning = await independentPlanningJourney(client);
     report.journeys.push({ name: "Independent Airflow planning flow", viewport: viewport.name, passed: true, ...planning });
 
@@ -481,9 +518,14 @@ try {
   }
 
   report.consoleErrors = client.consoleErrors;
+  report.assetRequests = client.assetRequests;
+  report.assetFailures = client.assetFailures;
+  report.chunkErrors = client.chunkErrors;
   report.failures = [
     ...report.routeChecks.filter((item) => item.bodyLength < 100 || !item.hasMain || item.horizontalOverflow || item.controlsOutsideViewport.length || item.keyControlOverlaps.length),
     ...report.journeys.filter((item) => item.passed === false),
+    ...report.assetFailures.map((item) => ({ name: "JavaScript asset failure", ...item })),
+    ...report.chunkErrors.map((error) => ({ name: "ChunkLoadError", error })),
   ];
   report.passed = report.failures.length === 0 && report.consoleErrors.length === 0;
   await writeFile(join(outputDir, "release-gate-report.json"), JSON.stringify(report, null, 2));

@@ -98,6 +98,18 @@ export async function phase4AnalysisWorkspace(): Promise<Record<string, unknown>
   };
 }
 
+export function phase4OnboardingWorkspace(): Record<string, unknown> {
+  const selectedSourceTable = { id: "fixture_orders", database: "postgres", schema: "public", table: "orders", label: "postgres.public.orders", columns: [] };
+  return {
+    project: { name: "Fixture project", domain: "test", environment: "fixture", root: "TEST_ONLY_UI_FIXTURE" },
+    savedConnections: [], suggestedConnections: [], savedTests: {}, savedDiscoveries: {}, savedDiscoveriesByTable: {},
+    selectedAssets: ["asset_source_orders", "asset_model_orders", "asset_target_orders"],
+    selectedSourceTable, selectedSourceTables: [selectedSourceTable], sourceTableScopeId: selectedSourceTable.id,
+    analysisScopeId: "analysis_fixture_001", qualityPlanScopeId: "plan_fixture_orders", currentProjectId: "fixture-project",
+    projects: [], projectDefinition: { name: "Fixture project", environment: "fixture" }, projectSavedAt: "2026-01-01T00:00:00.000Z",
+  };
+}
+
 export async function phase4QualityWorkspace(): Promise<Record<string, unknown>> {
   const fixture = await readFixture();
   const now = "2026-01-01T00:00:00.000Z";

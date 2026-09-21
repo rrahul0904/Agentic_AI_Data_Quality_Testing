@@ -12,6 +12,7 @@
     "verify:contracts": "node scripts/verify-phase3-contracts.mjs",
     "verify:fixtures": "node scripts/verify-phase4-fixtures.mjs",
     "verify:release": "node scripts/release-gate-browser.mjs",
+    "verify:build": "node scripts/verify-build-coherence.mjs",
     "measure:performance": "node scripts/measure-phase6-performance.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test --experimental-strip-types tests/*.test.ts"

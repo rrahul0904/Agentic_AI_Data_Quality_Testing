@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import type { ConnectionProfile, ConnectionTestResult, DiscoveredAsset, DiscoveryCategory, DiscoveryResult, OnboardingBootstrap, PipelineLayer, SelectedSourceTable } from "../../../lib/onboarding";
 import { validateConnectionProfile, validateDiscoveryEvidence } from "../../../lib/onboarding";
 import { projectSlug, resolveWorkspace, workspaceCookieHeaders, type WorkspaceScope } from "../../../lib/server-workspace";
+import { isPhase4Fixture, phase4OnboardingWorkspace } from "../../../lib/server-test-fixture";
 
 export const dynamic = "force-dynamic";
 
@@ -717,6 +718,7 @@ async function discoverProfile(profile: ConnectionProfile, sourceTable?: Selecte
 
 export async function GET(request: Request) {
   try {
+    if (isPhase4Fixture(request)) return Response.json(phase4OnboardingWorkspace(), { headers: { "Cache-Control": "no-store", "X-ADQ-Test-Fixture": "phase4" } });
     const scope = await resolveWorkspace(request);
     const projects = await ensureProjectStore(scope);
     const activeProject = projects.find((item) => item.id === scope.projectId) ?? projects[0];

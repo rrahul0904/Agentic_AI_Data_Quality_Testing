@@ -61,6 +61,11 @@ test("Phase 3 browser gate uses readiness, journeys, keyboard events, and layout
   assert.match(gate, /waitFor\(client/);
   assert.match(gate, /Input\.dispatchKeyEvent/);
   assert.match(gate, /Network\.setBlockedURLs/);
+  assert.match(gate, /Network\.responseReceived/);
+  assert.match(gate, /assetFailures/);
+  assert.match(gate, /ChunkLoadError/);
+  assert.match(gate, /Page\.reload/);
+  assert.match(gate, /Refresh direct \/actions route/);
   assert.match(gate, /horizontalOverflow/);
   assert.match(gate, /keyControlOverlaps/);
   assert.match(gate, /#selected-run/);
