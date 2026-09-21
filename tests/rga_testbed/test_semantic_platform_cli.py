@@ -735,6 +735,8 @@ def test_scale_test_runs_streaming_generation_and_duckdb_validation(tmp_path: Pa
         policies=30,
         seed=42,
         memory_limit="128MB",
+        parquet=True,
+        row_group_size=1000,
     )
     assert report["status"] == "PASS"
     assert report["policies"] == 30
@@ -744,6 +746,9 @@ def test_scale_test_runs_streaming_generation_and_duckdb_validation(tmp_path: Pa
     assert report["generation"]["peak_rss_mb"] > 0
     assert report["validation"]["status"] == "PASS"
     assert report["validation"]["engine"] == "duckdb_out_of_core"
+    assert report["parquet"]["status"] == "PASS"
+    assert report["parquet"]["format"] == "parquet"
+    assert report["parquet"]["counts"] == report["generation"]["entity_counts"]
     assert Path(report["report"]).exists()
     assert "does not certify 100M policies" in report["truth_boundary"]
 
