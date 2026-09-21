@@ -8,9 +8,9 @@ from pathlib import Path
 import yaml
 
 try:
-    from scripts.rga_testbed.semantic_contract import DEFAULT_CONTRACT, load_semantic_contract, semantic_view_fqn
+    from scripts.rga_testbed.semantic_contract import DEFAULT_CONTRACT, domain_guidance, load_semantic_contract, semantic_view_fqn
 except ModuleNotFoundError:
-    from semantic_contract import DEFAULT_CONTRACT, load_semantic_contract, semantic_view_fqn
+    from semantic_contract import DEFAULT_CONTRACT, domain_guidance, load_semantic_contract, semantic_view_fqn
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT = ROOT / "rga-snowflake-data-platform" / "semantic"
@@ -36,6 +36,7 @@ def _semantic_query(contract: dict, query: dict) -> str:
 
 def build_semantic_spec(database: str, contract_path: Path = DEFAULT_CONTRACT) -> dict:
     contract = load_semantic_contract(contract_path, database)
+    guidance = domain_guidance(contract)
     return {
         "name": contract["name"],
         "description": contract["description"],
@@ -43,7 +44,7 @@ def build_semantic_spec(database: str, contract_path: Path = DEFAULT_CONTRACT) -
         "tables": [
             {
                 "name": contract["table_alias"],
-                "description": "Monthly cedant and treaty performance at the governed contract grain.",
+                "description": guidance["dataset_description"],
                 "base_table": {
                     "database": contract["database"],
                     "schema": contract["mart_schema"],
