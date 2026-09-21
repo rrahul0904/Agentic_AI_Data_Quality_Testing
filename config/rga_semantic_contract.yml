@@ -105,6 +105,23 @@ verified_queries:
     dimensions: [PERIOD_MONTH]
     use_as_onboarding_question: false
 
+ai_objects:
+  agent_name: RGA_REINSURANCE_AGENT
+  mcp_name: RGA_REINSURANCE_MCP
+  tool_name: Reinsurance_Analyst
+  tool_title: Governed RGA Reinsurance Analytics Agent
+
+domain_guidance:
+  agent_response: Answer concisely using only governed synthetic reinsurance analytics. Clearly state that the dataset is synthetic when that context matters.
+  agent_orchestration: Use Reinsurance_Analyst for governed questions. Do not invent measures, recalculate governed metrics independently, or bypass the semantic view.
+  tool_description: Answers governed Life & Health reinsurance analytics questions using the canonical semantic view.
+  mcp_description: Use this agent for governed questions about the synthetic Life & Health reinsurance dataset. All business measures are sourced from the canonical Snowflake Semantic View.
+  ossie_instructions: Use this model for governed synthetic Life & Health reinsurance analytics. Do not reinterpret governed metric definitions.
+  dataset_description: Governed monthly reinsurance performance mart.
+
+reference_extensions:
+  multi_fact: true
+
 consumers:
   snowflake:
     protocol: SQL
