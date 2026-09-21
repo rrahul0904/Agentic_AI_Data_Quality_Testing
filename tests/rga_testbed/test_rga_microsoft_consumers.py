@@ -23,7 +23,8 @@ def test_microsoft_consumers_share_semantic_view_and_are_feature_gated(tmp_path:
     contract = module.build_contract("RGA_SYNTHETIC_TESTBED")
     assert contract["semantic_view"] == "RGA_SYNTHETIC_TESTBED.SEMANTIC.RGA_REINSURANCE_PERFORMANCE"
     assert contract["protocol"] == "XMLA"
-    assert contract["availability"] == "private_preview_feature_gate"
+    assert contract["availability"] == "account_entitlement_or_feature_gate_required"
+    assert "Detect endpoint availability" in contract["availability_policy"]
     assert contract["power_bi"]["required_connection_mode"] == "live"
     assert contract["excel"]["required_connection_mode"] == "live_xmla"
     assert contract["power_bi"]["must_not_reimplement"] == contract["excel"]["must_not_reimplement"]
@@ -39,8 +40,11 @@ def test_consumer_pack_does_not_claim_endpoint_is_enabled(tmp_path: Path):
     contract = json.loads((tmp_path / "consumer_contract.json").read_text(encoding="utf-8"))
     template = (tmp_path / "xmla_setup.template.sql").read_text(encoding="utf-8")
     checklist = (tmp_path / "PARITY_CHECKLIST.md").read_text(encoding="utf-8")
-    assert contract["availability"] == "private_preview_feature_gate"
+    assert contract["availability"] == "account_entitlement_or_feature_gate_required"
+    assert "Detect endpoint availability" in contract["availability_policy"]
     assert "FEATURE GATE" in template
+    assert "account" in checklist.lower()
+    assert "Power BI API evidence is valid only" in checklist
     assert "<XMLA_ENDPOINT_NAME>" in template
     assert "ADD SEMANTIC VIEW RGA_SYNTHETIC_TESTBED.SEMANTIC.RGA_REINSURANCE_PERFORMANCE" in template
     assert "Live Connection" in checklist
