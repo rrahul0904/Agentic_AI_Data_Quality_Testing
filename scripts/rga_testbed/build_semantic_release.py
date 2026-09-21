@@ -20,7 +20,7 @@ try:
     from scripts.rga_testbed import generate_parity_suite as parity_mod
     from scripts.rga_testbed import generate_semantic_view as semantic_mod
     from scripts.rga_testbed import report_interchange_compatibility as compatibility_mod
-    from scripts.rga_testbed.semantic_contract import DEFAULT_CONTRACT
+    from scripts.rga_testbed.semantic_contract import DEFAULT_CONTRACT, contract_slug, load_semantic_contract
 except ModuleNotFoundError:
     import classify_semantic_change as change_mod
     import compile_semantic_manifest as manifest_mod
@@ -33,7 +33,7 @@ except ModuleNotFoundError:
     import generate_parity_suite as parity_mod
     import generate_semantic_view as semantic_mod
     import report_interchange_compatibility as compatibility_mod
-    from semantic_contract import DEFAULT_CONTRACT
+    from semantic_contract import DEFAULT_CONTRACT, contract_slug, load_semantic_contract
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT = ROOT / "rga-snowflake-data-platform" / "release"
@@ -79,6 +79,7 @@ def build_release(
 ) -> dict:
     output.mkdir(parents=True, exist_ok=True)
 
+    contract = load_semantic_contract(contract_path, database)
     current_manifest = manifest_mod.build_manifest(contract_path, database)
     manifest_path = output / "manifest" / "semantic_manifest.json"
     manifest_mod.write_manifest(current_manifest, manifest_path)
@@ -103,20 +104,35 @@ def build_release(
     microsoft_mod.generate(output / "microsoft", database, contract_path)
     benchmark_mod.generate(output / "benchmarks", database, contract_path)
     parity_mod.generate(output / "parity", database, contract_path)
-    multi_fact_mod.generate(output / "multi_fact")
+    multi_fact_enabled = bool(
+        contract.get("reference_extensions", {}).get("multi_fact", False)
+    )
+    if multi_fact_enabled:
+        multi_fact_mod.generate(output / "multi_fact")
     acceleration_mod.generate(output / "acceleration", database, contract_path)
 
-    ossie_path = output / "interchange" / "rga_reinsurance_performance.ossie.yml"
+    ossie_path = output / "interchange" / f"{contract_slug(contract)}.ossie.yml"
     ossie_mod.generate(ossie_path, database, contract_path)
     compatibility = compatibility_mod.build_report(database, contract_path)
     compatibility_path = output / "interchange" / "ossie_compatibility.json"
     compatibility_path.write_text(json.dumps(compatibility, indent=2) + "\n", encoding="utf-8")
 
-    impacted = (
-        diff["impacted_artifacts"]
-        if diff is not None
-        else ["acceleration", "ai", "benchmark", "microsoft", "multi_fact", "ossie", "parity", "semantic_view"]
-    )
+    if diff is not None:
+        impacted = diff["impacted_artifacts"]
+        if not multi_fact_enabled:
+            impacted = [item for item in impacted if item != "multi_fact"]
+    else:
+        impacted = [
+            "acceleration",
+            "ai",
+            "benchmark",
+            "microsoft",
+            "ossie",
+            "parity",
+            "semantic_view",
+        ]
+        if multi_fact_enabled:
+            impacted.append("multi_fact")
     files = _generated_files(output)
     release = {
         "release_version": 1,
