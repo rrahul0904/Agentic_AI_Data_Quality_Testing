@@ -443,6 +443,7 @@ def optimize(
     dry_run: bool = False,
     include_query_text: bool = False,
     run_diagnostics: bool = False,
+    benchmark_reports: list[Path] | None = None,
 ) -> dict[str, Any]:
     manifest = workspace / "release" / "benchmarks" / "manifest.json"
     evidence_dir = workspace / "evidence"
@@ -450,7 +451,11 @@ def optimize(
     analysis_path = evidence_dir / "workload_analysis.json"
     experiments_path = evidence_dir / "optimization_experiments.sql"
     summary_path = evidence_dir / "optimization_analysis_summary.json"
-    reports = sorted(evidence_dir.glob("benchmark-c*-both.json"))
+    reports = sorted(
+        benchmark_reports
+        if benchmark_reports is not None
+        else evidence_dir.glob("benchmark-c*-both.json")
+    )
     database = None
     release_manifest = workspace / "release" / "release_manifest.json"
     if release_manifest.exists():
@@ -1986,6 +1991,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="RGA_SEMANTIC_BENCHMARK",
     )
     optimizer.add_argument("--include-query-text", action="store_true")
+    optimizer.add_argument(
+        "--report",
+        type=Path,
+        action="append",
+        help="Use only these benchmark evidence files instead of workspace globbing.",
+    )
     optimizer.add_argument("--run-diagnostics", action="store_true")
     optimizer.add_argument("--confirm", action="store_true")
     optimizer.add_argument("--dry-run", action="store_true")
@@ -2153,6 +2164,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 dry_run=args.dry_run,
                 include_query_text=args.include_query_text,
                 run_diagnostics=args.run_diagnostics,
+                benchmark_reports=args.report,
             )
             print(_json(result))
             return 0 if result["status"] in {"PASS", "DRY_RUN"} else 1
