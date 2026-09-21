@@ -34,6 +34,7 @@ SQL_DIR = f"{WORKSPACE}/snowflake"
 DBT_DIR = f"{WORKSPACE}/dbt"
 RELEASE_DIR = f"{WORKSPACE}/release"
 SEMANTIC_DIR = f"{RELEASE_DIR}/semantic"
+EVIDENCE_DIR = f"{WORKSPACE}/evidence"
 
 
 def semantic_deploy_enabled(**context):
@@ -44,14 +45,53 @@ def cdc_apply_enabled(**context):
     return bool(context["params"].get("apply_cdc", False))
 
 
+def performance_certification_enabled(**context):
+    params = context["params"]
+    return bool(
+        params.get("deploy_semantic_view", False)
+        and params.get("run_performance_certification", False)
+    )
+
+
+def optimization_enabled(**context):
+    params = context["params"]
+    if (
+        params.get("run_optimization_diagnostics", False)
+        and not params.get("analyze_optimization", False)
+    ):
+        raise ValueError(
+            "run_optimization_diagnostics requires analyze_optimization"
+        )
+    return bool(params.get("analyze_optimization", False))
+
+
 with DAG(
     dag_id="rga_synthetic_semantic_pipeline",
     start_date=datetime(2026, 1, 1),
     schedule=None,
     catchup=False,
     max_active_runs=1,
-    params={"preset": "tiny", "seed": 42, "deploy_semantic_view": False, "apply_cdc": False},
-    tags=["rga", "synthetic", "snowflake", "dbt", "semantic-view", "cdc"],
+    params={
+        "preset": "tiny",
+        "seed": 42,
+        "deploy_semantic_view": False,
+        "apply_cdc": False,
+        "run_performance_certification": False,
+        "certification_concurrency": "1,5,10,25,50",
+        "certification_iterations": 3,
+        "analyze_optimization": False,
+        "run_optimization_diagnostics": False,
+    },
+    tags=[
+        "rga",
+        "synthetic",
+        "snowflake",
+        "dbt",
+        "semantic-view",
+        "cdc",
+        "performance",
+        "optimization",
+    ],
 ) as dag:
     generate_data = BashOperator(
         task_id="generate_synthetic_data",
@@ -185,8 +225,48 @@ with DAG(
         ),
     )
 
+    performance_certification_gate = ShortCircuitOperator(
+        task_id="performance_certification_gate",
+        python_callable=performance_certification_enabled,
+    )
+
+    benchmark_sweep = BashOperator(
+        task_id="benchmark_concurrency_sweep",
+        bash_command=(
+            f"cd {REPO} && mkdir -p {EVIDENCE_DIR} && "
+            'for c in $(echo "{{ params.certification_concurrency }}" | tr "," " "); do '
+            f'semantic-platform benchmark --workspace {WORKSPACE} --mode both '
+            '--concurrency "$c" --iterations "{{ params.certification_iterations }}" '
+            '--confirm-live || exit $?; '
+            "done"
+        ),
+    )
+
+    optimization_gate = ShortCircuitOperator(
+        task_id="optimization_gate",
+        python_callable=optimization_enabled,
+    )
+
+    optimize_workload = BashOperator(
+        task_id="analyze_physical_optimization",
+        bash_command=(
+            f"cd {REPO} && "
+            'REPORT_ARGS=""; '
+            'for c in $(echo "{{ params.certification_concurrency }}" | tr "," " "); do '
+            f'REPORT_ARGS="$REPORT_ARGS --report {EVIDENCE_DIR}/benchmark-c[object Object]-both.json"; '
+            "done; "
+            f"semantic-platform optimize --workspace {WORKSPACE} "
+            '$REPORT_ARGS --confirm '
+            '{% if params.run_optimization_diagnostics %}'
+            '--run-diagnostics '
+            '{% endif %}'
+        ),
+    )
+
     generate_data >> validate_data >> generate_contracts >> bootstrap_snowflake >> load_raw >> dbt_build >> verify_semantic_view
     verify_semantic_view >> semantic_deploy_gate >> deploy_semantic_view
+    deploy_semantic_view >> performance_certification_gate >> benchmark_sweep
+    benchmark_sweep >> optimization_gate >> optimize_workload
     verify_semantic_view >> cdc_apply_gate >> capture_cdc_semantic_baseline >> apply_cdc
     apply_cdc >> dbt_rebuild_after_cdc >> verify_semantic_after_cdc >> validate_cdc_application >> validate_cdc_semantic_effects
 '''
