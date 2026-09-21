@@ -122,6 +122,10 @@ domain_guidance:
 reference_extensions:
   multi_fact: true
 
+benchmark:
+  name: rga_semantic_performance_benchmark
+  query_tag: RGA_SEMANTIC_BENCHMARK
+
 consumers:
   snowflake:
     protocol: SQL
