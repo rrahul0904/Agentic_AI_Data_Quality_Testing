@@ -75,6 +75,16 @@ def test_all_consumers_point_to_same_governed_object():
 
     assert ai["tool_resources"]["Reinsurance_Analyst"]["semantic_view"] == expected
     assert microsoft["semantic_view"] == expected
+    assert microsoft["availability"] == "account_entitlement_or_feature_gate_required"
+    assert "Detect endpoint availability" in microsoft["availability_policy"]
+    assert (
+        "execute_dax_queries_api_when_power_bi_semantic_model_supported"
+        in microsoft["power_bi"]["parity_evidence_paths"]
+    )
+    assert microsoft["excel"]["parity_evidence_paths"] == [
+        "governed_excel_xmla_client"
+    ]
+    assert "does not certify Excel" in microsoft["power_bi"]["api_evidence_note"]
     assert contract["consumers"]["ai"]["allow_unrestricted_sql"] is False
     assert contract["consumers"]["power_bi"]["duplicate_metric_logic_allowed"] is False
     assert contract["consumers"]["excel"]["duplicate_metric_logic_allowed"] is False
