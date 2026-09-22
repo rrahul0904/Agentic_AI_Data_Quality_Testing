@@ -92,6 +92,10 @@ function compactNarrative(value: string | undefined, fallback: string): string {
   return sentence.length > 360 ? `${sentence.slice(0, 357).trimEnd()}…` : sentence;
 }
 
+function isGenericEvidenceAnswer(value?: string): boolean {
+  return !value || /evidence collection completed with status|review the supporting facts/i.test(value);
+}
+
 function looksLikeExecutionRequest(value: string): boolean {
   return /^(run|execute|start|trigger|refresh|load|rerun|retry)\b/i.test(value.trim());
 }
@@ -114,12 +118,22 @@ function readableResult(response: AgentResponse): { headline: string; detail: st
   const status = latestRun?.status ?? result.status;
   const freshness = result.freshness ?? "";
   const targetName = dag?.dag_id ?? "the requested workflow";
+  const modelAnswer = isGenericEvidenceAnswer(response.answer) ? "" : response.answer;
+  const executionRequest = /^(can you\s+)?(run|execute|start|trigger|refresh|load|rerun|retry)\b/i.test(normalizedQuestion);
   const headline = dag
     ? `${targetName} is ${dag.is_paused ? "paused" : "active"}.`
-    : compactNarrative(response.question, `Evidence collection is ${humanStatus(result.status)}.`);
+    : modelAnswer
+      ? compactNarrative(modelAnswer, `Evidence collection is ${humanStatus(result.status)}.`)
+      : executionRequest
+        ? "This is an execution request, not an explanation request."
+        : `Evidence collection is ${humanStatus(result.status)}.`;
   const detail = dag && latestRun
     ? `Its latest recorded run is ${humanStatus(status).toLowerCase()}${latestRun.started_at ? `, starting ${formatDateTime(latestRun.started_at)}` : ""} (${formatDuration(latestRun.started_at, latestRun.ended_at)}).`
-    : compactNarrative(response.question, "The available connector evidence is summarized below.");
+    : modelAnswer
+      ? compactNarrative(modelAnswer, "The available connector evidence is summarized below.")
+      : executionRequest
+        ? "Ask AI does not submit jobs. Open Run jobs to preview, approve, and execute the requested dbt scope."
+        : "No model-generated explanation was returned. The available scoped evidence is summarized below.";
   const facts: Array<{ label: string; value: string; tone?: "good" | "warn" | "neutral" }> = [];
   if (dag) facts.push({ label: "Schedule", value: dag.timetable_description ?? dag.timetable_summary ?? "Not scheduled", tone: "neutral" });
   if (latestRun) facts.push({ label: "Latest run", value: `${humanStatus(status)}${latestRun.run_id ? ` · ${latestRun.run_id}` : ""}`, tone: status === "SUCCESS" ? "good" : status === "FAILED" ? "warn" : "neutral" });
@@ -233,7 +247,7 @@ export default function AgentPage() {
           <section><h3>Next action</h3><div className={styles.callout}><strong>{readable.nextAction}</strong></div></section>
           <details className={local.answerDetails}><summary>Technical details</summary><div className={local.detailContent}>
           <section><h3>Interpretation mode</h3><div className={styles.summaryRow}><span>{readable.mode}</span><strong>{readable.updated}</strong></div></section>
-          {response.answer && !/evidence collection completed with status/i.test(response.answer) && <section><h3>Full AI answer</h3><p className={styles.rawNarrative}>{response.answer}</p></section>}
+          {response.answer && !isGenericEvidenceAnswer(response.answer) && <section><h3>Full AI answer</h3><p className={styles.rawNarrative}>{response.answer}</p></section>}
           <section>
             <h3>Tools used</h3>
             <div className={styles.capabilityList}>{toolsUsed.length ? toolsUsed.map((item, index) =>

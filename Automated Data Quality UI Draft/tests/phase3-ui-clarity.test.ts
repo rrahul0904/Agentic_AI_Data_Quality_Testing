@@ -36,6 +36,8 @@ test("Ask AI keeps the concise answer primary and makes evidence and technical o
   assert.match(page, /<summary>Technical details<\/summary>/);
   assert.match(page, /aria-live="polite"/);
   assert.match(page, /role="alert"/);
+  assert.match(page, /This is an execution request, not an explanation request\./);
+  assert.doesNotMatch(page, /compactNarrative\(response\.question/);
 });
 
 test("Lineage keeps its graph before the secondary analysis details without changing existing page logic", async () => {
