@@ -10,3 +10,5 @@ The discovery page renders only assets from the active workflow scope. It never 
 When the saved state contains selected assets that do not belong to the active source table, the UI fails closed by excluding them from the current selection. Changing the active table clears current selections, analysis scope, and quality-plan scope while retaining historical evidence.
 
 The current discovery count is therefore the count for the active table, not the PostgreSQL catalog count and not the total of all historical discovery runs. The PostgreSQL catalog count is shown separately in the source-table chooser.
+
+Lineage uses the active source-table scope from the project workspace when opening. It does not default to the first saved table. In “Selected assets only” mode, an empty selection produces an empty graph; the complete accepted catalog is available only after choosing that scope explicitly.

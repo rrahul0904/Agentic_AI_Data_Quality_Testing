@@ -270,7 +270,8 @@ function ProjectDesignView({ defaultView = "roles", navActive = "design", contex
       setSelectedAssetIds(value.selectedAssets ?? []);
       const tables = value.selectedSourceTables?.length ? value.selectedSourceTables : value.selectedSourceTable ? [value.selectedSourceTable] : [];
       setSourceTables(tables);
-      if (tables[0]?.id) setTableFilter(tables[0].id);
+      const activeTableId = value.sourceTableScopeId || value.selectedSourceTable?.id;
+      setTableFilter(activeTableId && tables.some((table) => table.id === activeTableId) ? activeTableId : "all");
     }).catch(() => { setSelectedAssetIds([]); setSourceTables([]); });
     requestAnalysis().then((value) => {
       const workspace = value as unknown as ProjectAnalysisWorkspace;
@@ -280,7 +281,15 @@ function ProjectDesignView({ defaultView = "roles", navActive = "design", contex
       const storedReview = workspace.ai_review;
       const currentRunId = workspace.report?.run_id;
       setAiReview(storedReview && (!currentRunId || storedReview.analysis_run_id === currentRunId) ? storedReview : null);
-      setPipelineId(workspace.report?.pipelines?.[0]?.pipeline_id || "");
+      const sourceScopeId = workspace.report?.source_table_scope_id;
+      const sourceNodes = new Map((workspace.report?.graph.nodes ?? []).map((node) => [node.node_id, node]));
+      const scopedPipeline = sourceScopeId
+        ? workspace.report?.pipelines?.find((pipeline) => pipeline.root_asset_ids.some((id) => {
+          const root = sourceNodes.get(id);
+          return Boolean(root && nodeTableId(root) === sourceScopeId);
+        }))
+        : undefined;
+      setPipelineId(scopedPipeline?.pipeline_id || workspace.report?.pipelines?.[0]?.pipeline_id || "");
     }).catch((error: Error) => setNotice({ tone: "bad", text: error.message }));
   }, [defaultView]);
 
@@ -354,7 +363,7 @@ function ProjectDesignView({ defaultView = "roles", navActive = "design", contex
   const tableScopedPipelineNodes = tableFilter === "all" ? pipelineNodes : pipelineNodes.filter((node) => nodeBelongsToTable(node, tableFilter, sourceTables));
   const tableScopedNodeIds = new Set(tableScopedPipelineNodes.map((node) => node.node_id));
   const tableScopedPipelineEdges = tableFilter === "all" ? pipelineEdges : pipelineEdges.filter((edge) => tableScopedNodeIds.has(edge.source_asset_id) && tableScopedNodeIds.has(edge.target_asset_id));
-  const selectedPipelineNodes = mapScope === "selected" && selectedAssetIds.length > 0
+  const selectedPipelineNodes = mapScope === "selected"
     ? tableScopedPipelineNodes.filter((node) => selectedAssetIds.includes(assetIdentity(node)))
     : tableScopedPipelineNodes;
   const scopedNodeIds = new Set(selectedPipelineNodes.map((node) => node.node_id));

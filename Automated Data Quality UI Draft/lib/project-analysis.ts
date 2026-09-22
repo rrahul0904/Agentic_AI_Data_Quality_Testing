@@ -87,6 +87,7 @@ export type ProjectAnalysisReport = {
   run_id: string;
   project_id: string;
   environment: string;
+  source_table_scope_id?: string | null;
   status: string;
   created_at: string;
   graph: { nodes: AnalysisNode[]; edges: AnalysisEdge[]; node_types: Record<string, number>; edge_types: Record<string, number> };
