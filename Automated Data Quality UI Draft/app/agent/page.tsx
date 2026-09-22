@@ -50,7 +50,7 @@ type AgentResponse = {
   uncertainty?: string[];
   next_action?: string;
   evidence_links?: EvidenceLink[];
-  agent?: { status?: string; error?: string | Record<string, unknown>; provider?: string; model?: string | null; usage?: AgentUsage | null; latency_ms?: number | null };
+  agent?: { status?: string; failure_kind?: string; error?: string | Record<string, unknown>; provider?: string; model?: string | null; usage?: AgentUsage | null; latency_ms?: number | null; query_failures?: Array<Record<string, unknown>> };
   evidence?: { tools_used?: string[]; data_sources?: string[]; records?: EvidenceLink[]; scope?: Record<string, unknown>; mode?: string; timestamp?: string };
   tools_used?: string[];
   data_sources?: string[];
@@ -87,7 +87,11 @@ function humanStatus(value?: string | null): string {
   const status = String(value ?? "").toUpperCase();
   if (status === "VERIFIED_TOOL_RESPONSE" || status === "TOOL_EVIDENCE_ONLY") return "Evidence collected";
   if (status === "LIVE_RESPONSE") return "AI explanation completed";
-  if (status === "LIVE_ERROR") return "AI explanation unavailable";
+  if (status === "LIVE_PROVIDER_TIMEOUT") return "AI provider timed out";
+  if (status === "LIVE_QUERY_LIMIT_REACHED") return "Evidence-query limit reached";
+  if (status === "LIVE_CONNECTOR_FAILED") return "Evidence connector failed";
+  if (status === "LIVE_INVALID_ANSWER") return "AI returned no usable answer";
+  if (status === "LIVE_PROVIDER_ERROR" || status === "LIVE_ERROR") return "AI provider error";
   if (status === "SKIP_EXTERNAL") return "External provider not called";
   if (status === "CONNECTED") return "Connector reachable";
   if (status === "SUCCESS" || status === "COMPLETED" || status === "PASS" || status === "PASSED") return "Passed";
@@ -111,6 +115,36 @@ function agentErrorMessage(value?: string | Record<string, unknown>): string {
   if (typeof value === "string") return value;
   if (value && typeof value.message === "string") return value.message;
   return "The configured AI provider could not complete the request.";
+}
+
+function agentFailure(agent?: AgentResponse["agent"]): { heading: string; detail: string; nextAction: string } | null {
+  const kind = String(agent?.failure_kind ?? agent?.status ?? "").replace(/^LIVE_/, "").toUpperCase();
+  if (kind === "QUERY_LIMIT_REACHED") return {
+    heading: "AI stopped at the evidence-query limit",
+    detail: "It collected the allowed evidence but still requested another query. No answer was accepted.",
+    nextAction: "Ask a narrower question, or select one asset or run so the answer can be resolved within the limit.",
+  };
+  if (kind === "PROVIDER_TIMEOUT") return {
+    heading: "AI provider timed out",
+    detail: "The provider did not finish within the bounded request deadline. Collected evidence is still available.",
+    nextAction: "Retry the same scoped question. If it repeats, inspect provider latency and timeout settings.",
+  };
+  if (kind === "CONNECTOR_FAILED") return {
+    heading: "Evidence connector failed",
+    detail: "The AI could not complete its answer because one or more requested evidence queries failed.",
+    nextAction: "Open the failed evidence, resolve that connector issue, then retry the same scoped question.",
+  };
+  if (kind === "INVALID_ANSWER") return {
+    heading: "AI returned no usable answer",
+    detail: "The provider completed the request without a valid final response. Collected evidence is still available.",
+    nextAction: "Retry the same scoped question. If it repeats, inspect the provider response details.",
+  };
+  if (kind === "PROVIDER_ERROR" || kind === "ERROR") return {
+    heading: "AI provider could not complete the request",
+    detail: "Collected evidence is still available, but no AI answer was accepted.",
+    nextAction: "Retry the same scoped question. If it repeats, inspect the provider error details.",
+  };
+  return null;
 }
 
 function compactNarrative(value: string | undefined, fallback: string): string {
@@ -176,7 +210,7 @@ function readableResult(response: AgentResponse): { headline: string; detail: st
   const agentOutcome = String(response.agent?.status ?? "").toUpperCase();
   const liveExplanation = agentOutcome === "LIVE_RESPONSE" && Boolean(modelAnswer);
   const directAnswer = liveExplanation ? "" : modelAnswer;
-  const providerUnavailable = agentOutcome === "LIVE_ERROR" || Boolean(response.agent?.error);
+  const failure = agentFailure(response.agent);
   const evidenceOnly = ["VERIFIED_TOOL_RESPONSE", "TOOL_EVIDENCE_ONLY"].includes(agentOutcome)
     || String(response.evidence?.mode ?? "").toLowerCase() === "evidence_only";
   const executionRequest = result.request_type === "execution"
@@ -189,8 +223,8 @@ function readableResult(response: AgentResponse): { headline: string; detail: st
       ? "AI explanation completed."
       : directAnswer
         ? "Evidence collected."
-      : providerUnavailable
-        ? "AI explanation is unavailable right now."
+      : failure
+        ? failure.heading
       : evidenceOnly
         ? "Evidence was collected; AI review was not run."
         : `Evidence collection is ${humanStatus(result.status)}.`;
@@ -202,8 +236,8 @@ function readableResult(response: AgentResponse): { headline: string; detail: st
       ? compactNarrative(modelAnswer, "The available connector evidence is summarized below.")
       : directAnswer
         ? directAnswer
-      : providerUnavailable
-        ? "The live AI provider could not complete this request. Deterministic evidence is shown below, but it is not an AI explanation."
+      : failure
+        ? failure.detail
       : evidenceOnly
         ? "The selected connectors returned scoped evidence. No model-generated explanation was produced for this request."
         : "No model-generated explanation was returned. The available scoped evidence is summarized below.";
@@ -222,6 +256,8 @@ function readableResult(response: AgentResponse): { headline: string; detail: st
   if (freshness.toUpperCase() === "STALE") unknowns.push(`The runtime snapshot may be stale. Last refresh: ${formatDateTime(result.last_refreshed)}.`);
   const nextAction = executionRequest
     ? "Open Run jobs, select one exact operation, then preview and approve the resulting plan."
+    : failure
+      ? failure.nextAction
     : directAnswer
       ? response.next_action ?? "Use the exact operation name in Run jobs if you want to prepare an execution request."
     : evidenceOnly
@@ -318,7 +354,7 @@ export default function AgentPage() {
           </button>
         </div>
         {response?.error && <div className={styles.dangerStrip} role="alert">{response.error}</div>}
-        {response?.agent?.error && <div className={styles.dangerStrip} role="alert">Live agent unavailable: {agentErrorMessage(response.agent.error)}</div>}
+        {response?.agent?.error && <div className={styles.dangerStrip} role="alert">{agentFailure(response.agent)?.heading ?? "AI provider error"}: {agentErrorMessage(response.agent.error)}</div>}
         {response && !response.error && readable && <div className={styles.sectionStack} aria-live="polite">
           <h3>Answer</h3>
           <section className={styles.answerCard}>

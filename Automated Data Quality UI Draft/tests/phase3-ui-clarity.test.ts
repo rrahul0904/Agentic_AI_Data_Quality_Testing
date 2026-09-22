@@ -46,9 +46,10 @@ test("Ask AI keeps the concise answer primary and makes evidence and technical o
   assert.match(page, /aria-live="polite"/);
   assert.match(page, /role="alert"/);
   assert.match(page, /This is an execution request, not an explanation request\./);
-  assert.match(page, /AI explanation is unavailable right now\./);
-  assert.match(page, /Deterministic evidence is shown below, but it is not an AI explanation\./);
-  assert.match(page, /Evidence-only fallback \(AI unavailable\)/);
+  assert.match(page, /AI stopped at the evidence-query limit/);
+  assert.match(page, /AI provider timed out/);
+  assert.match(page, /Evidence connector failed/);
+  assert.match(page, /AI returned no usable answer/);
   assert.match(page, /AI explanation completed\./);
   assert.match(page, /const liveExplanation = agentOutcome === "LIVE_RESPONSE" && Boolean\(modelAnswer\);/);
   assert.match(page, /const directAnswer = liveExplanation \? "" : modelAnswer;/);
