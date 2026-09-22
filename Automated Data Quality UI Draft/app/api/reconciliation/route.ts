@@ -44,24 +44,31 @@ async function savedCatalog(scope: WorkspaceScope, connectionId: string): Promis
     const profile = connections.find((item) => item.id === connectionId) ?? {};
     const config = profile.config && typeof profile.config === "object" ? profile.config as Record<string, unknown> : {};
     const discoveries = workflow.discoveries && typeof workflow.discoveries === "object" ? workflow.discoveries as Record<string, unknown> : {};
-    const discovery = discoveries[connectionId] && typeof discoveries[connectionId] === "object" ? discoveries[connectionId] as Record<string, unknown> : {};
-    const assets = Array.isArray(discovery.assets) ? discovery.assets : [];
-    const items = assets.flatMap((asset) => {
-      if (!asset || typeof asset !== "object") return [];
-      const value = asset as Record<string, unknown>;
-      const schema = String(value.schema ?? "");
-      const table = String(value.name ?? "");
-      const assetType = String(value.type ?? "").toLowerCase();
-      if (!schema || !table || !["table", "base table"].includes(assetType)) return [];
-      const children = Array.isArray(value.children) ? value.children.flatMap((child) => {
-        if (!child || typeof child !== "object") return [];
-        const name = (child as Record<string, unknown>).name;
-        return name ? [String(name)] : [];
-      }) : [];
-      const assetDatabase = String(config.database ?? config.catalog ?? value.catalog ?? "");
-      return [{ database: assetDatabase, schema, table, label: `${assetDatabase ? `${assetDatabase}.` : ""}${schema}.${table}`, columns: children }];
+    const discoveriesByTable = workflow.discoveriesByTable && typeof workflow.discoveriesByTable === "object" ? workflow.discoveriesByTable as Record<string, unknown> : {};
+    const discoveryGroups = [
+      discoveries[connectionId],
+      ...Object.values(discoveriesByTable).flatMap((group) => group && typeof group === "object" ? [(group as Record<string, unknown>)[connectionId]] : []),
+    ].filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && String((item as Record<string, unknown>).status ?? "PASS").toUpperCase() === "PASS"));
+    const items = discoveryGroups.flatMap((discovery) => {
+      const assets = Array.isArray(discovery.assets) ? discovery.assets : [];
+      return assets.flatMap((asset) => {
+        if (!asset || typeof asset !== "object") return [];
+        const value = asset as Record<string, unknown>;
+        const schema = String(value.schema ?? "");
+        const table = String(value.name ?? "");
+        const assetType = String(value.type ?? "").toLowerCase();
+        if (!schema || !table || !["table", "base table"].includes(assetType)) return [];
+        const children = Array.isArray(value.children) ? value.children.flatMap((child) => {
+          if (!child || typeof child !== "object") return [];
+          const name = (child as Record<string, unknown>).name;
+          return name ? [String(name)] : [];
+        }) : [];
+        const assetDatabase = String(config.database ?? config.catalog ?? value.catalog ?? "");
+        return [{ database: assetDatabase, schema, table, label: `${assetDatabase ? `${assetDatabase}.` : ""}${schema}.${table}`, columns: children }];
+      });
     });
-    return { database: String(config.database ?? config.catalog ?? items[0]?.database ?? ""), schema: String(config.schema ?? config.schemas ?? ""), items };
+    const uniqueItems = [...new Map(items.map((item) => [item.label, item])).values()];
+    return { database: String(config.database ?? config.catalog ?? uniqueItems[0]?.database ?? ""), schema: String(config.schema ?? config.schemas ?? ""), items: uniqueItems };
   } catch {
     return { database: "", schema: "", items: [] };
   }

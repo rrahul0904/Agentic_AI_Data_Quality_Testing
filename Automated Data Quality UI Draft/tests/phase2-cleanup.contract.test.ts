@@ -59,6 +59,8 @@ test("cleared reconciliation and overview views cannot source current state from
     readFile(path.join(root, "app/page.tsx"), "utf8"),
   ]);
   assert.doesNotMatch(reconciliationRoute, /onboarding-state\.json|onboarding-connections\.json/);
+  assert.match(reconciliationRoute, /discoveriesByTable/);
+  assert.match(reconciliationRoute, /uniqueItems/);
   assert.doesNotMatch(reconciliationPage, /connectionStatus\?\.source, "CONNECTED"|connectionStatus\?\.target, "CONNECTED"/);
   assert.doesNotMatch(overview, /ade-operations-summary:|ade-operations:/);
 });
