@@ -55,10 +55,10 @@ used `data-quality-testing-beta` / `development` and persisted read-only state.
 
 - This is repository/local verification only. No live provider execution was
   attempted, so external execution remains unverified.
-- The currently running process on port 3020 was an older production process
-  with mismatched chunks; the isolated rebuilt process on port 3040 passed the
-  asset and browser gates. Port 3020 must be restarted from the canonical
-  production build before a demo.
+- The initial process on port 3020 was an older production process with
+  mismatched chunks. It was restarted from the rebuilt canonical production
+  directory after verification; the post-restart build-coherence check on port
+  3020 passed with build ID `MCo9teQyfKsKiQ6xNtI87`.
 - The populated fixture intentionally has no connection-profile fixture; the
   working-project Connections journey was checked read-only. A separate
   connection-table fixture would be needed for a fully isolated populated
