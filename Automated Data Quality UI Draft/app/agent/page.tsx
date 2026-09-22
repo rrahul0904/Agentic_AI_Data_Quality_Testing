@@ -193,7 +193,7 @@ function readableResult(response: AgentResponse): { headline: string; detail: st
 
 export default function AgentPage() {
   const [agentStatus, setAgentStatus] = useState<Record<string, unknown>>({});
-  const [question, setQuestion] = useState("What is the current quality status and which evidence supports it?");
+  const [question, setQuestion] = useState("");
   const [response, setResponse] = useState<AgentResponse | null>(null);
   const [projectId, setProjectId] = useState("data-quality-testing-beta");
   const [environment, setEnvironment] = useState("development");
@@ -261,7 +261,7 @@ export default function AgentPage() {
         </div>
         <label className={[styles.field, styles.wide].join(" ")}>
           Question
-          <textarea value={question} onChange={(event) => setQuestion(event.target.value)} />
+          <textarea value={question} placeholder="Ask a question about this project, selected asset, or run" onChange={(event) => setQuestion(event.target.value)} />
         </label>
         {executionRequest && <div className={styles.executionNotice} role="status"><div><strong>Execution request detected</strong><p>Ask AI can explain the request, but it will not run a job from this page. Review scope, dependencies, and approval in Run jobs.</p></div><a href={scopedApiUrl("/actions")}>Open Run jobs →</a></div>}
         <div className={styles.toolbar}>
