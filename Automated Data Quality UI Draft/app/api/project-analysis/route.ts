@@ -100,7 +100,9 @@ export async function GET(request: Request) {
     if (!currentState.sourceTableScopeId) {
       return Response.json({ report: null, capabilities: { status: "NO_ACTIVE_SCOPE" }, decisions: [], workspace: scope }, { headers: { "Cache-Control": "no-store" } });
     }
-    const query = workspaceQuery(scope);
+    const scopedQuery = new URLSearchParams(workspaceQuery(scope));
+    scopedQuery.set("source_table_scope_id", currentState.sourceTableScopeId);
+    const query = scopedQuery.toString();
     const capabilities = await backend("/api/v1/project-analysis/capabilities");
     if (!(await hasCurrentWorkspaceAnalysis(scope))) {
       return Response.json({ report: null, capabilities, decisions: [], workspace: scope }, { headers: { "Cache-Control": "no-store" } });
@@ -120,12 +122,13 @@ export async function POST(request: Request) {
   try {
     const scope = await resolveWorkspace(request);
     const body = await request.json() as { action?: string; scope?: string; review?: Record<string, unknown> };
+    const currentState = await currentWorkspaceState(scope);
     if (body.action === "analyze") {
       const discoverySnapshot = await acceptedDiscoverySnapshot(scope);
       const report = await backend("/api/v1/project-analysis/analyze", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ project_id: scope.projectId, environment: scope.environment, discovery_snapshot: discoverySnapshot }),
+        body: JSON.stringify({ project_id: scope.projectId, environment: scope.environment, source_table_scope_id: currentState.sourceTableScopeId || undefined, discovery_snapshot: discoverySnapshot }),
       }, 120000);
       await markCurrentWorkspaceStage(scope, "analysisScopeId");
       return Response.json({ report });
@@ -135,7 +138,7 @@ export async function POST(request: Request) {
       const value = await backend("/api/v1/project-analysis/refresh", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ project_id: scope.projectId, environment: scope.environment, discovery_snapshot: discoverySnapshot }),
+        body: JSON.stringify({ project_id: scope.projectId, environment: scope.environment, source_table_scope_id: currentState.sourceTableScopeId || undefined, discovery_snapshot: discoverySnapshot }),
       }, 120000);
       await markCurrentWorkspaceStage(scope, "analysisScopeId");
       return Response.json(value);

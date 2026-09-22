@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import styles from "./workflow.module.css";
-import { scopedLink } from "../lib/client-workspace";
+import { scopedApiUrl, scopedLink } from "../lib/client-workspace";
 
 type DraftShellProps = {
   active: "operations" | "register" | "plan" | "design" | "map" | "reconciliation" | "monitoring" | "actions" | "incidents" | "investigations" | "agent";
@@ -35,7 +35,7 @@ export default function DraftShell({ active, planView, children }: DraftShellPro
     let activeRequest = true;
     setMounted(true);
     setCurrentPath(`${window.location.pathname}${window.location.search}`);
-    void fetch("/api/workspace", { cache: "no-store" })
+    void fetch(scopedApiUrl("/api/workspace"), { cache: "no-store" })
       .then((response) => response.ok ? response.json() : Promise.reject(new Error("workspace unavailable")))
       .then((value: { name: string; environment: string }) => { if (activeRequest) setWorkspace(value); })
       .catch(() => { /* The shell remains usable while project setup is incomplete. */ });

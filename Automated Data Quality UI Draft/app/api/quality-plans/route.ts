@@ -20,7 +20,9 @@ export async function GET(request: Request) {
     if (!currentState.sourceTableScopeId) {
       return Response.json({ plan: null, capabilities: { status: "NO_ACTIVE_SCOPE" }, runs: [], revisions: [], schedules: [], requests: [], automationCapabilities: { status: "NO_ACTIVE_SCOPE" }, workspace: scope }, { headers: { "Cache-Control": "no-store" } });
     }
-    const project = workspaceQuery(scope);
+    const scopedQuery = new URLSearchParams(workspaceQuery(scope));
+    scopedQuery.set("source_table_scope_id", currentState.sourceTableScopeId);
+    const project = scopedQuery.toString();
     const incoming = new URL(request.url).searchParams;
     const runPage = Math.max(1, Number(incoming.get("run_page") ?? "1") || 1);
     const runPageSize = Math.max(1, Math.min(100, Number(incoming.get("run_page_size") ?? "10") || 10));
@@ -67,6 +69,7 @@ export async function POST(request: Request) {
   try {
     const scope = await resolveWorkspace(request);
     const body = await request.json() as Record<string, unknown>;
+    const currentState = await currentWorkspaceState(scope);
     const action = String(body.action || "");
     if (action === "generate") {
       if (!(await hasCurrentWorkspaceAnalysis(scope))) {
@@ -74,7 +77,7 @@ export async function POST(request: Request) {
       }
       const plan = await backend("/api/v1/quality-plans/generate", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ project_id: scope.projectId, environment: scope.environment }),
+        body: JSON.stringify({ project_id: scope.projectId, environment: scope.environment, source_table_scope_id: currentState.sourceTableScopeId || undefined }),
       }, 120000);
       await markCurrentWorkspaceStage(scope, "qualityPlanScopeId");
       return Response.json({ plan, runs: [] });

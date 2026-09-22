@@ -9,6 +9,7 @@ import ScopedLink from "../components/ScopedLink";
 import { scopedApiUrl } from "../../lib/client-workspace";
 import { currentWorkspaceParams } from "../../lib/client-workspace";
 import { monitoringStatusLabel as statusLabel, safeDisplayError as errorMessage } from "../../lib/ui-contracts";
+import { clearMonitoringSelection, monitoringSelectedRunKey, monitoringScopeKey, readMonitoringFilters, rememberedMonitoringRun, type MonitoringScope } from "../../lib/monitoring-state";
 import local from "./monitoring.module.css";
 
 type Job = Record<string, unknown>;
@@ -17,6 +18,12 @@ type RecoveryAction = { action: string; label: string; impact: string; required_
 type RecoveryItem = { work?: Job; run?: Job; plan?: Job; recovery_actions?: RecoveryAction[] };
 type RecoveryFeed = { items?: RecoveryItem[]; error?: unknown };
 type RunDetail = Job & { error?: unknown; load_error?: unknown };
+function scopeFromRecord(value: Job): MonitoringScope | null {
+  const plan = value.plan && typeof value.plan === "object" ? value.plan as Job : {};
+  const projectId = rawId(value.project_id ?? plan.project_id);
+  const environment = rawId(value.environment ?? plan.environment);
+  return projectId && environment ? { projectId, environment } : null;
+}
 
 function text(value: unknown, fallback = "—"): string { return value === null || value === undefined || value === "" ? fallback : String(value).replaceAll("_", " "); }
 function date(value: unknown): string { if (!value) return "Not observed"; const parsed = new Date(String(value)); return Number.isNaN(parsed.getTime()) ? "Not observed" : parsed.toLocaleString([], { dateStyle: "medium", timeStyle: "short" }); }
@@ -51,50 +58,79 @@ export default function MonitoringPage() {
   const [detailBusy, setDetailBusy] = useState(false);
   const [recovery, setRecovery] = useState<RecoveryFeed>({});
   const [expandedSequence, setExpandedSequence] = useState<string | null>(null);
+  const [scopeReady, setScopeReady] = useState(false);
+  const [scopeError, setScopeError] = useState("");
   const detailOpener = useRef<HTMLElement | null>(null);
+  const restoredScopeRef = useRef("");
 
   useEffect(() => {
+    let active = true;
     const params = currentWorkspaceParams();
-    const saved = window.localStorage.getItem("ade-monitoring-filters");
-    let persisted: Record<string, string> = {};
-    if (saved) {
-      try { persisted = JSON.parse(saved) as Record<string, string>; } catch { window.localStorage.removeItem("ade-monitoring-filters"); }
-    }
-    setProjectId(params.get("project_id") || persisted.projectId || "data-quality-testing-beta");
-    setEnvironment(params.get("environment") || persisted.environment || "development");
-    setStatus(persisted.status || ""); setTechnology(persisted.technology || ""); setAsset(persisted.asset || "");
-    setSince(persisted.since || ""); setUntil(persisted.until || ""); setPage(Number(persisted.page || 1));
-    const selected = window.localStorage.getItem(`ade-monitoring-selected-run:${params.get("project_id") || persisted.projectId || "data-quality-testing-beta"}:${params.get("environment") || persisted.environment || "development"}`);
-    if (selected) setRestoredRunId(selected);
+    const requested = { projectId: params.get("project_id") || "", environment: params.get("environment") || "" };
+    void fetch(scopedApiUrl("/api/workspace"), { cache: "no-store", signal: AbortSignal.timeout(5000) })
+      .then((response) => response.ok ? response.json() as Promise<{ projectId?: string; environment?: string }> : Promise.reject(new Error("Current project scope is unavailable")))
+      .then((workspace) => {
+        if (!active) return;
+        const scope = { projectId: requested.projectId || workspace.projectId || "", environment: requested.environment || workspace.environment || "" };
+        if (!scope.projectId || !scope.environment) throw new Error("Select a project and environment before viewing monitoring history");
+        const persisted = readMonitoringFilters(window.localStorage, scope);
+        setProjectId(scope.projectId); setEnvironment(scope.environment);
+        setStatus(persisted.status); setTechnology(persisted.technology); setAsset(persisted.asset);
+        setSince(persisted.since); setUntil(persisted.until); setPage(persisted.page);
+        setRestoredRunId(rememberedMonitoringRun(window.localStorage, scope));
+        setScopeError(""); setScopeReady(true);
+      })
+      .catch((error) => { if (active) { setScopeError(error instanceof Error ? error.message : "Current project scope is unavailable"); setScopeReady(false); } });
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
-    if (!projectId && !environment) return;
-    window.localStorage.setItem("ade-monitoring-filters", JSON.stringify({ projectId, environment, status, technology, asset, since, until, page }));
-  }, [projectId, environment, status, technology, asset, since, until, page]);
+    if (!scopeReady || !projectId || !environment) return;
+    try { window.localStorage.setItem(`ade-monitoring-filters:${monitoringScopeKey({ projectId, environment })}`, JSON.stringify({ status, technology, asset, since, until, page })); } catch { /* Storage is optional. */ }
+  }, [scopeReady, projectId, environment, status, technology, asset, since, until, page]);
+
+  const changeScope = (nextProjectId: string, nextEnvironment: string) => {
+    const previous = { projectId, environment };
+    if (previous.projectId === nextProjectId && previous.environment === nextEnvironment) return;
+    clearMonitoringSelection(window.localStorage, previous);
+    restoredScopeRef.current = "";
+    setDetail(null); setRestoredRunId(""); setExpandedSequence(null); setFeed({}); setRecovery({}); setPage(1);
+    setProjectId(nextProjectId); setEnvironment(nextEnvironment);
+    const next = new URL(window.location.href);
+    if (nextProjectId) next.searchParams.set("project_id", nextProjectId); else next.searchParams.delete("project_id");
+    if (nextEnvironment) next.searchParams.set("environment", nextEnvironment); else next.searchParams.delete("environment");
+    window.history.replaceState({}, "", next.toString());
+  };
 
   async function selectRun(runId: string) {
     if (!runId) return;
     setDetailBusy(true);
-    window.localStorage.setItem(`ade-monitoring-selected-run:${projectId}:${environment}`, runId);
     try {
-      const workspace = currentWorkspaceParams();
       const query = new URLSearchParams({
-        project_id: projectId || workspace.get("project_id") || "data-quality-testing-beta",
-        environment: environment || workspace.get("environment") || "development",
+        project_id: projectId,
+        environment,
       });
       const response = await fetch(scopedApiUrl(`/api/monitoring/runs/${encodeURIComponent(runId)}?${query}`), { cache: "no-store", signal: AbortSignal.timeout(5000) });
       const value = await response.json() as RunDetail;
       if (!response.ok) throw new Error(errorMessage(value.error ?? value, "The selected run is unavailable"));
       if (!value.run_id && (value.error !== undefined || value.message !== undefined || value.error_type !== undefined)) {
-        setDetail({ run_id: runId, load_error: errorMessage(value.error ?? value, "The selected run is unavailable") });
+        throw new Error(errorMessage(value.error ?? value, "The selected run is unavailable"));
       } else {
         // A persisted failed run may legitimately contain an `error` outcome. Keep
         // the run detail available so its execution, verification, and evidence
         // states remain inspectable instead of treating the outcome as a load error.
+        const recordScope = scopeFromRecord(value);
+        if (recordScope && (recordScope.projectId !== projectId || recordScope.environment !== environment)) {
+          throw new Error("The selected run belongs to a different project or environment");
+        }
         setDetail(value);
+        try { window.localStorage.setItem(monitoringSelectedRunKey({ projectId, environment }), runId); } catch { /* Storage is optional. */ }
       }
-    } catch (error) { setDetail({ run_id: runId, load_error: error instanceof Error ? error.message : "The selected run is unavailable" }); }
+    } catch (error) {
+      clearMonitoringSelection(window.localStorage, { projectId, environment });
+      setRestoredRunId("");
+      setDetail({ run_id: runId, load_error: error instanceof Error ? error.message : "The selected run is unavailable" });
+    }
     finally { setDetailBusy(false); }
   }
 
@@ -102,7 +138,7 @@ export default function MonitoringPage() {
     if (!runId) return;
     setBusy(true);
     try {
-      const response = await fetch(`/api/monitoring/runs/${encodeURIComponent(runId)}/${encodeURIComponent(operation)}`, {
+      const response = await fetch(scopedApiUrl(`/api/monitoring/runs/${encodeURIComponent(runId)}/${encodeURIComponent(operation)}`), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: "{}",
@@ -142,8 +178,14 @@ export default function MonitoringPage() {
     finally { setBusy(false); }
   };
 
-  useEffect(() => { if (projectId && environment) void load(page); }, [projectId, environment]);
-  useEffect(() => { if (projectId && environment && restoredRunId) void selectRun(restoredRunId); }, [projectId, environment, restoredRunId]);
+  useEffect(() => { if (scopeReady && projectId && environment) void load(page); }, [scopeReady, projectId, environment]);
+  useEffect(() => {
+    const scope = { projectId, environment };
+    const marker = `${monitoringScopeKey(scope)}:${restoredRunId}`;
+    if (!scopeReady || !restoredRunId || !feed.workspace?.projectId || restoredScopeRef.current === marker) return;
+    restoredScopeRef.current = marker;
+    void selectRun(restoredRunId);
+  }, [scopeReady, projectId, environment, restoredRunId, feed.workspace?.projectId]);
   const jobs = Array.isArray(feed.items) ? feed.items : [];
   const groups = useMemo(() => {
     const grouped = new Map<string, Job[]>();
@@ -153,20 +195,22 @@ export default function MonitoringPage() {
 
   const closeDetails = () => {
     setDetail(null); setRestoredRunId("");
-    window.localStorage.removeItem(`ade-monitoring-selected-run:${projectId}:${environment}`);
+    clearMonitoringSelection(window.localStorage, { projectId, environment });
     window.setTimeout(() => detailOpener.current?.focus(), 0);
   };
 
   return <DraftShell active="monitoring">
-    <PageHeader eyebrow="AUTOMATED DATA QUALITY / MONITORING" title="Monitoring" description="Follow each approved job from submission through execution and data-quality verification." status={<span className={styles.draftBadge}>{feed.total ?? 0} JOBS</span>} actions={<button className={styles.secondary} disabled={busy} aria-busy={busy} onClick={() => void load()}>{busy ? "Refreshing…" : "Refresh"}</button>} />
+    <PageHeader eyebrow="AUTOMATED DATA QUALITY / MONITORING" title="Monitoring" description="Review persisted job history for the active project and environment. Current adapter state is not inferred from an old run." status={<span className={styles.draftBadge}>{scopeReady ? `${feed.total ?? 0} PERSISTED JOBS` : "SCOPE UNAVAILABLE"}</span>} actions={<button className={styles.secondary} disabled={busy || !scopeReady} aria-busy={busy} onClick={() => void load()}>{busy ? "Refreshing…" : "Refresh"}</button>} />
     <section className={styles.panel}>
       <header className={styles.panelHead}><div><h2>Job monitor</h2><p>Execution success and data-quality success are separate outcomes. Reading this page never starts a job.</p></div><ScopedLink className={`${styles.secondary} ${styles.linkButton}`} href="/actions">Create run plan</ScopedLink></header>
-      <div className={styles.attentionToolbar}><label className={styles.field}>Project<input value={projectId} disabled={Boolean(feed.workspace?.scopeLocked)} onChange={(event) => { setProjectId(event.target.value); setPage(1); }} /></label><label className={styles.field}>Environment<select value={environment} disabled={Boolean(feed.workspace?.scopeLocked)} onChange={(event) => { setEnvironment(event.target.value); setPage(1); }}><option value="development">Development</option><option value="production">Production</option><option value="staging">Staging</option></select></label><label className={styles.field}>Status<select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="">All statuses</option><option value="QUEUED">Queued</option><option value="SUBMITTING">Submitting</option><option value="MONITORING">Monitoring</option><option value="VERIFYING">Verifying</option><option value="COMPLETED">Completed</option><option value="FAILED">Failed</option><option value="UNCERTAIN">Uncertain</option><option value="BLOCKED">Blocked</option></select></label><label className={styles.field}>Technology<input value={technology} placeholder="Airflow, dbt, Snowflake" onChange={(event) => { setTechnology(event.target.value); setPage(1); }} /></label><label className={styles.field}>Asset<input value={asset} placeholder="table, DAG, model" onChange={(event) => { setAsset(event.target.value); setPage(1); }} /></label><label className={styles.field}>From<input type="datetime-local" value={since} onChange={(event) => { setSince(event.target.value); setPage(1); }} /></label><label className={styles.field}>To<input type="datetime-local" value={until} onChange={(event) => { setUntil(event.target.value); setPage(1); }} /></label><button className={styles.primary} disabled={busy} onClick={() => void load(1)}>Apply filters</button></div>
+      {scopeError && <ErrorState title="Current project scope unavailable">{scopeError}</ErrorState>}
+      {!scopeReady && !scopeError && <div className={styles.infoStrip} role="status"><span>i</span><div><strong>Loading current project scope</strong><p>Monitoring history will appear after the browser context is confirmed.</p></div></div>}
+      <div className={styles.attentionToolbar}><label className={styles.field}>Project<input value={projectId} disabled={!scopeReady || Boolean(feed.workspace?.scopeLocked)} onChange={(event) => changeScope(event.target.value, environment)} /></label><label className={styles.field}>Environment<select value={environment} disabled={!scopeReady || Boolean(feed.workspace?.scopeLocked)} onChange={(event) => changeScope(projectId, event.target.value)}><option value="">Select environment</option><option value="development">Development</option><option value="production">Production</option><option value="staging">Staging</option></select></label><label className={styles.field}>Status<select value={status} disabled={!scopeReady} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="">All statuses</option><option value="QUEUED">Queued</option><option value="SUBMITTING">Submitting</option><option value="MONITORING">Monitoring</option><option value="VERIFYING">Verifying</option><option value="COMPLETED">Completed</option><option value="FAILED">Failed</option><option value="UNCERTAIN">Uncertain</option><option value="BLOCKED">Blocked</option></select></label><label className={styles.field}>Technology<input value={technology} disabled={!scopeReady} placeholder="Airflow, dbt, Snowflake" onChange={(event) => { setTechnology(event.target.value); setPage(1); }} /></label><label className={styles.field}>Asset<input value={asset} disabled={!scopeReady} placeholder="table, DAG, model" onChange={(event) => { setAsset(event.target.value); setPage(1); }} /></label><label className={styles.field}>From<input type="datetime-local" value={since} disabled={!scopeReady} onChange={(event) => { setSince(event.target.value); setPage(1); }} /></label><label className={styles.field}>To<input type="datetime-local" value={until} disabled={!scopeReady} onChange={(event) => { setUntil(event.target.value); setPage(1); }} /></label><button className={styles.primary} disabled={busy || !scopeReady} onClick={() => void load(1)}>Apply filters</button></div>
       <div className={styles.stateLegend} aria-label="Monitoring outcome legend"><span className={styles.statusGood}><i />Execution and verification passed</span><span className={styles.statusWarn}><i />Waiting, queued, or awaiting continuation</span><span className={styles.statusBad}><i />Failed, blocked, or outcome unknown</span></div>
       {Boolean(feed.error) && <ErrorState title="Monitoring unavailable">{errorMessage(feed.error, "Monitoring is unavailable")}</ErrorState>}
       {Array.isArray(recovery.items) && recovery.items.length > 0 && <section className={styles.panel} aria-label="Operator recovery queue"><header className={styles.panelHead}><div><span className={styles.eyebrow}>OPERATOR ACTION</span><h2>Recovery queue</h2><p>Blocked work stays visible. Each action states whether it reads state or can continue an approved step.</p></div><span className={`${styles.statusPill} ${styles.statusBad}`}>{recovery.items.length} NEED ATTENTION</span></header><div className={styles.summaryList}>{recovery.items.map((item) => { const work = item.work ?? {}; const run = item.run ?? {}; const plan = item.plan ?? {}; const runId = rawId(work.run_id ?? run.run_id); const actions = item.recovery_actions ?? []; return <div className={styles.recoveryRow} key={runId || String(work.work_id)}><div><strong>{text(plan.intent, runId)}</strong><small>{statusLabel(work.state)} · attempt {text(work.attempt, "0")} of {text(work.max_attempts, "—")} · {text(work.last_error, "No recovery reason recorded")}</small></div><div className={styles.recoveryActions}><ScopedLink className={styles.secondary} href={`/actions?run_id=${encodeURIComponent(runId)}#execution-monitor`}>Open run</ScopedLink>{actions.map((action) => <button className={styles.secondary} key={action.action} title={action.allowed ? action.impact : action.disabled_reason ?? "Permission required"} disabled={!action.allowed || busy} onClick={() => void runRecovery(runId, action.action)}>{action.label}</button>)}</div></div>; })}</div></section>}
       {busy && !feed.error && !jobs.length && <div className={styles.infoStrip} role="status"><span>i</span><div><strong>Loading job history</strong><p>Keeping the current project and environment scope while the latest page is retrieved.</p></div></div>}
-      {!busy && !feed.error && !jobs.length && <div className={styles.infoStrip}><span>i</span><div><strong>{feed.status === "NO_MATCHING_ASSET_FILTER" ? "No jobs match this table filter" : "No jobs in this project and environment"}</strong><p>{feed.status === "NO_MATCHING_ASSET_FILTER" ? "Clear the table filter to see the rest of this project history." : "Create a run plan when you are ready to monitor an approved job."}</p><ScopedLink className={styles.tableLink} href="/actions">Create run plan →</ScopedLink></div></div>}
+      {!busy && !feed.error && scopeReady && !jobs.length && <div className={styles.infoStrip}><span>i</span><div><strong>{feed.status === "NO_MATCHING_ASSET_FILTER" ? "No persisted jobs match this filter" : "No persisted jobs for this project and environment"}</strong><p>{feed.status === "NO_MATCHING_ASSET_FILTER" ? "Clear the asset filter to review the rest of this project history." : "No historical execution record is available yet. Create an approved run plan when you are ready."}</p><ScopedLink className={styles.tableLink} href="/actions">Create run plan →</ScopedLink></div></div>}
       <div className={styles.sectionStack}>{groups.map(([sequence, group]) => <section className={styles.panel} key={sequence}><header className={styles.panelHead}><div><h3>{sequence === "unassigned" ? "Individual jobs" : "Selected sequence"}</h3><p>{sequence === "unassigned" ? `${group.length} independent job${group.length === 1 ? "" : "s"}` : `${group.length} ordered step${group.length === 1 ? "" : "s"} · expand to inspect dependencies`}</p></div><div className={styles.monitorGroupActions}><StatusBadge value={group[0].execution_status} />{sequence !== "unassigned" && <button className={styles.secondary} onClick={() => setExpandedSequence((current) => current === sequence ? null : sequence)} aria-expanded={expandedSequence === sequence}>{expandedSequence === sequence ? "Hide steps" : "Show steps"}</button>}</div></header>{expandedSequence === sequence && sequence !== "unassigned" && <div className={styles.sequenceSummary} aria-label={`Steps in ${sequence}`}>{group.map((job, index) => { const step = job.current_step_details && typeof job.current_step_details === "object" ? job.current_step_details as Job : {}; const dependencies = Array.isArray(job.depends_on) ? job.depends_on.map(String).join(", ") : "none recorded"; return <div className={styles.sequenceSummaryRow} key={rawId(job.run_id) || `${sequence}-${index}`}><b>{text(step.sequence ?? job.sequence ?? index + 1)}</b><div><strong>{shortJobName(job)}</strong><small>Depends on: {dependencies}</small></div><div><StatusBadge value={job.execution_status} /><StatusBadge value={job.execution_verification_status ?? job.verification_status} label={statusLabel(job.execution_verification_status ?? job.verification_status, "Not checked")} /></div></div>; })}</div>}<div className={styles.attentionTableWrap}><table className={styles.attentionTable}><thead><tr><th>Job / asset</th><th>Execution</th><th>Verification</th><th>Last checked</th><th> </th></tr></thead><tbody>{group.map((job) => { const runId = rawId(job.run_id); return <tr key={runId}><td><strong>{shortJobName(job)}</strong><small>{runId || "Run identifier unavailable"}</small></td><td><StatusBadge value={job.execution_status} /></td><td><StatusBadge value={job.execution_verification_status ?? job.verification_status} label={statusLabel(job.execution_verification_status ?? job.verification_status, "Not checked")} /></td><td>{date(job.last_observation)}{job.stale ? <small className={styles.warningText}>Refresh recommended</small> : null}</td><td><button className={styles.secondary} disabled={!runId} aria-label={`View details for ${runId || "selected job"}`} onClick={(event) => { detailOpener.current = event.currentTarget; void selectRun(runId); }}>View details</button></td></tr>; })}</tbody></table></div></section>)}</div>
       <nav className={styles.tablePagination} aria-label="Monitoring pages"><span>Project {projectId} · {environment} · Page {feed.page ?? page} · {feed.total ?? 0} total</span><div><button disabled={busy || page <= 1} onClick={() => { const next = page - 1; setPage(next); void load(next); }}>Previous</button><button disabled={busy || !feed.has_next} onClick={() => { const next = page + 1; setPage(next); void load(next); }}>Next</button></div></nav>
     </section>

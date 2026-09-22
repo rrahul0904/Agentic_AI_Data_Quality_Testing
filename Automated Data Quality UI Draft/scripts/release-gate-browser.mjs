@@ -128,6 +128,14 @@ async function waitFor(client, expression, label, timeoutMs = 30000) {
     if (last === true || (last && last.ready === true)) return last;
     await wait(100);
   }
+  if (label === "monitoring table filter empty state") {
+    const diagnostic = await client.eval(`({
+      input: document.querySelector('input[placeholder="table, DAG, model"]')?.value || null,
+      body: (document.body?.innerText || "").slice(-1200),
+      requests: performance.getEntriesByType("resource").map((entry) => entry.name).filter((name) => name.includes("/api/monitoring")).slice(-3)
+    })`);
+    throw new Error(`Timed out waiting for ${label}: ${JSON.stringify({ last, diagnostic })}`);
+  }
   throw new Error(`Timed out waiting for ${label}: ${JSON.stringify(last)}`);
 }
 
@@ -265,13 +273,29 @@ async function applyMonitoringAssetFilter(client) {
   const prepared = await client.eval(`(() => {
     const input = document.querySelector('input[placeholder="table, DAG, model"]');
     if (!input) return false;
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-    setter.call(input, 'definitely-not-a-real-table');
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
+    input.focus();
     return true;
   })()`);
   if (!prepared) throw new Error("Monitoring table-filter controls were not rendered");
+  // Drive the control through the browser's editing path.  Mutating the DOM
+  // value and dispatching a synthetic event can leave a controlled React input
+  // visually updated while its state still contains the previous value.
+  const modifier = await client.eval(`navigator.platform && navigator.platform.includes("Mac") ? 4 : 2`);
+  await client.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: modifier === 4 ? "Meta" : "Control", code: modifier === 4 ? "MetaLeft" : "ControlLeft", modifiers: 0 });
+  await client.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "a", code: "KeyA", modifiers: modifier, windowsVirtualKeyCode: 65, nativeVirtualKeyCode: 65 });
+  await client.send("Input.dispatchKeyEvent", { type: "keyUp", key: "a", code: "KeyA", modifiers: modifier, windowsVirtualKeyCode: 65, nativeVirtualKeyCode: 65 });
+  await client.send("Input.dispatchKeyEvent", { type: "keyUp", key: modifier === 4 ? "Meta" : "Control", code: modifier === 4 ? "MetaLeft" : "ControlLeft", modifiers: 0 });
+  await client.send("Input.insertText", { text: "definitely-not-a-real-table" });
+  // Keep a DOM-editing fallback for headless/hidden Chrome targets where the
+  // CDP text insertion command can be acknowledged without editing the
+  // focused controlled input.
+  await client.eval(`(() => {
+    const input = document.querySelector('input[placeholder="table, DAG, model"]');
+    if (!input || input.value === "definitely-not-a-real-table") return true;
+    input.focus();
+    input.select();
+    return document.execCommand("insertText", false, "definitely-not-a-real-table");
+  })()`);
   await waitFor(client, `document.querySelector('input[placeholder="table, DAG, model"]')?.value === 'definitely-not-a-real-table'`, "monitoring table filter value");
   const applied = await client.eval(`(() => {
     const button = [...document.querySelectorAll('button')].find((candidate) => (candidate.innerText || '').trim().toLowerCase() === 'apply filters');
@@ -280,7 +304,7 @@ async function applyMonitoringAssetFilter(client) {
     return true;
   })()`);
   if (!applied) throw new Error("Monitoring table-filter apply control was not rendered");
-  await waitFor(client, "(document.body?.innerText || '').toLowerCase().includes('no jobs match this table filter')", "monitoring table filter empty state");
+  await waitFor(client, "(document.body?.innerText || '').toLowerCase().includes('no persisted jobs match this filter')", "monitoring table filter empty state");
   return pageState(client);
 }
 

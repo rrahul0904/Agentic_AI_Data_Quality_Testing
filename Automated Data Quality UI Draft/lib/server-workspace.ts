@@ -208,7 +208,9 @@ export async function currentWorkspaceRunIds(scope: WorkspaceScope): Promise<Set
   if (!state.sourceTableScopeId || state.analysisScopeId !== state.sourceTableScopeId || state.qualityPlanScopeId !== state.sourceTableScopeId) return new Set();
   const apiBase = process.env.ADE_API_BASE_URL ?? "http://127.0.0.1:8011";
   try {
-    const latestResponse = await fetch(`${apiBase}/api/v1/quality-plans/latest?${workspaceQuery(scope)}`, { cache: "no-store", signal: AbortSignal.timeout(30000) });
+    const query = new URLSearchParams(workspaceQuery(scope));
+    query.set("source_table_scope_id", state.sourceTableScopeId);
+    const latestResponse = await fetch(`${apiBase}/api/v1/quality-plans/latest?${query.toString()}`, { cache: "no-store", signal: AbortSignal.timeout(30000) });
     if (!latestResponse.ok) return new Set();
     const latest = await latestResponse.json() as Record<string, unknown>;
     const planId = typeof latest.plan_id === "string" ? latest.plan_id : "";

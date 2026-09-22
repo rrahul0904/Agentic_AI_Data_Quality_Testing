@@ -16,6 +16,7 @@ import type {
 } from "../../lib/project-analysis";
 import type { OnboardingBootstrap, SelectedSourceTable } from "../../lib/onboarding";
 import { scopedApiUrl } from "../../lib/client-workspace";
+import { aiReviewStatusDescription, aiReviewStatusLabel } from "../../lib/ui-contracts";
 import { useDrawerFocus } from "../components/ui";
 
 type View = "roles" | "map";
@@ -79,16 +80,6 @@ function tone(status: string): string {
   if (["USER_VERIFIED", "PASS", "DETERMINISTIC", "COMPLETED", "NOT_REQUIRED", "OBSERVED", "AI_REVIEWED"].includes(status)) return local.good;
   if (["REJECTED", "ERROR", "FAIL", "UNAVAILABLE", "NOT_CONFIGURED"].includes(status)) return local.bad;
   return local.review;
-}
-
-function aiStatusLabel(status?: string, busy = false, availability?: string): string {
-  if (busy) return "RUNNING";
-  const normalized = status?.toUpperCase();
-  if (normalized === "DISABLED" || normalized === "UNAVAILABLE" || normalized === "NOT_CONFIGURED") {
-    return ["READY", "CONFIGURED"].includes(String(availability || "").toUpperCase()) ? "READY TO REVIEW" : "UNAVAILABLE";
-  }
-  if (!normalized) return ["READY", "CONFIGURED"].includes(String(availability || "").toUpperCase()) ? "NOT INVOKED" : "UNAVAILABLE";
-  return normalized.replaceAll("_", " ");
 }
 
 function evidenceFor(report: ProjectAnalysisReport, ids: string[]): AnalysisEvidence[] {
@@ -476,7 +467,7 @@ function ProjectDesignView({ defaultView = "roles", navActive = "design", contex
         <article><span>Discovered objects</span><strong>{report.summary.top_level_assets}</strong><small>{report.summary.child_assets} columns and job tasks</small></article>
         <article><span>Detected pipeline flows</span><strong>{report.summary.pipelines}</strong><small>{report.summary.relationships} technical links reviewed by rules</small></article>
         <article><span>Not connected yet</span><strong>{unresolvedNodes.length}</strong><small>Visible, but not assigned to a flow without evidence</small></article>
-        <article><span>AI verification</span><strong>{aiStatusLabel(aiReview?.status, aiBusy, openAiStatus)}</strong><small>{aiReview ? `${aiReview.scope} review · human approval remains required` : openAiStatus === "READY" ? "Ready; invoke review when you want an AI challenge." : "AI provider is unavailable."}</small></article>
+        <article><span>AI review</span><strong>{aiReviewStatusLabel(aiReview?.status, aiBusy, openAiStatus)}</strong><small>{aiReview ? `${aiReview.scope} review · human approval remains required` : aiReviewStatusDescription(false, openAiStatus)}</small></article>
       </section>
 
       <details className={local.analysisDetails}><summary>Analysis run details <span>How these counts were produced</span></summary><section className={local.analyzers} aria-label="Analyzer results">
@@ -508,7 +499,7 @@ function ProjectDesignView({ defaultView = "roles", navActive = "design", contex
           <div className={local.runtimeGrid}>{["airflow", "dbt", "snowflake"].map((system) => { const item = report.runtime?.systems?.[system]; return <article key={system}><span>{system}</span><strong>{item?.status || "NOT_RUN"}</strong><small>{item?.completed_at ? `Completed ${new Date(item.completed_at).toLocaleString()}` : "No matching runtime completion observed"}</small></article>; })}</div>
           <footer>{report.runtime?.observed_edge_count || 0} observed edges · {report.runtime?.observed_node_count || 0} observed nodes · {report.runtime?.refreshed_at ? `refreshed ${new Date(report.runtime.refreshed_at).toLocaleString()}` : "not refreshed"}</footer>
         </section>
-        <section className={local.aiPanel} aria-label="AI lineage verification"><header><div><span>USER-INVOKED AI REVIEW</span><h2>{aiStatusLabel(aiReview?.status, aiBusy, openAiStatus)}</h2><p>AI can challenge deterministic mappings, but it cannot approve lineage or promote runtime evidence.</p></div><div className={local.aiActions}><button disabled={aiBusy} onClick={() => void verifyWithAI("proposed")}>{aiBusy ? "Reviewing…" : "Verify proposed mappings"}</button><button disabled={aiBusy} onClick={() => void verifyWithAI("all")}>Verify entire graph</button><button disabled={aiBusy} onClick={() => void verifyWithAI("conflicts")}>Review conflicts</button></div></header>{aiReview && <div className={local.aiResult}>
+        <section className={local.aiPanel} aria-label="AI lineage verification"><header><div><span>OPTIONAL AI REVIEW</span><h2>{aiReviewStatusLabel(aiReview?.status, aiBusy, openAiStatus)}</h2><p>AI review is optional and advisory; deterministic analysis remains the source of truth.</p></div><div className={local.aiActions}><button disabled={aiBusy} onClick={() => void verifyWithAI("proposed")}>{aiBusy ? "Reviewing…" : "Verify proposed mappings"}</button><button disabled={aiBusy} onClick={() => void verifyWithAI("all")}>Verify entire graph</button><button disabled={aiBusy} onClick={() => void verifyWithAI("conflicts")}>Review conflicts</button></div></header>{aiReview && <div className={local.aiResult}>
           <span>{aiReview.subjects_requested} relationships reviewed · {aiReview.reviews?.filter((item) => item.needs_human_approval).length || 0} need human approval</span>
           <small>{aiReview.outcome || aiReview.reason || `${aiReview.reviews?.length || 0} AI findings · ${aiReview.created_at ? new Date(aiReview.created_at).toLocaleString() : ""}`}</small>
           <div className={local.aiReviewMeta}><span>Validation: {aiReview.validation?.status || "NOT RUN"}</span><span>Evidence: {aiReview.evidence_state || "NOT CHECKED"}</span><span>Provider: {aiReview.provider || "—"} · {aiReview.model || "—"}</span>{typeof aiReview.latency_ms === "number" && <span>{aiReview.latency_ms} ms</span>}</div>

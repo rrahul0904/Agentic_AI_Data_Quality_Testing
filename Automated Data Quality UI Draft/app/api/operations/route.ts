@@ -64,14 +64,16 @@ async function persistedOverview(query: string, scope: WorkspaceScope, accessCon
 export async function GET(request: Request) {
   const scope = await resolveWorkspace(request);
   const mode = new URL(request.url).searchParams.get("mode");
-  const query = workspaceQuery(scope);
+  const currentState = await currentWorkspaceState(scope);
+  const scopedQuery = new URLSearchParams(workspaceQuery(scope));
+  if (currentState.sourceTableScopeId) scopedQuery.set("source_table_scope_id", currentState.sourceTableScopeId);
+  const query = scopedQuery.toString();
   if (mode === "summary") {
     const accessContext = request.headers.get("x-ade-identity") ?? request.headers.get("x-ade-project-id") ?? "local";
     return Response.json(await persistedOverview(query, scope, accessContext), { headers: { "Cache-Control": "no-store" } });
   }
   const connectorQuery = new URLSearchParams({ project_id: scope.projectId, environment: scope.environment }).toString();
   const hasEvidence = await hasCurrentWorkspacePlan(scope);
-  const currentState = await currentWorkspaceState(scope);
   const [postgres, snowflake, airflow, dbt, analysis, incidents, alerts, agent] = await Promise.all([
     read(`/api/v1/connections/postgres/metadata?${connectorQuery}`),
     read(`/api/v1/connections/snowflake/metadata?${connectorQuery}`),

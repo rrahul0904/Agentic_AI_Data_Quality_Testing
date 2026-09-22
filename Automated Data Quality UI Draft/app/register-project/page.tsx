@@ -345,7 +345,18 @@ function ProjectOnboardingPage() {
     : 0;
   const discoveryPasses = workflowProfiles.filter((profile) => activeDiscoveries[profile.id]?.status === "PASS").length;
   const discoveredAssetCount = discoveredAssets.length;
-  const updateProject = (key: keyof ProjectDefinition, value: string) => { setProject((current) => { const next = { ...current, [key]: value }; setProjectDirty(JSON.stringify(next) !== JSON.stringify(savedProject)); return next; }); };
+  const updateProject = (key: keyof ProjectDefinition, value: string) => {
+    if (key === "environment" && project.environment !== value) {
+      // A source-table selection belongs to the project/environment scope.
+      // Clear the presentation immediately instead of showing the previous
+      // environment's assets while the definition is being saved/reloaded.
+      setSelectedAssets([]); setSelectedSourceTables([]); setSelectedSourceTable(undefined);
+      setBootstrap((state) => state ? { ...state, selectedAssets: [], selectedSourceTables: [], selectedSourceTable: undefined, sourceTableScopeId: undefined, analysisScopeId: undefined, qualityPlanScopeId: undefined } : state);
+    }
+    const next = { ...project, [key]: value };
+    setProject(next);
+    setProjectDirty(JSON.stringify(next) !== JSON.stringify(savedProject));
+  };
   const persistProject = async (nextProject: ProjectDefinition, message: string, action: "save-project" | "create-project" | "save-as-new" = "save-project") => {
     try {
       const result = await postOnboarding({ action, projectDefinition: nextProject });
@@ -408,6 +419,10 @@ function ProjectOnboardingPage() {
     const next = projects.find((item) => item.id === id);
     if (!next) return;
     if (projectDirty && !window.confirm("This project has unsaved changes. Switch without saving them?")) return;
+    // Do not let the previous project's source-table selection remain visible
+    // while the authoritative bootstrap for the next project is loading.
+    setBootstrap(null); setSelectedAssets([]); setSelectedSourceTables([]); setSelectedSourceTable(undefined);
+    setDiscoveries({}); setDiscoveriesByTable({});
     void loadProject(next.id, `Loaded ${next.name}.` ).catch((error: Error) => setNotice({ tone: "error", text: error.message }));
   };
   const connectionReady = workflowProfiles.length === 4 && workflowProfiles.every((profile) => tests[profile.id]?.status === "PASS");
@@ -420,17 +435,38 @@ function ProjectOnboardingPage() {
     void postOnboarding({ action: "save-selection", selectedAssets: next }).catch((error: Error) => setNotice({ tone: "error", text: error.message }));
   };
   const addSourceTable = async (table: SelectedSourceTable) => {
+    const changed = selectedSourceTable?.id !== table.id;
     setSelectedSourceTable(table);
+    if (changed) setSelectedAssets([]);
     try {
       await postOnboarding({ action: "save-source-table", selectedSourceTable: table });
+      if (changed) await postOnboarding({ action: "save-selection", selectedAssets: [] });
       setSelectedSourceTables((current) => [...current.filter((item) => item.id !== table.id), table]);
-        setBootstrap((current) => current ? { ...current, sourceTableScopeId: table.id, selectedSourceTable: table, selectedSourceTables: [...(current.selectedSourceTables ?? []).filter((item) => item.id !== table.id), table], analysisScopeId: undefined, qualityPlanScopeId: undefined } : current);
-        setNotice({ tone: "success", text: `${table.schema}.${table.table} was added. Existing table evidence was preserved.` });
+      setBootstrap((current) => current ? { ...current, sourceTableScopeId: table.id, selectedSourceTable: table, selectedSourceTables: [...(current.selectedSourceTables ?? []).filter((item) => item.id !== table.id), table], analysisScopeId: undefined, qualityPlanScopeId: undefined, ...(changed ? { selectedAssets: [] } : {}) } : current);
+      setNotice({ tone: "success", text: `${table.schema}.${table.table} was added. Existing table evidence was preserved.` });
     } catch (error) { setNotice({ tone: "error", text: error instanceof Error ? error.message : "Source table could not be added" }); }
   };
   const addAllSourceTables = (tables: SelectedSourceTable[]) => { void (async () => { for (const table of tables) if (!selectedSourceTables.some((item) => item.id === table.id)) await addSourceTable(table); })(); };
-  const selectSourceTable = (table: SelectedSourceTable) => { setSelectedSourceTable(table); void postOnboarding({ action: "save-source-table", selectedSourceTable: table }).catch((error: Error) => setNotice({ tone: "error", text: error.message })); };
-  const removeSourceTable = (tableId: string) => { const remaining = selectedSourceTables.filter((table) => table.id !== tableId); const next = remaining[remaining.length - 1]; void postOnboarding({ action: "remove-source-table", sourceTableId: tableId }).then(() => { setSelectedSourceTables(remaining); setSelectedSourceTable(next); if (!remaining.length) setSelectedAssets([]); setNotice({ tone: "success", text: remaining.length ? "Table removed from the active UI selection. Stored discovery evidence was retained." : "No source table is selected. Stored discovery evidence was retained." }); }).catch((error: Error) => setNotice({ tone: "error", text: error.message })); };
+  const selectSourceTable = (table: SelectedSourceTable) => {
+    const changed = selectedSourceTable?.id !== table.id;
+    setSelectedSourceTable(table);
+    if (changed) setSelectedAssets([]);
+    void postOnboarding({ action: "save-source-table", selectedSourceTable: table }).then(async () => {
+      if (changed) await postOnboarding({ action: "save-selection", selectedAssets: [] });
+      setBootstrap((current) => current ? { ...current, selectedSourceTable: table, selectedSourceTables: [...(current.selectedSourceTables ?? []).filter((item) => item.id !== table.id), table], sourceTableScopeId: table.id, analysisScopeId: undefined, qualityPlanScopeId: undefined, selectedAssets: changed ? [] : current.selectedAssets } : current);
+    }).catch((error: Error) => setNotice({ tone: "error", text: error.message }));
+  };
+  const removeSourceTable = (tableId: string) => {
+    const remaining = selectedSourceTables.filter((table) => table.id !== tableId);
+    const next = remaining[remaining.length - 1];
+    const activeScopeChanged = next?.id !== selectedSourceTable?.id;
+    void postOnboarding({ action: "remove-source-table", sourceTableId: tableId }).then(async () => {
+      if (activeScopeChanged) await postOnboarding({ action: "save-selection", selectedAssets: [] });
+      setSelectedSourceTables(remaining); setSelectedSourceTable(next); if (activeScopeChanged) setSelectedAssets([]);
+      setBootstrap((current) => current ? { ...current, selectedSourceTable: next, selectedSourceTables: remaining, ...(activeScopeChanged ? { sourceTableScopeId: next?.id, analysisScopeId: undefined, qualityPlanScopeId: undefined, selectedAssets: [] } : {}) } : current);
+      setNotice({ tone: "success", text: remaining.length ? "Table removed from the active scope. Stored discovery evidence was retained." : "No source table is selected. Stored discovery evidence was retained." });
+    }).catch((error: Error) => setNotice({ tone: "error", text: error.message }));
+  };
   const discoverSelectedAssets = async () => {
     if (!selectedSourceTable) return;
     if (workflowProfiles.length !== 4) {

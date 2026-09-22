@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { monitoringStatusLabel, safeDisplayError } from "../lib/ui-contracts.ts";
+import { aiReviewStatusDescription, aiReviewStatusLabel, integrationConnectionState, monitoringStatusLabel, safeDisplayError } from "../lib/ui-contracts.ts";
 import { scopedLink } from "../lib/client-workspace.ts";
 
 test("Monitoring renders structured errors as text instead of React children", () => {
@@ -14,6 +14,19 @@ test("Monitoring status labels keep execution and evidence states truthful", () 
   assert.equal(monitoringStatusLabel("FAILED"), "Failed");
   assert.equal(monitoringStatusLabel("NOT_CHECKED"), "Not checked");
   assert.equal(monitoringStatusLabel("OUTCOME_UNKNOWN"), "Outcome unknown — reconcile");
+});
+
+test("optional AI review is not presented as an outage before it is requested", () => {
+  assert.equal(aiReviewStatusLabel(undefined, false, "READY"), "Not run");
+  assert.equal(aiReviewStatusDescription(false, "READY"), "Optional review has not been requested.");
+  assert.equal(aiReviewStatusLabel("COMPLETED", false, "READY"), "Completed");
+  assert.equal(aiReviewStatusLabel("FAILED", false, "READY"), "Failed");
+});
+
+test("Overview treats dbt execution evidence as a passing readiness signal", () => {
+  assert.equal(integrationConnectionState({ status: "EXECUTION_EVIDENCE_FOUND" }), "PASSING");
+  assert.equal(integrationConnectionState({ status: "CONNECTED" }), "PASSING");
+  assert.equal(integrationConnectionState({ status: "FAILED", reason: "permission denied" }), "ATTENTION");
 });
 
 test("workspace navigation preserves the selected project and environment", () => {
