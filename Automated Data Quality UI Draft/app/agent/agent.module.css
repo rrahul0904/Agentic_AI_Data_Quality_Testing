@@ -35,6 +35,13 @@
 .answerDetails > summary:focus-visible { outline: 3px solid rgba(23, 131, 91, .28); outline-offset: -3px; }
 .detailContent { display: grid; gap: 14px; padding: 14px 15px; }
 .historyList { display: grid; gap: 12px; }
+.historyLayout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, .9fr); gap: 18px; align-items: start; }
+.historyDetail { position: sticky; top: 16px; min-width: 0; }
+.historyPager { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 14px; }
+.historyPager button { border: 1px solid #cbdad1; border-radius: 8px; padding: 8px 11px; background: #fff; color: #29483a; cursor: pointer; font: inherit; font-size: 13px; }
+.historyPager button:disabled { cursor: not-allowed; opacity: .45; }
+.historyPager button:focus-visible { outline: 3px solid rgba(23, 131, 91, .28); outline-offset: 2px; }
+.historyPager span { color: #63746a; font-size: 13px; }
 .historyItem { display: grid; gap: 10px; width: 100%; border: 1px solid #dce7e1; border-radius: 11px; padding: 16px; background: #fff; color: inherit; text-align: left; cursor: pointer; font: inherit; text-decoration: none; }
 .historyItem:hover { border-color: #8bc6aa; background: #fbfefc; }
 .historyItem:focus-visible { outline: 3px solid rgba(23, 131, 91, .28); outline-offset: 2px; }
@@ -70,4 +77,9 @@
   .answerDetails > summary { align-items: flex-start; flex-direction: column; }
   .historyEntryMain, .historyViewerHeader { flex-direction: column; }
   .historyViewerGrid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 980px) {
+  .historyLayout { grid-template-columns: 1fr; }
+  .historyDetail { position: static; }
 }

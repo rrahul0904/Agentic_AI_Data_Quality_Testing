@@ -174,17 +174,27 @@ function usageLabel(usage?: AgentUsage | null): string {
   return total > 0 ? `${total.toLocaleString()} tokens (${input.toLocaleString()} in · ${output.toLocaleString()} out)` : "0 tokens reported";
 }
 
-function AskHistory({ items }: { items: AgentHistoryItem[] }) {
+function AskHistory({
+  items,
+  page,
+  hasMore,
+  onNext,
+  onPrevious,
+}: {
+  items: AgentHistoryItem[];
+  page: number;
+  hasMore: boolean;
+  onNext: () => void;
+  onPrevious: () => void;
+}) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = items.find((item, index) => (item.invocation_id ?? `${item.question}-${index}`) === selectedId);
   const completeItems = items.filter((item) => Boolean(item.answer) || Boolean(item.error) || typeof item.latency_ms === "number");
-  useEffect(() => {
-    if (!selectedId) return;
-    window.requestAnimationFrame(() => document.getElementById("ask-ai-history-detail-heading")?.scrollIntoView({ behavior: "smooth", block: "start" }));
-  }, [selectedId]);
   return <section className={styles.panel} aria-labelledby="ask-ai-history-heading">
     <header className={styles.panelHead}><div><h2 id="ask-ai-history-heading">Ask AI history</h2><p>Select a question to inspect its complete response and supporting details.</p></div><span>{completeItems.length} complete</span></header>
-    {items.length ? <div className={local.historyList}>{items.map((item, index) => {
+    {items.length ? <>
+      <div className={local.historyLayout}>
+        <div className={local.historyList}>{items.map((item, index) => {
       const itemId = item.invocation_id ?? `${item.question}-${index}`;
       const status = String(item.status ?? "").toUpperCase();
       const failed = Boolean(item.error) || (status.startsWith("LIVE_") && status !== "LIVE_RESPONSE");
@@ -192,8 +202,17 @@ function AskHistory({ items }: { items: AgentHistoryItem[] }) {
         <span className={local.historyEntryMain}><span><span className={styles.eyebrow}>{humanStatus(item.status)}</span><strong>{item.question || "Question not retained"}</strong><small>{formatDateTime(item.created_at)}</small></span><span className={failed ? styles.answerWarn : styles.answerGood}>{failed ? "Needs attention" : item.answer ? "Recorded" : "Older entry"}</span></span>
         <span className={local.historyMeta}><span>{item.provider ?? "Evidence only"}{item.model ? ` · ${item.model}` : ""}</span><span>{typeof item.latency_ms === "number" ? `${Math.round(item.latency_ms).toLocaleString()} ms` : "Latency not recorded"}</span><span>{usageLabel(item.usage)}</span><span>{Array.isArray(item.evidence_references) ? `${item.evidence_references.length} evidence records` : "No evidence count"}</span></span>
       </a>;
-    })}</div> : <div className={local.historyEmpty}><strong>No Ask AI questions saved yet</strong><p>The next question will retain its answer, model, usage, latency, scope, and evidence references.</p></div>}
-    {selected ? <HistoryViewer item={selected} /> : items.length ? <div className={local.historyPrompt}>Select a question above to open its full response.</div> : null}
+    })}</div>
+        <div className={local.historyDetail}>
+          {selected ? <HistoryViewer item={selected} /> : <div className={local.historyPrompt}>Select a question to open its full response.</div>}
+        </div>
+      </div>
+      <nav className={local.historyPager} aria-label="Ask AI history pages">
+        <button type="button" onClick={onPrevious} disabled={page <= 1}>Previous</button>
+        <span>Page {page}</span>
+        <button type="button" onClick={onNext} disabled={!hasMore}>Next</button>
+      </nav>
+    </> : <div className={local.historyEmpty}><strong>No Ask AI questions saved yet</strong><p>The next question will retain its answer, model, usage, latency, scope, and evidence references.</p></div>}
   </section>;
 }
 
@@ -296,8 +315,9 @@ export default function AgentPage() {
   const [runId, setRunId] = useState("");
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<"ask" | "history">("ask");
+  const [historyOffset, setHistoryOffset] = useState(0);
 
-  const loadAgentStatus = () => fetch(scopedApiUrl("/api/agent"), { cache: "no-store" })
+  const loadAgentStatus = (offset = historyOffset) => fetch(scopedApiUrl(`/api/agent?history_limit=20&history_offset=${offset}`), { cache: "no-store" })
     .then((item) => item.json())
     .then(setAgentStatus)
     .catch(() => setAgentStatus({ status: "ERROR" }));
@@ -339,6 +359,9 @@ export default function AgentPage() {
   const assetOptions = (Array.isArray(agentStatus.assets) ? agentStatus.assets : Array.isArray(agentStatus.catalog) ? agentStatus.catalog : []).map((item) => typeof item === "string" ? item : item && typeof item === "object" ? String((item as Record<string, unknown>).qualified_name ?? (item as Record<string, unknown>).name ?? "") : "").filter(Boolean);
   const runOptions = (Array.isArray(agentStatus.runs) ? agentStatus.runs : []).map((item) => typeof item === "string" ? item : item && typeof item === "object" ? String((item as Record<string, unknown>).run_id ?? "") : "").filter(Boolean);
   const historyItems = (Array.isArray(agentStatus.agent_history) ? agentStatus.agent_history : []).filter((item): item is AgentHistoryItem => !!item && typeof item === "object");
+  const historyLimit = Math.max(1, Number(agentStatus.agent_history_limit ?? 20));
+  const historyPage = Math.floor(historyOffset / historyLimit) + 1;
+  const historyHasMore = agentStatus.agent_history_has_more === true;
   return <DraftShell active="agent">
     <header className={`${styles.topbar} ${local.pageHeader}`}>
       <div>
@@ -347,9 +370,23 @@ export default function AgentPage() {
         <p>Ask about the selected project, asset, or run. Answers cite only the scope below.</p>
       </div>
     </header>
-    <div className={local.viewTabs} role="tablist" aria-label="Ask AI views"><button role="tab" aria-selected={view === "ask"} className={view === "ask" ? local.viewTabActive : local.viewTab} onClick={() => setView("ask")}>Ask AI</button><button role="tab" aria-selected={view === "history"} className={view === "history" ? local.viewTabActive : local.viewTab} onClick={() => setView("history")}>History <span>{historyItems.length}</span></button></div>
+    <div className={local.viewTabs} role="tablist" aria-label="Ask AI views"><button role="tab" aria-selected={view === "ask"} className={view === "ask" ? local.viewTabActive : local.viewTab} onClick={() => setView("ask")}>Ask AI</button><button role="tab" aria-selected={view === "history"} className={view === "history" ? local.viewTabActive : local.viewTab} onClick={() => setView("history")}>History <span>{historyItems.length}{historyHasMore ? "+" : ""}</span></button></div>
     <div className={styles.askAiLayout}>
-      {view === "history" ? <AskHistory items={historyItems} /> : <section className={styles.panel}>
+      {view === "history" ? <AskHistory
+        items={historyItems}
+        page={historyPage}
+        hasMore={historyHasMore}
+        onPrevious={() => {
+          const nextOffset = Math.max(0, historyOffset - historyLimit);
+          setHistoryOffset(nextOffset);
+          void loadAgentStatus(nextOffset);
+        }}
+        onNext={() => {
+          const nextOffset = historyOffset + historyLimit;
+          setHistoryOffset(nextOffset);
+          void loadAgentStatus(nextOffset);
+        }}
+      /> : <section className={styles.panel}>
         <header className={styles.panelHead}>
           <div><h2>Question</h2><p>Choose the context first, then ask one clear question.</p></div>
         </header>

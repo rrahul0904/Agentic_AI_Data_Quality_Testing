@@ -35,6 +35,13 @@ test("Ask AI keeps the concise answer primary and makes evidence and technical o
   assert.match(page, /Ask about the selected project, asset, or run\. Answers cite only the scope below\./);
   assert.match(page, /const \[question, setQuestion\] = useState\(""\);/);
   assert.match(page, /Ask AI history/);
+  assert.match(page, /history_limit=20&history_offset=/);
+  assert.match(page, /historyLayout/);
+  assert.match(page, /historyDetail/);
+  assert.match(page, /historyPager/);
+  assert.match(page, /Page \{page\}/);
+  assert.match(page, /onPrevious/);
+  assert.match(page, /onNext/);
   assert.match(page, /usageLabel\(item\.usage\)/);
   assert.match(page, /agent_history/);
   assert.match(page, /Open response:/);
