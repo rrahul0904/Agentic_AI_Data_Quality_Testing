@@ -44,6 +44,15 @@ test("Ask AI keeps the concise answer primary and makes evidence and technical o
   assert.doesNotMatch(page, /compactNarrative\(response\.question/);
 });
 
+test("Run jobs preserves an explicitly chosen candidate and clears stale plan feedback when scope changes", async () => {
+  const page = await source("../app/actions/page.tsx");
+
+  assert.match(page, /const resetPlanDraft = \(\) =>/);
+  assert.match(page, /requestedTarget: item\.name, mode, operationKind/);
+  assert.match(page, /setOperationTarget\(item\.name\); setIntent\(nextIntent\)/);
+  assert.match(page, /resetPlanDraft\(\); setMode\(event\.target\.value as ExecutionMode\)/);
+});
+
 test("Lineage keeps its graph before the secondary analysis details without changing existing page logic", async () => {
   const css = await source("../app/project-design/project-design.module.css");
   assert.match(css, /\.contextFrame \.managementMain > \.analysisDetails \{ order: 8; \}/);
