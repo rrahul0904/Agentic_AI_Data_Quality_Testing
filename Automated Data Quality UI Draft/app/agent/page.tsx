@@ -178,13 +178,17 @@ function AskHistory({ items }: { items: AgentHistoryItem[] }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = items.find((item, index) => (item.invocation_id ?? `${item.question}-${index}`) === selectedId);
   const completeItems = items.filter((item) => Boolean(item.answer) || Boolean(item.error) || typeof item.latency_ms === "number");
+  useEffect(() => {
+    if (!selectedId) return;
+    window.requestAnimationFrame(() => document.getElementById("ask-ai-history-detail-heading")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }, [selectedId]);
   return <section className={styles.panel} aria-labelledby="ask-ai-history-heading">
     <header className={styles.panelHead}><div><h2 id="ask-ai-history-heading">Ask AI history</h2><p>Select a question to inspect its complete response and supporting details.</p></div><span>{completeItems.length} complete</span></header>
     {items.length ? <div className={local.historyList}>{items.map((item, index) => {
       const itemId = item.invocation_id ?? `${item.question}-${index}`;
       const status = String(item.status ?? "").toUpperCase();
       const failed = Boolean(item.error) || (status.startsWith("LIVE_") && status !== "LIVE_RESPONSE");
-      return <button type="button" className={`${local.historyItem} ${selectedId === itemId ? local.historyItemSelected : ""}`} key={itemId} onClick={() => setSelectedId(itemId)} onDoubleClick={() => setSelectedId(itemId)} aria-label={`Open response: ${item.question || "Question not retained"}`}>
+      return <button type="button" className={`${local.historyItem} ${selectedId === itemId ? local.historyItemSelected : ""}`} key={itemId} onClick={() => setSelectedId(itemId)} onDoubleClick={() => setSelectedId(itemId)} data-selected={selectedId === itemId ? "true" : undefined} aria-label={`Open response: ${item.question || "Question not retained"}`}>
         <span className={local.historyEntryMain}><span><span className={styles.eyebrow}>{humanStatus(item.status)}</span><strong>{item.question || "Question not retained"}</strong><small>{formatDateTime(item.created_at)}</small></span><span className={failed ? styles.answerWarn : styles.answerGood}>{failed ? "Needs attention" : item.answer ? "Recorded" : "Older entry"}</span></span>
         <span className={local.historyMeta}><span>{item.provider ?? "Evidence only"}{item.model ? ` · ${item.model}` : ""}</span><span>{typeof item.latency_ms === "number" ? `${Math.round(item.latency_ms).toLocaleString()} ms` : "Latency not recorded"}</span><span>{usageLabel(item.usage)}</span><span>{Array.isArray(item.evidence_references) ? `${item.evidence_references.length} evidence records` : "No evidence count"}</span></span>
       </button>;
