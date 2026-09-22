@@ -34,6 +34,13 @@ function catalog(metadata: Record<string, unknown>, database = ""): Array<Record
   });
 }
 
+function connectionState(metadata: Record<string, unknown>, catalogItems: Array<Record<string, unknown>>): string {
+  const status = String(metadata.status ?? "UNKNOWN").toUpperCase();
+  if (status === "CONNECTED") return "CONNECTED";
+  if (/metadata is still being collected/i.test(String(metadata.reason ?? ""))) return "LOADING";
+  return catalogItems.length ? "CACHED DISCOVERY" : status;
+}
+
 async function savedCatalog(scope: WorkspaceScope, connectionId: string): Promise<{ database: string; schema: string; items: Array<Record<string, unknown>> }> {
   try {
     const root = path.join(process.cwd(), ".ade-ui", "projects", projectSlug(scope.projectId));
@@ -106,7 +113,7 @@ export async function GET(request: Request) {
       source: postgresConnection.schema_name ?? postgresSnapshot.schema ?? "public",
       target: snowflakeConnection.schema_name ?? snowflakeSnapshot.schema ?? "RAW",
     };
-    return Response.json({ history: { ...history, count: historyItems.length, items: historyItems }, qualityHistory: { ...qualityHistory, count: qualityItems.length, items: qualityItems }, workspace: scope, execution: { runCount: currentRunIds.size }, databases, schemas, catalog_state: hasActiveTable ? "SCOPED" : "NO_SELECTED_SOURCE_TABLE", connectionStatus: { source: postgres.status === "CONNECTED" ? "CONNECTED" : sourceCatalog.length ? "CACHED DISCOVERY" : postgres.status ?? "UNKNOWN", target: snowflake.status === "CONNECTED" ? "CONNECTED" : targetCatalog.length ? "CACHED DISCOVERY" : snowflake.status ?? "UNKNOWN" }, catalogs: { source: sourceCatalog, target: targetCatalog } }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ history: { ...history, count: historyItems.length, items: historyItems }, qualityHistory: { ...qualityHistory, count: qualityItems.length, items: qualityItems }, workspace: scope, execution: { runCount: currentRunIds.size }, databases, schemas, catalog_state: hasActiveTable ? "SCOPED" : "NO_SELECTED_SOURCE_TABLE", connectionStatus: { source: connectionState(postgres, sourceCatalog), target: connectionState(snowflake, targetCatalog) }, catalogs: { source: sourceCatalog, target: targetCatalog } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Unable to load reconciliation history" }, { status: 502 });
   }

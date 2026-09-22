@@ -35,6 +35,7 @@ export default function ReconciliationPage() {
   const [historyStatus, setHistoryStatus] = useState("ALL");
   const [defaults, setDefaults] = useState<ConnectionDefaults>({});
   const [catalogState, setCatalogState] = useState("");
+  const [metadataRetry, setMetadataRetry] = useState(0);
   const [catalogs, setCatalogs] = useState<{ source: CatalogItem[]; target: CatalogItem[] }>({ source: [], target: [] });
   const [loadingDefaults, setLoadingDefaults] = useState(true);
   const [form, setForm] = useState({ sourceSchema: "public", sourceDatabase: "", sourceTable: "", targetSchema: "RAW", targetDatabase: "", targetTable: "", checkType: "ROW_COUNT", checkSide: "source" as "source" | "target", checkColumn: "", keyColumn: "", sourceKeyColumn: "", targetKeyColumn: "", maxKeys: "50000", pipelineRunId: "" });
@@ -49,7 +50,7 @@ export default function ReconciliationPage() {
     fetch(scopedApiUrl("/api/reconciliation"), { cache: "no-store" }).then(async (response) => { const value = await response.json() as { history?: History; qualityHistory?: { items?: Item[] }; error?: string } & ConnectionDefaults; if (!response.ok) throw new Error(value.error || "Unable to load reconciliation history"); const items = value.history?.items ?? []; const latest = items[0]; const latestSource = latest?.source && typeof latest.source === "object" ? latest.source as Item : {}; const latestTarget = latest?.target && typeof latest.target === "object" ? latest.target as Item : {}; const latestResult = latest?.result && typeof latest.result === "object" ? latest.result as Item : {}; const sourceKeys = Array.isArray(latestResult.source_key_columns) ? latestResult.source_key_columns : []; const targetKeys = Array.isArray(latestResult.target_key_columns) ? latestResult.target_key_columns : []; const sourceCatalog = value.catalogs?.source ?? []; const targetCatalog = value.catalogs?.target ?? []; setHistory(items); setQualityHistory(value.qualityHistory?.items ?? []); setDefaults({ databases: value.databases, schemas: value.schemas, connectionStatus: value.connectionStatus, catalog_state: value.catalog_state }); setCatalogState(value.catalog_state ?? ""); setCatalogs({ source: sourceCatalog, target: targetCatalog }); setForm((current) => ({ ...current, sourceDatabase: value.databases?.source || current.sourceDatabase, targetDatabase: value.databases?.target || current.targetDatabase, sourceSchema: value.schemas?.source || current.sourceSchema, targetSchema: value.schemas?.target || current.targetSchema, sourceTable: current.sourceTable || text(latestSource.table, sourceCatalog[0]?.table ?? ""), targetTable: current.targetTable || text(latestTarget.table, targetCatalog[0]?.table ?? ""), keyColumn: current.keyColumn || text(latest?.key_column, ""), sourceKeyColumn: current.sourceKeyColumn || text(sourceKeys[0], text(latest?.key_column, "")), targetKeyColumn: current.targetKeyColumn || text(targetKeys[0], text(latest?.key_column, "")) })); }).finally(() => setLoadingDefaults(false)),
   ]).catch((reason: Error) => setError(reason.message));
 
-  useEffect(() => { void load().then(() => setLastRefreshed(new Date())); }, []);
+  useEffect(() => { void load().then(() => setLastRefreshed(new Date())); }, [metadataRetry]);
   const refreshHistory = () => { setRefreshing(true); setError(null); setResultNotice(null); void load().finally(() => { setRefreshing(false); setLastRefreshed(new Date()); }); };
   const baseline = !form.pipelineRunId.trim();
   const contextLabel = baseline ? "BASELINE / PRE-EXECUTION" : "POST-EXECUTION EVIDENCE";
@@ -58,8 +59,13 @@ export default function ReconciliationPage() {
   const targetCatalogItem = catalogs.target.find((item) => item.schema === form.targetSchema && item.table === form.targetTable);
   const sourceConnectionStatus = text(defaults.connectionStatus?.source, "UNAVAILABLE");
   const targetConnectionStatus = text(defaults.connectionStatus?.target, "UNAVAILABLE");
-  const sourceStatusClass = ["CONNECTED", "CACHED DISCOVERY"].includes(sourceConnectionStatus.toUpperCase()) ? styles.configured : styles.unavailable;
-  const targetStatusClass = ["CONNECTED", "CACHED DISCOVERY"].includes(targetConnectionStatus.toUpperCase()) ? styles.configured : styles.unavailable;
+  const sourceStatusClass = ["CONNECTED", "CACHED DISCOVERY"].includes(sourceConnectionStatus.toUpperCase()) ? styles.configured : sourceConnectionStatus.toUpperCase() === "LOADING" ? styles.loading : styles.unavailable;
+  const targetStatusClass = ["CONNECTED", "CACHED DISCOVERY"].includes(targetConnectionStatus.toUpperCase()) ? styles.configured : targetConnectionStatus.toUpperCase() === "LOADING" ? styles.loading : styles.unavailable;
+  useEffect(() => {
+    if (metadataRetry >= 2 || ![sourceConnectionStatus, targetConnectionStatus].some((status) => status.toUpperCase() === "LOADING")) return;
+    const timeout = window.setTimeout(() => setMetadataRetry((attempt) => attempt + 1), 1500);
+    return () => window.clearTimeout(timeout);
+  }, [metadataRetry, sourceConnectionStatus, targetConnectionStatus]);
   const checkColumns = form.checkSide === "target" ? targetCatalogItem?.columns ?? [] : sourceCatalogItem?.columns ?? [];
   const selectedSourceLabel = sourceCatalogItem?.label ?? [form.sourceDatabase, form.sourceSchema, form.sourceTable].filter(Boolean).join(".");
   const selectedTargetLabel = targetCatalogItem?.label ?? [form.targetDatabase, form.targetSchema, form.targetTable].filter(Boolean).join(".");
