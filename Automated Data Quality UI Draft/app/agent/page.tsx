@@ -175,21 +175,33 @@ function usageLabel(usage?: AgentUsage | null): string {
 }
 
 function AskHistory({ items }: { items: AgentHistoryItem[] }) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = items.find((item, index) => (item.invocation_id ?? `${item.question}-${index}`) === selectedId);
   const completeItems = items.filter((item) => Boolean(item.answer) || Boolean(item.error) || typeof item.latency_ms === "number");
-  const legacyItems = items.filter((item) => !completeItems.includes(item));
   return <section className={styles.panel} aria-labelledby="ask-ai-history-heading">
-    <header className={styles.panelHead}><div><h2 id="ask-ai-history-heading">Ask AI history</h2><p>Saved questions and their scoped answers. Entries are separated by project and environment.</p></div><span>{completeItems.length} complete</span></header>
-    {completeItems.length ? <div className={local.historyList}>{completeItems.map((item, index) => {
-      const scope = item.scope ?? {};
-      const failed = String(item.status ?? "").toUpperCase() === "LIVE_ERROR" || Boolean(item.error);
-      return <article className={local.historyItem} key={item.invocation_id ?? `${item.question}-${index}`}>
-        <header><div><span className={styles.eyebrow}>{humanStatus(item.status)}</span><h3>{item.question || "Question not retained"}</h3><small>{formatDateTime(item.created_at)}</small></div><span className={failed ? styles.answerWarn : styles.answerGood}>{failed ? "Needs attention" : "Recorded"}</span></header>
-        <div className={local.historyMeta}><span>{item.provider ?? "Evidence only"}{item.model ? ` · ${item.model}` : ""}</span><span>{typeof item.latency_ms === "number" ? `${Math.round(item.latency_ms).toLocaleString()} ms` : "Latency not recorded"}</span><span>{usageLabel(item.usage)}</span></div>
-        <section className={local.historyAnswer}><h4>{failed ? "Result" : "Answer"}</h4><p>{item.answer || (failed ? "No final AI answer was recorded." : "This older entry did not retain a complete answer.")}</p>{item.error ? <p className={styles.warningText}>{agentErrorMessage(item.error)}</p> : null}</section>
-        <details className={local.answerDetails}><summary>Scope and evidence <span>{Array.isArray(item.evidence_references) ? item.evidence_references.length : 0} records</span></summary><div className={local.detailContent}><div className={styles.summaryList}><div className={styles.summaryRow}><span>Project <small>{scope.project_id ?? "Not recorded"} · {scope.environment ?? "Not recorded"}</small></span><strong>Scoped</strong></div>{scope.selected_asset ? <div className={styles.summaryRow}><span>Asset <small>{scope.selected_asset}</small></span><strong>Selected</strong></div> : null}{scope.run_id ? <div className={styles.summaryRow}><span>Run <small>{scope.run_id}</small></span><strong>Selected</strong></div> : null}</div><div className={styles.capabilityList}>{stringList(item.tools_used).length ? stringList(item.tools_used).map((tool) => <span className={styles.capability} key={tool}>{tool}</span>) : <span className={styles.muted}>No AI tool calls recorded</span>}</div></div></details>
-      </article>;
-    })}</div> : <div className={local.historyEmpty}><strong>No complete Ask AI answers saved yet</strong><p>The next question will retain its answer, model, usage, latency, scope, and evidence references.</p></div>}
-    {legacyItems.length ? <details className={local.legacyHistory}><summary>Earlier activity without a stored answer <span>{legacyItems.length} entries</span></summary><p>These questions were recorded by the earlier implementation, but it did not persist their answers or latency. They cannot be reconstructed truthfully.</p><div className={styles.summaryList}>{legacyItems.map((item, index) => <div className={styles.summaryRow} key={item.invocation_id ?? `${item.question}-${index}`}><span>{item.question || "Question not retained"}<small>{formatDateTime(item.created_at)}</small></span><strong>{humanStatus(item.status)}</strong></div>)}</div></details> : null}
+    <header className={styles.panelHead}><div><h2 id="ask-ai-history-heading">Ask AI history</h2><p>Select a question to inspect its complete response and supporting details.</p></div><span>{completeItems.length} complete</span></header>
+    {items.length ? <div className={local.historyList}>{items.map((item, index) => {
+      const itemId = item.invocation_id ?? `${item.question}-${index}`;
+      const status = String(item.status ?? "").toUpperCase();
+      const failed = Boolean(item.error) || (status.startsWith("LIVE_") && status !== "LIVE_RESPONSE");
+      return <button type="button" className={`${local.historyItem} ${selectedId === itemId ? local.historyItemSelected : ""}`} key={itemId} onClick={() => setSelectedId(itemId)} aria-label={`Open response: ${item.question || "Question not retained"}`}>
+        <span className={local.historyEntryMain}><span><span className={styles.eyebrow}>{humanStatus(item.status)}</span><strong>{item.question || "Question not retained"}</strong><small>{formatDateTime(item.created_at)}</small></span><span className={failed ? styles.answerWarn : styles.answerGood}>{failed ? "Needs attention" : item.answer ? "Recorded" : "Older entry"}</span></span>
+        <span className={local.historyMeta}><span>{item.provider ?? "Evidence only"}{item.model ? ` · ${item.model}` : ""}</span><span>{typeof item.latency_ms === "number" ? `${Math.round(item.latency_ms).toLocaleString()} ms` : "Latency not recorded"}</span><span>{usageLabel(item.usage)}</span><span>{Array.isArray(item.evidence_references) ? `${item.evidence_references.length} evidence records` : "No evidence count"}</span></span>
+      </button>;
+    })}</div> : <div className={local.historyEmpty}><strong>No Ask AI questions saved yet</strong><p>The next question will retain its answer, model, usage, latency, scope, and evidence references.</p></div>}
+    {selected ? <HistoryViewer item={selected} /> : items.length ? <div className={local.historyPrompt}>Select a question above to open its full response.</div> : null}
+  </section>;
+}
+
+function HistoryViewer({ item }: { item: AgentHistoryItem }) {
+  const scope = item.scope ?? {};
+  const status = String(item.status ?? "").toUpperCase();
+  const failed = Boolean(item.error) || (status.startsWith("LIVE_") && status !== "LIVE_RESPONSE");
+  return <section className={local.historyViewer} aria-labelledby="ask-ai-history-detail-heading">
+    <header className={local.historyViewerHeader}><div><span className={styles.eyebrow}>SELECTED RESPONSE</span><h2 id="ask-ai-history-detail-heading">{item.question || "Question not retained"}</h2><small>{formatDateTime(item.created_at)}</small></div><span className={failed ? styles.answerWarn : styles.answerGood}>{humanStatus(item.status)}</span></header>
+    <div className={local.historyViewerMeta}><span><strong>Provider</strong>{item.provider ?? "Evidence only"}{item.model ? ` · ${item.model}` : ""}</span><span><strong>Latency</strong>{typeof item.latency_ms === "number" ? `${Math.round(item.latency_ms).toLocaleString()} ms` : "Not recorded"}</span><span><strong>Usage</strong>{usageLabel(item.usage)}</span></div>
+    <section className={local.historyResponse}><h3>{failed ? "Result" : "Response"}</h3><p>{item.answer || (failed ? "No final AI answer was recorded." : "This older entry did not retain a complete answer and cannot be reconstructed.")}</p>{item.error ? <p className={styles.warningText}>{agentErrorMessage(item.error)}</p> : null}</section>
+    <div className={local.historyViewerGrid}><section><h3>Scope</h3><div className={styles.summaryList}><div className={styles.summaryRow}><span>Project / environment<small>{scope.project_id ?? "Not recorded"} · {scope.environment ?? "Not recorded"}</small></span><strong>Scoped</strong></div>{scope.selected_asset ? <div className={styles.summaryRow}><span>Asset<small>{scope.selected_asset}</small></span><strong>Selected</strong></div> : null}{scope.run_id ? <div className={styles.summaryRow}><span>Run<small>{scope.run_id}</small></span><strong>Selected</strong></div> : null}</div></section><section><h3>Evidence and tools</h3><div className={styles.summaryList}>{item.evidence_references?.length ? item.evidence_references.map((reference) => <div className={styles.summaryRow} key={reference}><span>Evidence<small>{reference}</small></span><strong>Linked</strong></div>) : <div className={styles.summaryRow}><span>No evidence references retained</span><strong>Not available</strong></div>}</div><div className={styles.capabilityList}>{item.tools_used?.length ? item.tools_used.map((tool) => <span className={styles.capability} key={tool}>{tool}</span>) : <span className={styles.muted}>No AI tool calls recorded</span>}</div></section></div>
   </section>;
 }
 
