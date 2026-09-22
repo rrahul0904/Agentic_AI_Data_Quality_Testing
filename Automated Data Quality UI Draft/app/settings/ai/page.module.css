@@ -1,0 +1,26 @@
+.layout { display: grid; gap: 16px; max-width: 980px; }
+.panel { padding: 22px; border: 1px solid #dce6e0; border-radius: 12px; background: white; box-shadow: 0 2px 8px rgba(27, 51, 40, .04); }
+.panel h2 { margin: 0; color: #203a2d; font-size: 20px; }
+.panel p { margin: 6px 0 0; color: #66766d; font-size: 14px; line-height: 1.5; }
+.scope { margin-top: 12px; color: #527060; font-size: 13px; font-weight: 800; }
+.form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 22px; }
+.field { display: grid; gap: 7px; color: #43564c; font-size: 14px; font-weight: 800; }
+.field.wide { grid-column: 1 / -1; }
+.field input, .field select { min-height: 44px; padding: 9px 11px; border: 1px solid #ccd9d1; border-radius: 8px; background: #fff; color: #1f3027; font: inherit; font-weight: 500; }
+.field input:focus, .field select:focus { border-color: #329b6c; outline: 3px solid rgba(50, 155, 108, .18); }
+.hint { color: #74857b; font-size: 12px; font-weight: 500; line-height: 1.45; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 20px; }
+.primary, .secondary, .danger { min-height: 42px; padding: 0 15px; border-radius: 8px; font: inherit; font-size: 14px; font-weight: 800; cursor: pointer; }
+.primary { border: 1px solid #16835a; background: #16835a; color: white; }
+.secondary { border: 1px solid #cbdad1; background: white; color: #28523e; }
+.danger { border: 1px solid #e5caca; background: #fff9f9; color: #a33f3f; }
+.primary:disabled, .secondary:disabled, .danger:disabled { cursor: wait; opacity: .55; }
+.notice { margin-top: 16px; padding: 11px 13px; border-radius: 8px; font-size: 14px; line-height: 1.45; }
+.success { background: #eaf8f0; color: #176b48; }
+.error { background: #fff1f1; color: #9b3030; }
+.statusGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 18px; }
+.statusGrid div { padding: 12px; border: 1px solid #e4ece7; border-radius: 8px; background: #f9fcfa; }
+.statusGrid small { display: block; color: #75867c; font-size: 12px; }
+.statusGrid strong { display: block; margin-top: 5px; color: #203a2d; font-size: 14px; }
+.warning { margin-top: 14px; color: #8a5c10; font-size: 13px; line-height: 1.45; }
+@media (max-width: 760px) { .form, .statusGrid { grid-template-columns: 1fr; } .panel { padding: 16px; } }
