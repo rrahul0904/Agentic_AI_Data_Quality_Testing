@@ -70,6 +70,21 @@ def test_snowflake_demo_persists_structured_live_evidence(tmp_path: Path, monkey
     (workspace / "snowflake").mkdir(parents=True)
     (workspace / "release" / "semantic").mkdir(parents=True)
     dbt_dir.mkdir(parents=True)
+    for sql_file in (
+        workspace / "snowflake" / "001_raw_tables.sql",
+        workspace / "snowflake" / "002_load_raw.sql",
+        workspace / "release" / "semantic" / "verify_semantic_view.sql",
+    ):
+        sql_file.write_text("-- bounded certification SQL\n", encoding="utf-8")
+    (workspace / "release" / "release_manifest.json").write_text(
+        json.dumps(
+            {
+                "source_sha": "exact-source-sha",
+                "semantic_manifest_sha256": "semantic-manifest-hash",
+            }
+        ),
+        encoding="utf-8",
+    )
 
     monkeypatch.setattr(
         cli,
@@ -155,6 +170,8 @@ def test_snowflake_demo_persists_structured_live_evidence(tmp_path: Path, monkey
     )
 
     assert result["status"] == "PASS"
+    assert result["source_sha"] == "exact-source-sha"
+    assert result["semantic_manifest_sha256"] == "semantic-manifest-hash"
     assert result["semantic_deployed"] is False
     assert result["production_rollout_certified"] is False
     assert [stage["name"] for stage in result["stages"]] == [
@@ -163,6 +180,7 @@ def test_snowflake_demo_persists_structured_live_evidence(tmp_path: Path, monkey
         "dbt_build",
         "semantic_view_server_verify",
     ]
+    assert len(result["stages"][0]["sql_artifact"]["sha256"]) == 64
     assert result["stages"][0]["executor"]["statements"][0]["query_id"] == "qid-1"
     assert result["stages"][1]["executor"]["statements"][0]["rowcount"] == 2
     assert result["stages"][2]["dbt"]["metadata"]["invocation_id"] == "dbt-invocation-1"

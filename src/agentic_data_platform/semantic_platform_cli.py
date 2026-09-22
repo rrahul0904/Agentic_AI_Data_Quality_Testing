@@ -9,6 +9,7 @@ The platform's basis is:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -691,6 +692,31 @@ def evaluate_optimization(
     return payload
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _resolve_live_source_sha(release_manifest: dict[str, Any]) -> str:
+    source_sha = release_manifest.get("source_sha") or os.environ.get("GITHUB_SHA")
+    if source_sha:
+        return str(source_sha)
+
+    git = shutil.which("git")
+    if git:
+        result = _run([git, "rev-parse", "HEAD"], cwd=REPO_ROOT, capture=True)
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+
+    raise RuntimeError(
+        "live certification requires an exact source SHA; "
+        "build the release with --source-sha or run from a Git checkout"
+    )
+
+
 def _parse_executor_evidence(result: dict[str, Any], *, stage_name: str) -> dict[str, Any]:
     """Extract the structured Snowflake executor payload without persisting raw logs."""
     try:
@@ -765,6 +791,19 @@ def snowflake_demo(
     release = workspace / "release"
     evidence_dir = workspace / "evidence"
     evidence_dir.mkdir(parents=True, exist_ok=True)
+    release_manifest_path = release / "release_manifest.json"
+    if not release_manifest_path.exists():
+        raise RuntimeError(
+            "live certification requires release/release_manifest.json; "
+            "run semantic-platform demo-build first"
+        )
+    try:
+        release_manifest = json.loads(
+            release_manifest_path.read_text(encoding="utf-8")
+        )
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("release/release_manifest.json is not valid JSON") from exc
+    source_sha = _resolve_live_source_sha(release_manifest)
     _dbt_profiles(dbt_dir)
 
     stages: list[dict[str, Any]] = []
@@ -783,6 +822,10 @@ def snowflake_demo(
                 "name": stage_name,
                 "command": execution["command"],
                 "returncode": execution["returncode"],
+                "sql_artifact": {
+                    "path": str(sql_file),
+                    "sha256": _sha256_file(sql_file),
+                },
                 "executor": _parse_executor_evidence(
                     execution,
                     stage_name=stage_name,
@@ -846,6 +889,11 @@ def snowflake_demo(
         "status": "PASS",
         "scope": "bounded_target_account_bootstrap_load_dbt_semantic_verification",
         "workspace": str(workspace),
+        "source_sha": source_sha,
+        "semantic_manifest_sha256": release_manifest.get(
+            "semantic_manifest_sha256"
+        ),
+        "release_manifest": str(release_manifest_path),
         "environment": {
             "account": os.environ.get("SNOWFLAKE_ACCOUNT"),
             "warehouse": os.environ.get("SNOWFLAKE_WAREHOUSE"),
