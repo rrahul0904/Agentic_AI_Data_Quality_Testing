@@ -34,6 +34,12 @@ function catalog(metadata: Record<string, unknown>, database = ""): Array<Record
   });
 }
 
+function configuredCatalog(catalogItems: Array<Record<string, unknown>>, schemaSetting: unknown): Array<Record<string, unknown>> {
+  const schemas = String(schemaSetting ?? "").split(",").map((item) => item.trim().toLowerCase()).filter(Boolean);
+  if (!schemas.length) return catalogItems;
+  return catalogItems.filter((item) => schemas.includes(String(item.schema ?? "").toLowerCase()));
+}
+
 function connectionState(metadata: Record<string, unknown>, catalogItems: Array<Record<string, unknown>>): string {
   const status = String(metadata.status ?? "UNKNOWN").toUpperCase();
   if (status === "CONNECTED") return "CONNECTED";
@@ -98,8 +104,15 @@ export async function GET(request: Request) {
     const savedPostgres = catalog(postgres, String(postgresConnection.database_name ?? postgres.database ?? ""));
     const savedSnowflake = catalog(snowflake, String(snowflakeConnection.database_name ?? snowflake.database ?? ""));
     const [postgresSnapshot, snowflakeSnapshot] = await Promise.all([savedCatalog(scope, "runtime-postgres"), savedCatalog(scope, "runtime-snowflake")]);
-    const sourceCatalog = hasActiveTable ? (savedPostgres.length ? savedPostgres : postgresSnapshot.items) : [];
-    const targetCatalog = hasActiveTable ? (savedSnowflake.length ? savedSnowflake : snowflakeSnapshot.items) : [];
+    // The comparison form is itself an explicit table-selection surface.  Do
+    // not require a user to first add a source table somewhere else before
+    // they can see the inventories needed to make that choice.  These are
+    // connector-scoped discovery results only; returning them here does not
+    // alter the project's selected-source-table state or revive old runs.
+    const sourceSchema = postgresConnection.schema_name ?? postgresSnapshot.schema ?? "public";
+    const targetSchema = snowflakeConnection.schema_name ?? snowflakeSnapshot.schema ?? "RAW";
+    const sourceCatalog = configuredCatalog(savedPostgres.length ? savedPostgres : postgresSnapshot.items, sourceSchema);
+    const targetCatalog = configuredCatalog(savedSnowflake.length ? savedSnowflake : snowflakeSnapshot.items, targetSchema);
     const historyItems = Array.isArray(history.items) ? history.items.filter((item) => recordMatchesCurrentExecution(item, currentState, currentRunIds)) : [];
     const qualityItems = Array.isArray(qualityHistory.items) ? qualityHistory.items.filter((item) => recordMatchesCurrentExecution(item, currentState, currentRunIds)) : [];
     // Connection identity is useful even when no table has been selected.  The
@@ -110,10 +123,15 @@ export async function GET(request: Request) {
       target: snowflakeConnection.database_name ?? snowflake.database ?? snowflakeSnapshot.database ?? "",
     };
     const schemas = {
-      source: postgresConnection.schema_name ?? postgresSnapshot.schema ?? "public",
-      target: snowflakeConnection.schema_name ?? snowflakeSnapshot.schema ?? "RAW",
+      source: sourceSchema,
+      target: targetSchema,
     };
-    return Response.json({ history: { ...history, count: historyItems.length, items: historyItems }, qualityHistory: { ...qualityHistory, count: qualityItems.length, items: qualityItems }, workspace: scope, execution: { runCount: currentRunIds.size }, databases, schemas, catalog_state: hasActiveTable ? "SCOPED" : "NO_SELECTED_SOURCE_TABLE", connectionStatus: { source: connectionState(postgres, sourceCatalog), target: connectionState(snowflake, targetCatalog) }, catalogs: { source: sourceCatalog, target: targetCatalog } }, { headers: { "Cache-Control": "no-store" } });
+    const catalogState = hasActiveTable
+      ? "SCOPED"
+      : sourceCatalog.length || targetCatalog.length
+        ? "DISCOVERED_NOT_SELECTED"
+        : "NO_AVAILABLE_CATALOG";
+    return Response.json({ history: { ...history, count: historyItems.length, items: historyItems }, qualityHistory: { ...qualityHistory, count: qualityItems.length, items: qualityItems }, workspace: scope, execution: { runCount: currentRunIds.size }, databases, schemas, catalog_state: catalogState, connectionStatus: { source: connectionState(postgres, sourceCatalog), target: connectionState(snowflake, targetCatalog) }, catalogs: { source: sourceCatalog, target: targetCatalog } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Unable to load reconciliation history" }, { status: 502 });
   }
