@@ -68,6 +68,7 @@ test("cleared reconciliation and overview views cannot source current state from
   assert.match(reconciliationRoute, /CONNECTION_CONFIGURATION_CHANGED/);
   assert.match(reconciliationRoute, /function sameDatabase/);
   assert.match(reconciliationRoute, /connectionOptions/);
+  assert.match(reconciliationRoute, /configuredConnectionOptions/);
   assert.doesNotMatch(reconciliationRoute, /const databases = hasActiveTable/);
   assert.match(reconciliationRoute, /source: sourceDatabase/);
   assert.match(reconciliationRoute, /function connectionState\(/);
@@ -77,6 +78,7 @@ test("cleared reconciliation and overview views cannot source current state from
   assert.match(reconciliationPage, /Connection settings changed/);
   assert.match(reconciliationPage, /Choose source database/);
   assert.match(reconciliationPage, /Choose target database/);
+  assert.match(reconciliationPage, /Selected database has not been tested/);
   assert.doesNotMatch(reconciliationPage, /sourceCatalog\[0\]\?\.table|targetCatalog\[0\]\?\.table/);
   assert.match(reconciliationPage, /const \[metadataRetry, setMetadataRetry\] = useState\(0\);/);
   assert.match(reconciliationPage, /status\.toUpperCase\(\) === "LOADING"/);

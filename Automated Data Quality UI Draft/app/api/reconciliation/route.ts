@@ -89,6 +89,27 @@ async function savedCatalog(scope: WorkspaceScope, connectionId: string): Promis
   }
 }
 
+type ConnectionOption = { id: string; label: string; database: string; schema: string };
+
+async function configuredConnectionOptions(scope: WorkspaceScope, kind: "postgres" | "snowflake"): Promise<ConnectionOption[]> {
+  try {
+    const root = path.join(process.cwd(), ".ade-ui", "projects", projectSlug(scope.projectId));
+    const connections = await readFile(path.join(root, "connections.json"), "utf8").then((value) => JSON.parse(value) as Array<Record<string, unknown>>);
+    return connections.flatMap((profile) => {
+      if (profile.kind !== kind || profile.enabled === false || !profile.config || typeof profile.config !== "object") return [];
+      const config = profile.config as Record<string, unknown>;
+      const database = String(config.database ?? config.catalog ?? "").trim();
+      const id = String(profile.id ?? "").trim();
+      if (!database || !id) return [];
+      const schema = String(config.schema ?? config.schemas ?? "").trim();
+      const name = String(profile.name ?? (kind === "postgres" ? "PostgreSQL" : "Snowflake")).trim();
+      return [{ id, label: `${name} · ${database}${schema ? `.${schema}` : ""}`, database, schema }];
+    });
+  } catch {
+    return [];
+  }
+}
+
 function sameDatabase(configured: string, observed: unknown): boolean {
   const actual = String(observed ?? "").trim();
   return Boolean(configured && actual && configured.localeCompare(actual, undefined, { sensitivity: "accent" }) === 0);
@@ -108,7 +129,12 @@ export async function GET(request: Request) {
     ]);
     const postgresConnection = postgres.connection && typeof postgres.connection === "object" ? postgres.connection as Record<string, unknown> : {};
     const snowflakeConnection = snowflake.connection && typeof snowflake.connection === "object" ? snowflake.connection as Record<string, unknown> : {};
-    const [postgresSnapshot, snowflakeSnapshot] = await Promise.all([savedCatalog(scope, "runtime-postgres"), savedCatalog(scope, "runtime-snowflake")]);
+    const [postgresSnapshot, snowflakeSnapshot, sourceOptions, targetOptions] = await Promise.all([
+      savedCatalog(scope, "runtime-postgres"),
+      savedCatalog(scope, "runtime-snowflake"),
+      configuredConnectionOptions(scope, "postgres"),
+      configuredConnectionOptions(scope, "snowflake"),
+    ]);
     // The comparison form is itself an explicit table-selection surface.  Do
     // not require a user to first add a source table somewhere else before
     // they can see the inventories needed to make that choice.  These are
@@ -147,10 +173,7 @@ export async function GET(request: Request) {
           : sourceCatalog.length || targetCatalog.length
             ? "DISCOVERED_NOT_SELECTED"
             : "NO_AVAILABLE_CATALOG";
-    const connectionOptions = {
-      source: sourceDatabase ? [{ id: "runtime-postgres", label: `PostgreSQL · ${sourceDatabase}${sourceSchema ? `.${sourceSchema}` : ""}`, database: sourceDatabase, schema: sourceSchema }] : [],
-      target: targetDatabase ? [{ id: "runtime-snowflake", label: `Snowflake · ${targetDatabase}${targetSchema ? `.${targetSchema}` : ""}`, database: targetDatabase, schema: targetSchema }] : [],
-    };
+    const connectionOptions = { source: sourceOptions, target: targetOptions };
     return Response.json({ history: { ...history, count: historyItems.length, items: historyItems }, qualityHistory: { ...qualityHistory, count: qualityItems.length, items: qualityItems }, workspace: scope, execution: { runCount: currentRunIds.size }, databases, schemas, connectionOptions, catalog_state: catalogState, connectionStatus: { source: connectionState(postgres, sourceCatalog, Boolean(sourceDatabase), sourceMatches), target: connectionState(snowflake, targetCatalog, Boolean(targetDatabase), targetMatches) }, catalogs: { source: sourceCatalog, target: targetCatalog } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Unable to load reconciliation history" }, { status: 502 });
