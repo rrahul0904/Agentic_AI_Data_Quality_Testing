@@ -184,7 +184,7 @@ function AskHistory({ items }: { items: AgentHistoryItem[] }) {
       const itemId = item.invocation_id ?? `${item.question}-${index}`;
       const status = String(item.status ?? "").toUpperCase();
       const failed = Boolean(item.error) || (status.startsWith("LIVE_") && status !== "LIVE_RESPONSE");
-      return <button type="button" className={`${local.historyItem} ${selectedId === itemId ? local.historyItemSelected : ""}`} key={itemId} onClick={() => setSelectedId(itemId)} aria-label={`Open response: ${item.question || "Question not retained"}`}>
+      return <button type="button" className={`${local.historyItem} ${selectedId === itemId ? local.historyItemSelected : ""}`} key={itemId} onClick={() => setSelectedId(itemId)} onDoubleClick={() => setSelectedId(itemId)} aria-label={`Open response: ${item.question || "Question not retained"}`}>
         <span className={local.historyEntryMain}><span><span className={styles.eyebrow}>{humanStatus(item.status)}</span><strong>{item.question || "Question not retained"}</strong><small>{formatDateTime(item.created_at)}</small></span><span className={failed ? styles.answerWarn : styles.answerGood}>{failed ? "Needs attention" : item.answer ? "Recorded" : "Older entry"}</span></span>
         <span className={local.historyMeta}><span>{item.provider ?? "Evidence only"}{item.model ? ` · ${item.model}` : ""}</span><span>{typeof item.latency_ms === "number" ? `${Math.round(item.latency_ms).toLocaleString()} ms` : "Latency not recorded"}</span><span>{usageLabel(item.usage)}</span><span>{Array.isArray(item.evidence_references) ? `${item.evidence_references.length} evidence records` : "No evidence count"}</span></span>
       </button>;
