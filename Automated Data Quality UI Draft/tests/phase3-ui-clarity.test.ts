@@ -46,8 +46,9 @@ test("Ask AI keeps the concise answer primary and makes evidence and technical o
   assert.match(page, /const headline = executionRequest/);
   assert.match(page, /: directAnswer\n\s+\? "Evidence collected\."/);
   assert.match(page, /result\.request_type === "execution"/);
+  assert.match(page, /const requiresQualityScope = responseResult\.quality_scope === "REQUIRED";/);
+  assert.match(page, /humanStatus\(requiresQualityScope \? responseResult\.status/);
   assert.match(page, /LIVE_RESPONSE" && response\.answer/);
-  assert.match(page, /humanStatus\(response\.agent\?\.status \?\? resultRecord\(response\.result\)\.status\)/);
   assert.doesNotMatch(page, /compactNarrative\(response\.question/);
 });
 

@@ -12,6 +12,7 @@ type OrchestrationRun = { dag_id?: string; status?: string; run_id?: string | nu
 type AgentResult = {
   status?: string;
   request_type?: string;
+  quality_scope?: string;
   source?: string;
   dags?: AirflowDag[];
   runs?: unknown[];
@@ -234,6 +235,8 @@ export default function AgentPage() {
   const supportingFacts = objectList(response?.supporting_facts);
   const evidenceLinks = objectList(response?.evidence_links) as EvidenceLink[];
   const readable = response && !response.error ? readableResult(response) : null;
+  const responseResult = resultRecord(response?.result);
+  const requiresQualityScope = responseResult.quality_scope === "REQUIRED";
   const executionRequest = looksLikeExecutionRequest(question);
   const assetOptions = (Array.isArray(agentStatus.assets) ? agentStatus.assets : Array.isArray(agentStatus.catalog) ? agentStatus.catalog : []).map((item) => typeof item === "string" ? item : item && typeof item === "object" ? String((item as Record<string, unknown>).qualified_name ?? (item as Record<string, unknown>).name ?? "") : "").filter(Boolean);
   const runOptions = (Array.isArray(agentStatus.runs) ? agentStatus.runs : []).map((item) => typeof item === "string" ? item : item && typeof item === "object" ? String((item as Record<string, unknown>).run_id ?? "") : "").filter(Boolean);
@@ -271,7 +274,7 @@ export default function AgentPage() {
         {response && !response.error && readable && <div className={styles.sectionStack} aria-live="polite">
           <h3>Answer</h3>
           <section className={styles.answerCard}>
-            <div className={styles.answerHeader}><span className={styles.answerEyebrow}>CURRENT STATUS</span><span className={styles.answerStatus}>{humanStatus(response.agent?.status ?? resultRecord(response.result).status)}</span></div>
+            <div className={styles.answerHeader}><span className={styles.answerEyebrow}>CURRENT STATUS</span><span className={styles.answerStatus}>{humanStatus(requiresQualityScope ? responseResult.status : response.agent?.status ?? responseResult.status)}</span></div>
             <h2>{readable.headline}</h2>
             <p>{readable.detail}</p>
             <div className={styles.answerFacts}>{readable.facts.map((item) => <div className={styles.answerFact} key={item.label}><small>{item.label}</small><strong className={item.tone === "warn" ? styles.answerWarn : item.tone === "good" ? styles.answerGood : ""}>{item.value}</strong></div>)}</div>
