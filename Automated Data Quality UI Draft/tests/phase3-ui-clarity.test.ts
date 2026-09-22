@@ -40,6 +40,7 @@ test("Ask AI keeps the concise answer primary and makes evidence and technical o
   assert.match(page, /AI explanation is unavailable right now\./);
   assert.match(page, /Deterministic evidence is shown below, but it is not an AI explanation\./);
   assert.match(page, /Evidence-only fallback \(AI unavailable\)/);
+  assert.match(page, /AI explanation completed\./);
   assert.doesNotMatch(page, /compactNarrative\(response\.question/);
 });
 

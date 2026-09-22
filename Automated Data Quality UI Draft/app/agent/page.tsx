@@ -71,6 +71,7 @@ function humanStatus(value?: string | null): string {
   if (status === "LIVE_RESPONSE") return "AI explanation completed";
   if (status === "LIVE_ERROR") return "AI explanation unavailable";
   if (status === "SKIP_EXTERNAL") return "External provider not called";
+  if (status === "CONNECTED") return "Connector reachable";
   if (status === "SUCCESS" || status === "COMPLETED" || status === "PASS" || status === "PASSED") return "Passed";
   if (status === "FAILED" || status === "ERROR" || status === "FAIL") return "Failed";
   if (status === "QUEUED" || status === "RUNNING" || status === "MONITORING") return "In progress";
@@ -128,13 +129,17 @@ function readableResult(response: AgentResponse): { headline: string; detail: st
   const targetName = dag?.dag_id ?? "the requested workflow";
   const modelAnswer = isGenericEvidenceAnswer(response.answer) ? "" : response.answer;
   const providerUnavailable = String(response.agent?.status ?? "").toUpperCase() === "LIVE_ERROR" || Boolean(response.agent?.error);
+  const evidenceOnly = ["VERIFIED_TOOL_RESPONSE", "TOOL_EVIDENCE_ONLY"].includes(String(response.agent?.status ?? "").toUpperCase())
+    || String(response.evidence?.mode ?? "").toLowerCase() === "evidence_only";
   const executionRequest = /^(can you\s+)?(run|execute|start|trigger|refresh|load|rerun|retry)\b/i.test(normalizedQuestion);
   const headline = dag
     ? `${targetName} is ${dag.is_paused ? "paused" : "active"}.`
     : modelAnswer
-      ? compactNarrative(modelAnswer, `Evidence collection is ${humanStatus(result.status)}.`)
+      ? "AI explanation completed."
       : providerUnavailable
         ? "AI explanation is unavailable right now."
+      : evidenceOnly
+        ? "Evidence was collected; AI review was not run."
       : executionRequest
         ? "This is an execution request, not an explanation request."
         : `Evidence collection is ${humanStatus(result.status)}.`;
@@ -144,6 +149,8 @@ function readableResult(response: AgentResponse): { headline: string; detail: st
       ? compactNarrative(modelAnswer, "The available connector evidence is summarized below.")
       : providerUnavailable
         ? "The live AI provider could not complete this request. Deterministic evidence is shown below, but it is not an AI explanation."
+      : evidenceOnly
+        ? "The selected connectors returned scoped evidence. No model-generated explanation was produced for this request."
       : executionRequest
         ? "Ask AI does not submit jobs. Open Run jobs to preview, approve, and execute the requested dbt scope."
         : "No model-generated explanation was returned. The available scoped evidence is summarized below.";
@@ -160,7 +167,9 @@ function readableResult(response: AgentResponse): { headline: string; detail: st
       : item);
   if (dag) unknowns.unshift("This confirms Airflow runtime metadata only; it does not prove Snowflake loads, dbt completion, or data-quality results.");
   if (freshness.toUpperCase() === "STALE") unknowns.push(`The runtime snapshot may be stale. Last refresh: ${formatDateTime(result.last_refreshed)}.`);
-  const nextAction = String(latestRun?.status ?? "").toUpperCase() === "SUCCESS"
+  const nextAction = evidenceOnly
+    ? "Ask a scoped factual question again when you want an AI interpretation; connector evidence alone is not an AI review."
+    : String(latestRun?.status ?? "").toUpperCase() === "SUCCESS"
     ? "Open the exact run evidence to inspect task results, then verify downstream Snowflake/dbt steps separately."
     : String(latestRun?.status ?? "").toUpperCase() === "FAILED"
       ? "Open the exact failed run and inspect the failed task log before retrying."
