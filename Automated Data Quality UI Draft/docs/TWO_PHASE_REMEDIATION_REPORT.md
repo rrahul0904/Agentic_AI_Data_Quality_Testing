@@ -36,9 +36,11 @@ Implemented and verified:
 
 ## Evidence
 
-- Backend commit: `8e3bc51` — `fix scoped current-state reads and cleanup`
-- UI commit: `c7fe25621fc51396c096e481b57e2ee79a649f28` — `prevent stale scoped UI state from resurfacing`.
-- Backend full suite: 711 passed, 1 existing Starlette deprecation warning.
+- Backend commits:
+  - `8e3bc515754352d4bee40fece67a04feb6c7335a` — `fix scoped current-state reads and cleanup`.
+  - `850c36958846092fb0d246215d5210ab63860e63` — `return zero incident counts for empty stores`.
+- UI commit: `60d2054b9f2fceee14cea1e7b053e23fbb8b9523` — `docs: record two-phase remediation evidence`.
+- Backend full suite: 712 passed, 1 existing Starlette deprecation warning.
 - Backend targeted scope/cleanup/evidence suite: 23 passed, 1 existing Starlette deprecation warning.
 - UI unit/regression suite: 41 passed.
 - UI typecheck: passed with `npm run typecheck -- --incremental false`.
