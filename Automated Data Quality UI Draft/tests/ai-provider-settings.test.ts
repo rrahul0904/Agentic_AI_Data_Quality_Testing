@@ -14,4 +14,7 @@ test("AI provider settings support an encrypted project key without exposing it"
   assert.match(page, /Remove stored key/);
   assert.match(page, /\/api\/ai-provider/);
   assert.match(page, /api_key_env/);
+  const route = await readFile(new URL("../app/api/ai-provider/route.ts", import.meta.url), "utf8");
+  assert.match(route, /record\.detail/);
+  assert.match(route, /withNormalizedError/);
 });
