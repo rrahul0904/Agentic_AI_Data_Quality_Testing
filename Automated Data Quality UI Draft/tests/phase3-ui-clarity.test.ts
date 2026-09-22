@@ -4,7 +4,7 @@ import test from "node:test";
 
 const source = (path: string) => readFile(new URL(path, import.meta.url), "utf8");
 
-test("Connections use readable labels and an accessible compact layout below the content breakpoint", async () => {
+test("Connections keep a readable table at laptop widths and use a compact layout only on phones", async () => {
   const page = await source("../app/register-project/page.tsx");
   const css = await source("../app/register-project/onboarding.module.css");
 
@@ -12,8 +12,9 @@ test("Connections use readable labels and an accessible compact layout below the
   assert.match(page, /connectionStatusLabel/);
   assert.match(page, /Connected/);
   assert.match(page, /role="region" aria-label="Configured connections\. Scroll to view all connection actions\."/);
-  assert.match(css, /@container \(max-width: 1120px\)/);
-  assert.match(css, /content: attr\(data-label\)/);
+  assert.match(css, /\.connectionTable \{ width: 100%; min-width: 1040px;/);
+  assert.match(css, /@media \(max-width: 720px\)/);
+  assert.doesNotMatch(css, /@container \(max-width: 1120px\) \{\s*\.connectionTable/);
   assert.match(css, /scrollbar-gutter: stable both-edges/);
 });
 
