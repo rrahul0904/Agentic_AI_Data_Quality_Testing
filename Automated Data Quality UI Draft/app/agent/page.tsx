@@ -7,6 +7,22 @@ import { currentWorkspaceParams, scopedApiUrl } from "../../lib/client-workspace
 import local from "./agent.module.css";
 
 type EvidenceLink = { label?: string; type?: string; status?: string; reference?: string; href?: string | null };
+type AgentUsage = { input_tokens?: number; output_tokens?: number; reasoning_tokens?: number; cache_read_tokens?: number; cache_write_tokens?: number };
+type AgentHistoryItem = {
+  invocation_id?: string;
+  question?: string;
+  answer?: string;
+  status?: string;
+  error?: string | Record<string, unknown>;
+  provider?: string;
+  model?: string | null;
+  usage?: AgentUsage | null;
+  latency_ms?: number | null;
+  scope?: { project_id?: string; environment?: string; selected_asset?: string | null; run_id?: string | null };
+  evidence_references?: string[];
+  tools_used?: string[];
+  created_at?: string;
+};
 type AirflowDag = { dag_id?: string; is_paused?: boolean; timetable_description?: string; timetable_summary?: string };
 type OrchestrationRun = { dag_id?: string; status?: string; run_id?: string | null; started_at?: string | null; ended_at?: string | null };
 type AgentResult = {
@@ -34,7 +50,7 @@ type AgentResponse = {
   uncertainty?: string[];
   next_action?: string;
   evidence_links?: EvidenceLink[];
-  agent?: { status?: string; error?: string | Record<string, unknown>; provider?: string; model?: string | null };
+  agent?: { status?: string; error?: string | Record<string, unknown>; provider?: string; model?: string | null; usage?: AgentUsage | null; latency_ms?: number | null };
   evidence?: { tools_used?: string[]; data_sources?: string[]; records?: EvidenceLink[]; scope?: Record<string, unknown>; mode?: string; timestamp?: string };
   tools_used?: string[];
   data_sources?: string[];
@@ -114,6 +130,30 @@ function looksLikeExecutionRequest(value: string): boolean {
 function evidenceHref(value?: string | null): string | null {
   if (typeof value !== "string" || !value.trim()) return null;
   return value.replace(/^\/api\/v1\/evidence\//, "/evidence/");
+}
+
+function usageLabel(usage?: AgentUsage | null): string {
+  if (!usage) return "Not reported";
+  const input = Number(usage.input_tokens ?? 0);
+  const output = Number(usage.output_tokens ?? 0);
+  const total = input + output;
+  return total > 0 ? `${total.toLocaleString()} tokens (${input.toLocaleString()} in · ${output.toLocaleString()} out)` : "0 tokens reported";
+}
+
+function AskHistory({ items }: { items: AgentHistoryItem[] }) {
+  return <section className={styles.panel} aria-labelledby="ask-ai-history-heading">
+    <header className={styles.panelHead}><div><h2 id="ask-ai-history-heading">Ask AI history</h2><p>Saved questions and their scoped answers. Entries are separated by project and environment.</p></div><span>{items.length} saved</span></header>
+    {items.length ? <div className={local.historyList}>{items.map((item, index) => {
+      const scope = item.scope ?? {};
+      const failed = String(item.status ?? "").toUpperCase() === "LIVE_ERROR" || Boolean(item.error);
+      return <article className={local.historyItem} key={item.invocation_id ?? `${item.question}-${index}`}>
+        <header><div><span className={styles.eyebrow}>{humanStatus(item.status)}</span><h3>{item.question || "Question not retained"}</h3><small>{formatDateTime(item.created_at)}</small></div><span className={failed ? styles.answerWarn : styles.answerGood}>{failed ? "Needs attention" : "Recorded"}</span></header>
+        <div className={local.historyMeta}><span>{item.provider ?? "Evidence only"}{item.model ? ` · ${item.model}` : ""}</span><span>{typeof item.latency_ms === "number" ? `${Math.round(item.latency_ms).toLocaleString()} ms` : "Latency not recorded"}</span><span>{usageLabel(item.usage)}</span></div>
+        <section className={local.historyAnswer}><h4>{failed ? "Result" : "Answer"}</h4><p>{item.answer || (failed ? "No final AI answer was recorded." : "This older entry did not retain a complete answer.")}</p>{item.error ? <p className={styles.warningText}>{agentErrorMessage(item.error)}</p> : null}</section>
+        <details className={local.answerDetails}><summary>Scope and evidence <span>{Array.isArray(item.evidence_references) ? item.evidence_references.length : 0} records</span></summary><div className={local.detailContent}><div className={styles.summaryList}><div className={styles.summaryRow}><span>Project <small>{scope.project_id ?? "Not recorded"} · {scope.environment ?? "Not recorded"}</small></span><strong>Scoped</strong></div>{scope.selected_asset ? <div className={styles.summaryRow}><span>Asset <small>{scope.selected_asset}</small></span><strong>Selected</strong></div> : null}{scope.run_id ? <div className={styles.summaryRow}><span>Run <small>{scope.run_id}</small></span><strong>Selected</strong></div> : null}</div><div className={styles.capabilityList}>{stringList(item.tools_used).length ? stringList(item.tools_used).map((tool) => <span className={styles.capability} key={tool}>{tool}</span>) : <span className={styles.muted}>No AI tool calls recorded</span>}</div></div></details>
+      </article>;
+    })}</div> : <div className={local.historyEmpty}><strong>No Ask AI questions saved yet</strong><p>Ask a scoped question to create the first history entry.</p></div>}
+  </section>;
 }
 
 function readableResult(response: AgentResponse): { headline: string; detail: string; facts: Array<{ label: string; value: string; tone?: "good" | "warn" | "neutral" }>; unknowns: string[]; nextAction: string; mode: string; updated: string } {
@@ -200,15 +240,17 @@ export default function AgentPage() {
   const [selectedAsset, setSelectedAsset] = useState("");
   const [runId, setRunId] = useState("");
   const [busy, setBusy] = useState(false);
+  const [view, setView] = useState<"ask" | "history">("ask");
 
+  const loadAgentStatus = () => fetch(scopedApiUrl("/api/agent"), { cache: "no-store" })
+    .then((item) => item.json())
+    .then(setAgentStatus)
+    .catch(() => setAgentStatus({ status: "ERROR" }));
   useEffect(() => {
     const workspace = currentWorkspaceParams();
     setProjectId(workspace.get("project_id") || "data-quality-testing-beta");
     setEnvironment(workspace.get("environment") || "development");
-    fetch(scopedApiUrl("/api/agent"), { cache: "no-store" })
-      .then((item) => item.json())
-      .then(setAgentStatus)
-      .catch(() => setAgentStatus({ status: "ERROR" }));
+    void loadAgentStatus();
   }, []);
 
   const ask = async () => {
@@ -223,6 +265,7 @@ export default function AgentPage() {
       const value = await item.json() as AgentResponse;
       if (!item.ok) throw new Error(value.error || "Agent query failed");
       setResponse({ ...value, question });
+      void loadAgentStatus();
     } catch (error) {
       setResponse({ error: error instanceof Error ? error.message : "Agent query failed" });
     } finally {
@@ -240,6 +283,7 @@ export default function AgentPage() {
   const executionRequest = looksLikeExecutionRequest(question);
   const assetOptions = (Array.isArray(agentStatus.assets) ? agentStatus.assets : Array.isArray(agentStatus.catalog) ? agentStatus.catalog : []).map((item) => typeof item === "string" ? item : item && typeof item === "object" ? String((item as Record<string, unknown>).qualified_name ?? (item as Record<string, unknown>).name ?? "") : "").filter(Boolean);
   const runOptions = (Array.isArray(agentStatus.runs) ? agentStatus.runs : []).map((item) => typeof item === "string" ? item : item && typeof item === "object" ? String((item as Record<string, unknown>).run_id ?? "") : "").filter(Boolean);
+  const historyItems = (Array.isArray(agentStatus.agent_history) ? agentStatus.agent_history : []).filter((item): item is AgentHistoryItem => !!item && typeof item === "object");
   return <DraftShell active="agent">
     <header className={`${styles.topbar} ${local.pageHeader}`}>
       <div>
@@ -248,8 +292,9 @@ export default function AgentPage() {
         <p>Ask about the selected project, asset, or run. Answers cite only the scope below.</p>
       </div>
     </header>
+    <div className={local.viewTabs} role="tablist" aria-label="Ask AI views"><button role="tab" aria-selected={view === "ask"} className={view === "ask" ? local.viewTabActive : local.viewTab} onClick={() => setView("ask")}>Ask AI</button><button role="tab" aria-selected={view === "history"} className={view === "history" ? local.viewTabActive : local.viewTab} onClick={() => setView("history")}>History <span>{historyItems.length}</span></button></div>
     <div className={styles.askAiLayout}>
-      <section className={styles.panel}>
+      {view === "history" ? <AskHistory items={historyItems} /> : <section className={styles.panel}>
         <header className={styles.panelHead}>
           <div><h2>Question</h2><p>Choose the context first, then ask one clear question.</p></div>
         </header>
@@ -301,7 +346,7 @@ export default function AgentPage() {
             <details><summary>Structured result</summary><pre className={styles.codeViewer}><code>{JSON.stringify(response.result, null, 2)}</code></pre></details>
           </div></details>
         </div>}
-      </section>
+      </section>}
     </div>
   </DraftShell>;
 }

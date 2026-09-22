@@ -19,12 +19,14 @@ export async function GET(request: Request) {
   try {
     const workspace = await resolveWorkspace(request);
     const currentState = await currentWorkspaceState(workspace);
-    const [statusResponse, rosterResponse] = await Promise.all([
+    const [statusResponse, rosterResponse, historyResponse] = await Promise.all([
       fetch(`${API_BASE}/api/v1/agent/status`, { headers: backendHeaders(request, workspace.projectId), cache: "no-store", signal: AbortSignal.timeout(30000) }),
       fetch(`${API_BASE}/api/v1/agents/roster`, { headers: backendHeaders(request, workspace.projectId), cache: "no-store", signal: AbortSignal.timeout(30000) }),
+      fetch(`${API_BASE}/api/v1/agent/history?project_id=${encodeURIComponent(workspace.projectId)}&environment=${encodeURIComponent(workspace.environment)}&limit=50`, { headers: backendHeaders(request, workspace.projectId), cache: "no-store", signal: AbortSignal.timeout(30000) }),
     ]);
     const status = await statusResponse.json() as Record<string, unknown>;
     const roster = await rosterResponse.json().catch(() => ({})) as Record<string, unknown>;
+    const history = await historyResponse.json().catch(() => ({})) as Record<string, unknown>;
     const activity = Array.isArray(status.agent_activity)
       ? status.agent_activity.filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
       : [];
@@ -35,7 +37,7 @@ export async function GET(request: Request) {
       const invocation = activity.find((entry) => String(entry.role ?? "").startsWith(role) || role.startsWith(String(entry.role ?? "").split("_")[0]));
       return { ...agent, invocation_status: invocation ? String(invocation.status ?? "INVOKED") : "NOT INVOKED", invocation_role: invocation?.role ?? null };
     }) : [];
-    return Response.json({ ...status, workspace, source_table_scope_id: currentState.sourceTableScopeId || null, specialists, agent_activity: activity, roster_status: roster.status ?? "UNAVAILABLE", scope_mode: currentState.sourceTableScopeId ? "OPTIONAL_TABLE_CONTEXT" : "PROJECT_ONLY" }, { status: statusResponse.status });
+    return Response.json({ ...status, workspace, source_table_scope_id: currentState.sourceTableScopeId || null, specialists, agent_activity: activity, agent_history: Array.isArray(history.items) ? history.items : [], roster_status: roster.status ?? "UNAVAILABLE", scope_mode: currentState.sourceTableScopeId ? "OPTIONAL_TABLE_CONTEXT" : "PROJECT_ONLY" }, { status: statusResponse.status });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Unable to load agent status" }, { status: 502 });
   }
