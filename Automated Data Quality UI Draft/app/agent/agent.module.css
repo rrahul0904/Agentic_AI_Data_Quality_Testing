@@ -35,7 +35,7 @@
 .answerDetails > summary:focus-visible { outline: 3px solid rgba(23, 131, 91, .28); outline-offset: -3px; }
 .detailContent { display: grid; gap: 14px; padding: 14px 15px; }
 .historyList { display: grid; gap: 12px; }
-.historyItem { display: grid; gap: 10px; width: 100%; border: 1px solid #dce7e1; border-radius: 11px; padding: 16px; background: #fff; color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.historyItem { display: grid; gap: 10px; width: 100%; border: 1px solid #dce7e1; border-radius: 11px; padding: 16px; background: #fff; color: inherit; text-align: left; cursor: pointer; font: inherit; text-decoration: none; }
 .historyItem:hover { border-color: #8bc6aa; background: #fbfefc; }
 .historyItem:focus-visible { outline: 3px solid rgba(23, 131, 91, .28); outline-offset: 2px; }
 .historyItemSelected { border-color: #17835b; box-shadow: 0 0 0 2px rgba(23, 131, 91, .12); }
