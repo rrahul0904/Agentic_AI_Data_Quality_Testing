@@ -37,7 +37,7 @@ Implemented and verified:
 ## Evidence
 
 - Backend commit: `8e3bc51` — `fix scoped current-state reads and cleanup`
-- UI commit: recorded in the final handoff after the scoped UI files are committed.
+- UI commit: `c7fe25621fc51396c096e481b57e2ee79a649f28` — `prevent stale scoped UI state from resurfacing`.
 - Backend full suite: 711 passed, 1 existing Starlette deprecation warning.
 - Backend targeted scope/cleanup/evidence suite: 23 passed, 1 existing Starlette deprecation warning.
 - UI unit/regression suite: 41 passed.
