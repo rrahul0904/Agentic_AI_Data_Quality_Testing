@@ -77,6 +77,38 @@ async function runtimeHints(): Promise<Record<string, string>> {
   } catch { return {}; }
 }
 
+async function currentConnectionChecks(scope: WorkspaceScope): Promise<Record<string, ConnectionTestResult>> {
+  const query = new URLSearchParams({ project_id: scope.projectId, environment: scope.environment }).toString();
+  const adapters: Record<string, string> = {
+    postgres: `/api/v1/connections/postgres/metadata?${query}`,
+    snowflake: `/api/v1/connections/snowflake/metadata?${query}`,
+    airflow: `/api/v1/connections/airflow/metadata?${query}`,
+    dbt: `/api/v1/connections/dbt/state?${query}`,
+  };
+  const checkedAt = new Date().toISOString();
+  const entries = await Promise.all(Object.entries(adapters).map(async ([kind, endpoint]) => {
+    try {
+      const result = await backend(endpoint, undefined, 2500);
+      const status = value(result.status).toUpperCase();
+      return [kind, {
+        status: status === "PASS" || status === "READY" || status === "HEALTHY" ? "PASS" : "UNVERIFIED",
+        detail: status === "PASS" || status === "READY" || status === "HEALTHY" ? "Current adapter read passed" : errorText(result.reason) || errorText(result.detail) || "Current adapter did not return a passing state",
+        source: "Current adapter read",
+        testedAt: checkedAt,
+        metadata: result,
+      } satisfies ConnectionTestResult] as const;
+    } catch (error) {
+      return [kind, {
+        status: "UNVERIFIED",
+        detail: error instanceof Error ? error.message : "Current adapter read unavailable",
+        source: "Current adapter read",
+        testedAt: checkedAt,
+      } satisfies ConnectionTestResult] as const;
+    }
+  }));
+  return Object.fromEntries(entries);
+}
+
 function value(value: unknown): string { return typeof value === "string" ? value : ""; }
 
 function labelFrom(valueToLabel: unknown, fallback: string): string {
@@ -299,6 +331,7 @@ async function runtimeSuggestions(scope: WorkspaceScope, projects: ProjectRecord
   const now = new Date().toISOString();
   const projectDefinition = activeProject?.projectDefinition ?? workflow.projectDefinition ?? { name: DEFAULT_PROJECT_NAME, domain: "", owner: "", environment: value(profile.environment) || "development", criticality: "Tier 2 — Important", description: "", tags: "" };
   const projectSavedAt = activeProject?.projectSavedAt ?? workflow.projectSavedAt ?? (workflow.projectDefinition ? await stat(WORKFLOW_STATE_FILE).then((item) => item.mtime.toISOString()).catch(() => undefined) : undefined);
+  const liveConnectionChecks = await currentConnectionChecks(scope);
   const suggestedConnections: ConnectionProfile[] = [
     { id: "runtime-postgres", name: labelFrom(runtimeValue("postgres_database", "SOURCE_POSTGRES_DB"), "PostgreSQL"), kind: "postgres", environment: "Development", source: "runtime", enabled: true, updatedAt: now, config: { authMethod: "DSN / connection URL", host: runtimeValue("postgres_host", "SOURCE_POSTGRES_HOST"), port: Number(runtimeValue("postgres_port", "SOURCE_POSTGRES_PORT")) || 5432, database: runtimeValue("postgres_database", "SOURCE_POSTGRES_DB"), user: runtimeValue("postgres_user", "SOURCE_POSTGRES_USER"), dsnEnv: envName(profile.postgres_dsn_env, "ADE_POSTGRES_DSN", "SOURCE_POSTGRES_DSN", "SOURCE_POSTGRES_CONN"), sslMode: runtimeValue("postgres_sslmode") || "prefer", schemas: runtimeValue("postgres_schema_allowlist") || "public" } },
     { id: "runtime-snowflake", name: labelFrom(runtimeValue("snowflake_database", "SNOWFLAKE_DATABASE", "ADE_SNOWFLAKE_DATABASE"), "Snowflake"), kind: "snowflake", environment: "Development", source: "runtime", enabled: true, updatedAt: now, config: { authMethod: "Username + password", account: runtimeValue("snowflake_account", "SNOWFLAKE_ACCOUNT", "ADE_SNOWFLAKE_ACCOUNT"), user: runtimeValue("snowflake_user", "SNOWFLAKE_USER", "ADE_SNOWFLAKE_USER"), database: runtimeValue("snowflake_database", "SNOWFLAKE_DATABASE", "ADE_SNOWFLAKE_DATABASE"), schema: runtimeValue("snowflake_schema", "SNOWFLAKE_SCHEMA", "ADE_SNOWFLAKE_SCHEMA"), warehouse: runtimeValue("snowflake_warehouse", "SNOWFLAKE_WAREHOUSE", "ADE_SNOWFLAKE_WAREHOUSE"), role: runtimeValue("snowflake_role", "SNOWFLAKE_ROLE", "ADE_SNOWFLAKE_ROLE"), passwordEnv: envName(profile.snowflake_password_env, "ADE_SNOWFLAKE_PASSWORD", "SNOWFLAKE_PASSWORD") } },
@@ -336,6 +369,12 @@ async function runtimeSuggestions(scope: WorkspaceScope, projects: ProjectRecord
     // Discovery remains table-scoped below, but hiding test results here made a
     // successfully verified adapter appear as NOT TESTED on this page.
     savedTests: workflow.tests,
+    liveConnectionChecks: Object.fromEntries(savedConnections.map((profile) => [profile.id, liveConnectionChecks[profile.kind] ?? {
+      status: "UNVERIFIED",
+      detail: "No current adapter read is available",
+      source: "Current adapter read",
+      testedAt: new Date().toISOString(),
+    }])),
     savedDiscoveries: workflow.sourceTableScopeId && workflow.sourceTableScopeId === workflow.selectedSourceTable?.id ? workflow.discoveries : {},
     savedDiscoveriesByTable: workflow.discoveriesByTable ?? {},
     selectedAssets: workflow.selectedAssets,

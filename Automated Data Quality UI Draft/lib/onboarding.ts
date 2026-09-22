@@ -93,6 +93,7 @@ export type OnboardingBootstrap = {
   savedConnections: ConnectionProfile[];
   suggestedConnections: ConnectionProfile[];
   savedTests: Record<string, ConnectionTestResult>;
+  liveConnectionChecks?: Record<string, ConnectionTestResult>;
   savedDiscoveries: Record<string, DiscoveryResult>;
   selectedAssets: string[];
   selectedSourceTable?: SelectedSourceTable;

@@ -35,11 +35,13 @@ export default function DraftShell({ active, planView, children }: DraftShellPro
     let activeRequest = true;
     setMounted(true);
     setCurrentPath(`${window.location.pathname}${window.location.search}`);
+    const onScopeChange = () => setCurrentPath(`${window.location.pathname}${window.location.search}`);
+    window.addEventListener("ade-workspace-scope-change", onScopeChange);
     void fetch(scopedApiUrl("/api/workspace"), { cache: "no-store" })
       .then((response) => response.ok ? response.json() : Promise.reject(new Error("workspace unavailable")))
       .then((value: { name: string; environment: string }) => { if (activeRequest) setWorkspace(value); })
       .catch(() => { /* The shell remains usable while project setup is incomplete. */ });
-    return () => { activeRequest = false; };
+    return () => { activeRequest = false; window.removeEventListener("ade-workspace-scope-change", onScopeChange); };
   }, []);
   return <main className={styles.shell} aria-label="Automated Data Quality control plane">
     <a className={styles.skipLink} href="#main-content">Skip to main content</a>

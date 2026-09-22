@@ -17,6 +17,11 @@ type Props = Omit<LinkProps, "href"> & {
  */
 export default function ScopedLink({ href, children, ...props }: Props) {
   const [resolvedHref, setResolvedHref] = useState(href);
-  useEffect(() => setResolvedHref(scopedLink(href)), [href]);
+  useEffect(() => {
+    const resolve = () => setResolvedHref(scopedLink(href));
+    resolve();
+    window.addEventListener("ade-workspace-scope-change", resolve);
+    return () => window.removeEventListener("ade-workspace-scope-change", resolve);
+  }, [href]);
   return <Link {...props} href={resolvedHref}>{children}</Link>;
 }

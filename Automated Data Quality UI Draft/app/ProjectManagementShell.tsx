@@ -78,6 +78,10 @@ export default function ProjectManagementShell({ phase, title, description, head
     const [pathname, search = ""] = href.split("?");
     const params = new URLSearchParams(search);
     if (!params.has("project_id")) params.set("project_id", projectId);
+    if (!params.has("environment")) {
+      const scopedEnvironment = String(definition.environment || bootstrap?.project.environment || "").trim().toLowerCase();
+      if (scopedEnvironment) params.set("environment", scopedEnvironment);
+    }
     return `${pathname}?${params.toString()}`;
   };
 

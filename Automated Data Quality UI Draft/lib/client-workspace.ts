@@ -133,3 +133,25 @@ export function scopedLink(path: string): string {
   for (const [key, value] of params) if (!merged.has(key)) merged.set(key, value);
   return `${pathname}${merged.toString() ? `?${merged.toString()}` : ""}${hash ? `#${hash}` : ""}`;
 }
+
+/** Ensure the browser URL carries the same explicit scope returned by the server. */
+export function normalizeWorkspaceUrl(scope: { projectId?: unknown; environment?: unknown }): void {
+  if (typeof window === "undefined") return;
+  const projectId = typeof scope.projectId === "string" ? scope.projectId.trim() : "";
+  const environment = typeof scope.environment === "string" ? scope.environment.trim().toLowerCase() : "";
+  if (!projectId || !environment) return;
+  const url = new URL(window.location.href);
+  let changed = false;
+  if (url.searchParams.get("project_id") !== projectId) {
+    url.searchParams.set("project_id", projectId);
+    changed = true;
+  }
+  if (url.searchParams.get("environment") !== environment) {
+    url.searchParams.set("environment", environment);
+    changed = true;
+  }
+  if (changed) {
+    window.history.replaceState(window.history.state, "", url.toString());
+    window.dispatchEvent(new Event("ade-workspace-scope-change"));
+  }
+}

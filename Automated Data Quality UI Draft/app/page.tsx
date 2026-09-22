@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import DraftShell from "./DraftShell";
 import styles from "./workflow.module.css";
 import ScopedLink from "./components/ScopedLink";
-import { scopedApiUrl } from "../lib/client-workspace";
+import { normalizeWorkspaceUrl, scopedApiUrl } from "../lib/client-workspace";
 import { integrationConnectionState } from "../lib/ui-contracts";
 import { ErrorState, PageHeader, StatusBadge } from "./components/ui";
 
@@ -108,6 +108,7 @@ export default function HomePage() {
       const response = await fetch(scopedApiUrl("/api/operations?mode=summary"), { cache: "no-store", signal: AbortSignal.timeout(3000) });
       if (!response.ok) throw new Error("Persisted operations snapshot unavailable");
       const value = await response.json() as Operations;
+      normalizeWorkspaceUrl(value.workspace);
       setData(value);
       setRefreshState("SNAPSHOT");
     } catch (reason) {
@@ -128,6 +129,7 @@ export default function HomePage() {
       const response = await fetch(scopedApiUrl("/api/operations"), { cache: "no-store", signal: AbortSignal.timeout(9000) });
       const value = await response.json() as Operations & { error?: string };
       if (!response.ok) throw new Error(value.error || "Live operations refresh unavailable");
+      normalizeWorkspaceUrl(value.workspace);
       setData(value);
       setRefreshState("LIVE");
     } catch (reason) {

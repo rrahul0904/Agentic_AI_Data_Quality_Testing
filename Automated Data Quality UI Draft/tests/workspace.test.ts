@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { canonicalAssetIdentity, nextWorkflowGeneration, projectSlug, recordMatchesCurrentTable, workflowGeneration, workspaceQuery, workspaceRevision, type CurrentWorkspaceState } from "../lib/server-workspace.ts";
-import { invalidateWorkspaceCache, readOnboardingBootstrap, rememberWorkspaceRevision, scopedApiUrl } from "../lib/client-workspace.ts";
+import { invalidateWorkspaceCache, normalizeWorkspaceUrl, readOnboardingBootstrap, rememberWorkspaceRevision, scopedApiUrl } from "../lib/client-workspace.ts";
 
 test("workspace scope derives stable project identifiers", () => {
   assert.equal(projectSlug("Data Quality Testing - Beta"), "data-quality-testing-beta");
@@ -46,6 +46,23 @@ test("client cache keys include the server workflow revision and can be invalida
     assert.equal(scopedApiUrl("/api/onboarding?view=connections"), "/api/onboarding?view=connections&project_id=finance-qa&environment=test&workspace_revision=finance-qa%3Atest%3A7");
     invalidateWorkspaceCache();
     assert.equal(scopedApiUrl("/api/onboarding"), "/api/onboarding?project_id=finance-qa&environment=test");
+  } finally {
+    global.window = previousWindow;
+  }
+});
+
+test("overview URL is normalized to the server-resolved project and environment", () => {
+  const global = globalThis as unknown as { window?: unknown };
+  const previousWindow = global.window;
+  const replaced: string[] = [];
+  global.window = {
+    location: new URL("http://localhost:3020/?workspace_revision=data-quality-testing-beta%3Adevelopment%3A0"),
+    history: { state: null, replaceState: (_state: unknown, _title: string, url: string) => replaced.push(url) },
+    dispatchEvent: () => true,
+  };
+  try {
+    normalizeWorkspaceUrl({ projectId: "data-quality-testing-beta", environment: "Development" });
+    assert.deepEqual(replaced, ["http://localhost:3020/?workspace_revision=data-quality-testing-beta%3Adevelopment%3A0&project_id=data-quality-testing-beta&environment=development"]);
   } finally {
     global.window = previousWindow;
   }
