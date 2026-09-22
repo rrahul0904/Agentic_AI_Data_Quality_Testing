@@ -102,6 +102,7 @@ export type OnboardingBootstrap = {
   sourceTableScopeId?: string;
   analysisScopeId?: string;
   qualityPlanScopeId?: string;
+  scopeWarning?: string;
   projectDefinition?: Record<string, string>;
   projectSavedAt?: string;
   currentProjectId?: string;

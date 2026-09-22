@@ -10,6 +10,7 @@ import styles from "../workflow.module.css";
 import local from "./onboarding.module.css";
 import { scopedApiUrl } from "../../lib/client-workspace";
 import { Drawer, ProjectSelector } from "../components/ui";
+import { assetsForSourceTable, discoveriesForSourceTable, selectedAssetsForScope } from "../../lib/discovery-scope";
 
 type Phase = "overview" | "definition" | "connections" | "discovery" | "onboarding";
 type ProjectDefinition = { name: string; domain: string; owner: string; environment: string; criticality: string; description: string; tags: string };
@@ -237,9 +238,12 @@ function ProjectOnboardingPage() {
     setTests(result.liveConnectionChecks ?? result.savedTests ?? {});
     setDiscoveries(result.savedDiscoveries ?? {});
     setDiscoveriesByTable(result.savedDiscoveriesByTable ?? {});
-    setSelectedAssets(result.selectedAssets ?? []);
     setSelectedSourceTable(result.selectedSourceTable);
     setSelectedSourceTables(result.selectedSourceTables ?? (result.selectedSourceTable ? [result.selectedSourceTable] : []));
+    const scopedAssets = assetsForSourceTable(result.selectedSourceTable?.id, result.savedDiscoveriesByTable ?? {}, result.savedDiscoveries ?? {});
+    const scopedSelectedAssets = selectedAssetsForScope(result.selectedAssets ?? [], scopedAssets);
+    setSelectedAssets(scopedSelectedAssets);
+    if (result.scopeWarning) setNotice({ tone: "error", text: result.scopeWarning });
     const loadedProject = result.projectDefinition
       ? { ...EMPTY_PROJECT, ...result.projectDefinition }
       : { ...EMPTY_PROJECT, name: result.project.name || DEFAULT_PROJECT_NAME, domain: result.project.domain, environment: result.project.environment ? result.project.environment[0].toUpperCase() + result.project.environment.slice(1) : "Development" };
@@ -316,17 +320,14 @@ function ProjectOnboardingPage() {
   const removeProfile = async (profileId: string) => { try { await saveConnections(connections.filter((item) => item.id !== profileId)); setTests((current) => { const copy = { ...current }; delete copy[profileId]; return copy; }); setDiscoveries((current) => { const copy = { ...current }; delete copy[profileId]; return copy; }); } catch (error) { setNotice({ tone: "error", text: error instanceof Error ? error.message : "Connection could not be removed" }); } };
   const testConnection = async (profile: ConnectionProfile) => { setBusy(`test:${profile.id}`); setNotice(null); try { const result = await postOnboarding({ action: "test", profile }) as ConnectionTestResult; setTests((current) => ({ ...current, [profile.id]: result })); } catch (error) { setTests((current) => ({ ...current, [profile.id]: { status: "FAIL", detail: error instanceof Error ? error.message : "Test failed", source: "Connection test", testedAt: new Date().toISOString() } })); } finally { setBusy(null); } };
   const runDiscovery = async (profile: ConnectionProfile, sourceTableId = selectedSourceTable?.id) => { setBusy(`discover:${profile.id}`); setNotice(null); try { const result = await postOnboarding({ action: "discover", profile, sourceTableId }) as DiscoveryResult; if (sourceTableId) setDiscoveriesByTable((current) => ({ ...current, [sourceTableId]: { ...(current[sourceTableId] ?? {}), [profile.id]: result } })); setDiscoveries((current) => ({ ...current, [profile.id]: result })); } catch (error) { const failed: DiscoveryResult = { status: "FAIL", detail: error instanceof Error ? error.message : "Discovery failed", source: "Discovery", discoveredAt: new Date().toISOString(), assets: [], sourceTableId }; if (sourceTableId) setDiscoveriesByTable((current) => ({ ...current, [sourceTableId]: { ...(current[sourceTableId] ?? {}), [profile.id]: failed } })); setDiscoveries((current) => ({ ...current, [profile.id]: failed })); } finally { setBusy(null); } };
-  const activeTableIds = useMemo(() => new Set(selectedSourceTables.map((table) => table.id)), [selectedSourceTables]);
+  const activeSourceTableId = selectedSourceTable?.id;
+  const activeDiscoveries = useMemo(
+    () => discoveriesForSourceTable(activeSourceTableId, discoveriesByTable, discoveries),
+    [activeSourceTableId, discoveries, discoveriesByTable],
+  );
   const discoveredAssets = useMemo(() => {
-    if (activeTableIds.size === 0) return [];
-    const scoped = Object.entries(discoveriesByTable)
-      .filter(([tableId]) => activeTableIds.has(tableId))
-      .flatMap(([, results]) => Object.values(results));
-    const source = scoped.length
-      ? scoped
-      : Object.values(discoveries).filter((item) => !item.sourceTableId || activeTableIds.has(item.sourceTableId));
-    return [...new Map(source.flatMap((item) => item.assets).map((asset) => [asset.id, asset])).values()];
-  }, [activeTableIds, discoveries, discoveriesByTable]);
+    return assetsForSourceTable(activeSourceTableId, discoveriesByTable, discoveries);
+  }, [activeSourceTableId, discoveries, discoveriesByTable]);
   const assets = useMemo(() => discoveredAssets.filter((item) => {
     const profile = connections.find((connection) => connection.id === item.connectionId);
     const environment = profile?.environment || project.environment;
@@ -339,10 +340,7 @@ function ProjectOnboardingPage() {
   const availableTypes = useMemo(() => [...new Set(discoveredAssets.map((item) => item.type))].sort(), [discoveredAssets]);
   const workflowProfiles = useMemo(() => connections.filter((profile) => ["postgres", "snowflake", "airflow", "dbt"].includes(profile.kind)), [connections]);
   const passed = workflowProfiles.filter((profile) => tests[profile.id]?.status === "PASS").length;
-  const activeDiscoveries = selectedSourceTable ? (discoveriesByTable[selectedSourceTable.id] ?? discoveries) : {};
-  const discoveryRuns = activeTableIds.size > 0
-    ? workflowProfiles.filter((profile) => discoveries[profile.id] || Object.entries(discoveriesByTable).some(([tableId, results]) => activeTableIds.has(tableId) && results[profile.id])).length
-    : 0;
+  const discoveryRuns = Object.keys(activeDiscoveries).length;
   const discoveryPasses = workflowProfiles.filter((profile) => activeDiscoveries[profile.id]?.status === "PASS").length;
   const discoveredAssetCount = discoveredAssets.length;
   const updateProject = (key: keyof ProjectDefinition, value: string) => {
@@ -543,7 +541,7 @@ function ProjectOnboardingPage() {
       <div className={local.discoverySummary} aria-label="Discovery summary">
         <article><span>Connections</span><strong>{connections.length}</strong><small>{passed} passing tests</small></article>
         <article><span>Discovery runs</span><strong>{discoveryRuns}</strong><small>{discoveryPasses} returned assets</small></article>
-        <article><span>Assets found</span><strong>{discoveredAssetCount}</strong><small>{query ? `${assets.length} match filter` : "Across all runs"}</small></article>
+        <article><span>Current assets</span><strong>{discoveredAssetCount}</strong><small>{query ? `${assets.length} match filter` : selectedSourceTable ? `For ${selectedSourceTable.schema}.${selectedSourceTable.table}` : "Select a source table"}</small></article>
         <article><span>Selected</span><strong>{selectedAssets.length}</strong><small>Ready for asset roles</small></article>
       </div>
       {!connections.length ? <div className={local.empty}><strong>No connections configured</strong><p>Configure and test a connection before starting discovery.</p></div> : <details className={local.diagnosticDetails}><summary>Connector diagnostics <span>{connections.length} connectors · expand to test or rediscover</span></summary><div className={local.discoveryConnections}>{connections.map((profile) => {
@@ -561,7 +559,7 @@ function ProjectOnboardingPage() {
         </article>;
       })}</div></details>}
     </section>
-    <section className={`${styles.panel} ${local.catalogPanel}`}><header className={`${styles.panelHead} ${local.catalogHead}`}><div><span className={styles.eyebrow}>SAVED DISCOVERY INVENTORY</span><h2>Discovered assets</h2><p>Browse persisted discovery results first. Live connector diagnostics are separate below and never replace saved inventory.</p></div><div className={local.catalogToolbar}><div className={local.catalogSearch}><input className={local.search} aria-label="Search discovered assets" placeholder="Search table, DAG, model or file" value={query} onChange={(event) => setQuery(event.target.value)} /></div><label className={local.catalogFilter}>Environment<select aria-label="Filter by environment" value={filterEnvironment} onChange={(event) => setFilterEnvironment(event.target.value)}><option value="all">All environments</option>{availableEnvironments.map((value) => <option value={value} key={value}>{value}</option>)}</select></label><label className={local.catalogFilter}>Layer<select aria-label="Filter by pipeline layer" value={filterLayer} onChange={(event) => setFilterLayer(event.target.value)}><option value="all">All layers</option>{availableLayers.map((value) => <option value={value} key={value}>{value}</option>)}</select></label><label className={local.catalogFilter}>Connector<select aria-label="Filter by connector" value={filterConnection} onChange={(event) => setFilterConnection(event.target.value)}><option value="all">All connectors</option>{availableConnections.map(({ id, profile }) => <option value={id} key={id}>{profile?.name || id}</option>)}</select></label><label className={local.catalogFilter}>Asset type<select aria-label="Filter by asset type" value={filterType} onChange={(event) => setFilterType(event.target.value)}><option value="all">All asset types</option>{availableTypes.map((value) => <option value={value} key={value}>{value}</option>)}</select></label><button className={styles.quiet} onClick={() => { setQuery(""); setFilterEnvironment("all"); setFilterLayer("all"); setFilterConnection("all"); setFilterType("all"); }}>Reset</button><span className={local.catalogCount}>{assets.length} of {discoveredAssets.length} shown</span></div></header>{!Object.keys(discoveries).length ? <div className={local.empty}><strong>No discovery has been run</strong><p>Test a connection, then run discovery. Nothing is substituted when a connection is unavailable.</p></div> : <><AssetResultsTable assets={assets} connections={connections} selectedAssets={selectedAssets} onSelect={updateSelection} onOpenDetails={setCatalogAsset} /><details className={local.groupedCatalog}><summary>Browse grouped evidence catalog</summary><OrganizedAssetCatalog project={project} assets={assets} connections={connections} tests={tests} selectedAssets={selectedAssets} onSelect={updateSelection} /></details></>}</section>
+    <section className={`${styles.panel} ${local.catalogPanel}`}><header className={`${styles.panelHead} ${local.catalogHead}`}><div><span className={styles.eyebrow}>CURRENT DISCOVERY INVENTORY</span><h2>Discovered assets</h2><p>Only evidence for the active source table is shown here. Historical discovery remains stored with its original scope.</p></div><div className={local.catalogToolbar}><div className={local.catalogSearch}><input className={local.search} aria-label="Search discovered assets" placeholder="Search table, DAG, model or file" value={query} onChange={(event) => setQuery(event.target.value)} /></div><label className={local.catalogFilter}>Environment<select aria-label="Filter by environment" value={filterEnvironment} onChange={(event) => setFilterEnvironment(event.target.value)}><option value="all">All environments</option>{availableEnvironments.map((value) => <option value={value} key={value}>{value}</option>)}</select></label><label className={local.catalogFilter}>Layer<select aria-label="Filter by pipeline layer" value={filterLayer} onChange={(event) => setFilterLayer(event.target.value)}><option value="all">All layers</option>{availableLayers.map((layer) => <option value={layer} key={layer}>{layer}</option>)}</select></label><label className={local.catalogFilter}>Connector<select aria-label="Filter by connector" value={filterConnection} onChange={(event) => setFilterConnection(event.target.value)}><option value="all">All connectors</option>{availableConnections.map(({ id, profile }) => <option value={id} key={id}>{profile?.name || id}</option>)}</select></label><label className={local.catalogFilter}>Asset type<select aria-label="Filter by asset type" value={filterType} onChange={(event) => setFilterType(event.target.value)}><option value="all">All asset types</option>{availableTypes.map((value) => <option value={value} key={value}>{value}</option>)}</select></label><button className={styles.quiet} onClick={() => { setQuery(""); setFilterEnvironment("all"); setFilterLayer("all"); setFilterConnection("all"); setFilterType("all"); }}>Reset</button><span className={local.catalogCount}>{assets.length} of {discoveredAssets.length} shown</span></div></header>{!selectedSourceTable ? <div className={local.empty}><strong>No active source table</strong><p>Select a saved source table before viewing current discovery evidence.</p></div> : !discoveredAssets.length ? <div className={local.empty}><strong>No current discovery for {selectedSourceTable.schema}.{selectedSourceTable.table}</strong><p>Run the workflow for this table. Other tables and historical runs are not substituted.</p></div> : <><AssetResultsTable assets={assets} connections={connections} selectedAssets={selectedAssets} onSelect={updateSelection} onOpenDetails={setCatalogAsset} /><details className={local.groupedCatalog}><summary>Browse current grouped evidence</summary><OrganizedAssetCatalog project={project} assets={assets} connections={connections} tests={tests} selectedAssets={selectedAssets} onSelect={updateSelection} /></details></>}</section>
   </div>;
   else content = <div className={styles.sectionStack}>
     <PostgresSourceTableDrilldown sourceTables={sourceTables} sourceStatus={sourceStatus} assets={discoveredAssets} connections={connections} tests={tests} selectedSourceTable={selectedSourceTable} selectedSourceTables={selectedSourceTables} sourceTableScopeId={bootstrap?.sourceTableScopeId} discoveryResultsByTable={discoveriesByTable} onAddSourceTable={addSourceTable} onAddAllSourceTables={addAllSourceTables} onSelectSourceTable={selectSourceTable} onRemoveSourceTable={removeSourceTable} onDiscoverAssets={() => void discoverSelectedAssets()} discoveryBusy={busy === "workflow-onboarding"} />

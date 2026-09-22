@@ -7,6 +7,7 @@ import type { ConnectionProfile, ConnectionTestResult, DiscoveredAsset, Discover
 import { validateConnectionProfile, validateDiscoveryEvidence } from "../../../lib/onboarding";
 import { nextWorkflowGeneration, projectSlug, resolveWorkspace, workspaceCookieHeaders, workspaceRevision, type WorkspaceScope } from "../../../lib/server-workspace";
 import { isPhase4Fixture, phase4OnboardingWorkspace } from "../../../lib/server-test-fixture";
+import { assetsForSourceTable, selectedAssetsForScope } from "../../../lib/discovery-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -340,19 +341,42 @@ async function runtimeSuggestions(scope: WorkspaceScope, projects: ProjectRecord
     { id: "runtime-dbt", name: dbtLabel, kind: "dbt", environment: "Development", source: "runtime", enabled: true, updatedAt: now, config: { projectDir: dbtRoot, profilesPath: dbtProfilesPath, target: value(profile.dbt_target_profile) || "dev", dbtExecutable: "", manifestPath: dbtRoot ? path.join(dbtRoot, "target/manifest.json") : "", runResultsPath: dbtRoot ? path.join(dbtRoot, "target/run_results.json") : "" } },
     { id: "runtime-files", name: labelFrom(path.basename(fileRoot), "Files"), kind: "files", environment: "Development", source: "runtime", enabled: true, updatedAt: now, config: { storageType: "local", rootPath: fileRoot, includePattern: "**/*.{csv,parquet}", recursive: true } },
   ];
+  const activeScopeId = workflow.sourceTableScopeId && workflow.sourceTableScopeId === workflow.selectedSourceTable?.id
+    ? workflow.sourceTableScopeId
+    : undefined;
+  const currentScopeAssets = assetsForSourceTable(activeScopeId, workflow.discoveriesByTable ?? {}, workflow.discoveries);
+  const normalizedSelectedAssets = activeScopeId
+    ? selectedAssetsForScope(workflow.selectedAssets, currentScopeAssets)
+    : [];
+  const scopeMismatch = normalizedSelectedAssets.length !== workflow.selectedAssets.length || !activeScopeId;
+  let resolvedWorkflow = workflow;
+  let scopeWarning: string | undefined;
+  if (scopeMismatch && (workflow.selectedAssets.length > 0 || workflow.analysisScopeId || workflow.qualityPlanScopeId)) {
+    resolvedWorkflow = {
+      ...workflow,
+      workspaceGeneration: (workflow.workspaceGeneration ?? 0) + 1,
+      selectedAssets: normalizedSelectedAssets,
+      analysisScopeId: undefined,
+      qualityPlanScopeId: undefined,
+    };
+    await writeProjectWorkflow(activeProject?.id ?? scope.projectId, resolvedWorkflow);
+    scopeWarning = activeScopeId
+      ? "The previous selection did not belong to the active source table, so current selection and readiness were reset. Historical evidence was retained."
+      : "The saved workflow had no valid active source-table scope, so current selection and readiness were reset. Historical evidence was retained.";
+  }
   const hasSavedState = Boolean(
     savedConnections.length
-    || Object.keys(workflow.tests).length
-    || Object.keys(workflow.discoveries).length
-    || Object.keys(workflow.discoveriesByTable ?? {}).length
-    || workflow.selectedAssets.length
-    || workflow.selectedSourceTable
-    || sourceTablesFromState(workflow).length,
+    || Object.keys(resolvedWorkflow.tests).length
+    || Object.keys(resolvedWorkflow.discoveries).length
+    || Object.keys(resolvedWorkflow.discoveriesByTable ?? {}).length
+    || resolvedWorkflow.selectedAssets.length
+    || resolvedWorkflow.selectedSourceTable
+    || sourceTablesFromState(resolvedWorkflow).length,
   );
   return {
     bootstrapState: hasSavedState ? "SAVED" : "EMPTY",
-    workspaceGeneration: workflowGeneration(workflow),
-    workspaceRevision: workspaceRevision(scope, workflowGeneration(workflow)),
+    workspaceGeneration: workflowGeneration(resolvedWorkflow),
+    workspaceRevision: workspaceRevision(scope, workflowGeneration(resolvedWorkflow)),
     project: { name: value(projectDefinition.name) || DEFAULT_PROJECT_NAME, domain: value(projectDefinition.domain), environment: value(projectDefinition.environment) || value(profile.environment) || "development", root: projectRoot },
     savedConnections: savedConnections.map((saved) => {
       const runtimeMatch = suggestedConnections.find((candidate) => candidate.id === saved.id && candidate.kind === saved.kind);
@@ -369,21 +393,22 @@ async function runtimeSuggestions(scope: WorkspaceScope, projects: ProjectRecord
     // Connection health belongs to the named profile, not to a selected table.
     // Discovery remains table-scoped below, but hiding test results here made a
     // successfully verified adapter appear as NOT TESTED on this page.
-    savedTests: workflow.tests,
+    savedTests: resolvedWorkflow.tests,
     liveConnectionChecks: Object.fromEntries(savedConnections.map((profile) => [profile.id, liveConnectionChecks[profile.kind] ?? {
       status: "UNVERIFIED",
       detail: "No current adapter read is available",
       source: "Current adapter read",
       testedAt: new Date().toISOString(),
     }])),
-    savedDiscoveries: workflow.sourceTableScopeId && workflow.sourceTableScopeId === workflow.selectedSourceTable?.id ? workflow.discoveries : {},
-    savedDiscoveriesByTable: workflow.discoveriesByTable ?? {},
-    selectedAssets: workflow.selectedAssets,
-    selectedSourceTable: workflow.selectedSourceTable,
-    selectedSourceTables: sourceTablesFromState(workflow),
-    sourceTableScopeId: workflow.sourceTableScopeId,
-    analysisScopeId: workflow.analysisScopeId,
-    qualityPlanScopeId: workflow.qualityPlanScopeId,
+    savedDiscoveries: resolvedWorkflow.sourceTableScopeId && resolvedWorkflow.sourceTableScopeId === resolvedWorkflow.selectedSourceTable?.id ? resolvedWorkflow.discoveries : {},
+    savedDiscoveriesByTable: resolvedWorkflow.discoveriesByTable ?? {},
+    selectedAssets: resolvedWorkflow.selectedAssets,
+    selectedSourceTable: resolvedWorkflow.selectedSourceTable,
+    selectedSourceTables: sourceTablesFromState(resolvedWorkflow),
+    sourceTableScopeId: resolvedWorkflow.sourceTableScopeId,
+    analysisScopeId: resolvedWorkflow.analysisScopeId,
+    qualityPlanScopeId: resolvedWorkflow.qualityPlanScopeId,
+    scopeWarning,
     projectDefinition,
     projectSavedAt,
     currentProjectId: activeProject?.id ?? scope.projectId,
