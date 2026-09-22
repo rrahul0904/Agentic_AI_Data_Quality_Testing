@@ -95,9 +95,18 @@ export async function GET(request: Request) {
     const targetCatalog = hasActiveTable ? (savedSnowflake.length ? savedSnowflake : snowflakeSnapshot.items) : [];
     const historyItems = Array.isArray(history.items) ? history.items.filter((item) => recordMatchesCurrentExecution(item, currentState, currentRunIds)) : [];
     const qualityItems = Array.isArray(qualityHistory.items) ? qualityHistory.items.filter((item) => recordMatchesCurrentExecution(item, currentState, currentRunIds)) : [];
-    const databases = hasActiveTable ? { source: postgresConnection.database_name ?? postgresSnapshot.database ?? "", target: snowflakeConnection.database_name ?? snowflake.database ?? snowflakeSnapshot.database ?? "" } : { source: "", target: "" };
-    const schemas = hasActiveTable ? { source: postgresConnection.schema_name ?? postgresSnapshot.schema ?? "public", target: snowflakeConnection.schema_name ?? snowflakeSnapshot.schema ?? "RAW" } : { source: "", target: "" };
-    return Response.json({ history: { ...history, count: historyItems.length, items: historyItems }, qualityHistory: { ...qualityHistory, count: qualityItems.length, items: qualityItems }, workspace: scope, execution: { runCount: currentRunIds.size }, databases, schemas, connectionStatus: { source: postgres.status === "CONNECTED" ? "CONNECTED" : sourceCatalog.length ? "CACHED DISCOVERY" : postgres.status ?? "UNKNOWN", target: snowflake.status === "CONNECTED" ? "CONNECTED" : targetCatalog.length ? "CACHED DISCOVERY" : snowflake.status ?? "UNKNOWN" }, catalogs: { source: sourceCatalog, target: targetCatalog } }, { headers: { "Cache-Control": "no-store" } });
+    // Connection identity is useful even when no table has been selected.  The
+    // table catalogs below remain empty until an explicit source-table scope
+    // exists, so this never turns a configured connection into selected data.
+    const databases = {
+      source: postgresConnection.database_name ?? postgresSnapshot.database ?? "",
+      target: snowflakeConnection.database_name ?? snowflake.database ?? snowflakeSnapshot.database ?? "",
+    };
+    const schemas = {
+      source: postgresConnection.schema_name ?? postgresSnapshot.schema ?? "public",
+      target: snowflakeConnection.schema_name ?? snowflakeSnapshot.schema ?? "RAW",
+    };
+    return Response.json({ history: { ...history, count: historyItems.length, items: historyItems }, qualityHistory: { ...qualityHistory, count: qualityItems.length, items: qualityItems }, workspace: scope, execution: { runCount: currentRunIds.size }, databases, schemas, catalog_state: hasActiveTable ? "SCOPED" : "NO_SELECTED_SOURCE_TABLE", connectionStatus: { source: postgres.status === "CONNECTED" ? "CONNECTED" : sourceCatalog.length ? "CACHED DISCOVERY" : postgres.status ?? "UNKNOWN", target: snowflake.status === "CONNECTED" ? "CONNECTED" : targetCatalog.length ? "CACHED DISCOVERY" : snowflake.status ?? "UNKNOWN" }, catalogs: { source: sourceCatalog, target: targetCatalog } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Unable to load reconciliation history" }, { status: 502 });
   }

@@ -61,6 +61,11 @@ test("cleared reconciliation and overview views cannot source current state from
   assert.doesNotMatch(reconciliationRoute, /onboarding-state\.json|onboarding-connections\.json/);
   assert.match(reconciliationRoute, /discoveriesByTable/);
   assert.match(reconciliationRoute, /uniqueItems/);
+  assert.match(reconciliationRoute, /catalog_state: hasActiveTable \? "SCOPED" : "NO_SELECTED_SOURCE_TABLE"/);
+  assert.doesNotMatch(reconciliationRoute, /const databases = hasActiveTable/);
+  assert.match(reconciliationRoute, /source: postgresConnection\.database_name \?\? postgresSnapshot\.database/);
+  assert.match(reconciliationPage, /No table is selected yet/);
+  assert.match(reconciliationPage, /Select a source table in Catalog before choosing the pair to compare\./);
   const onboardingRoute = await readFile(path.join(root, "app/api/onboarding/route.ts"), "utf8");
   assert.match(onboardingRoute, /connections\/dbt\/status/);
   assert.match(onboardingRoute, /"CONNECTED"/);
