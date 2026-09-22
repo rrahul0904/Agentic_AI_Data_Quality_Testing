@@ -83,16 +83,17 @@ async function currentConnectionChecks(scope: WorkspaceScope): Promise<Record<st
     postgres: `/api/v1/connections/postgres/metadata?${query}`,
     snowflake: `/api/v1/connections/snowflake/metadata?${query}`,
     airflow: `/api/v1/connections/airflow/metadata?${query}`,
-    dbt: `/api/v1/connections/dbt/state?${query}`,
+    dbt: `/api/v1/connections/dbt/status?${query}`,
   };
   const checkedAt = new Date().toISOString();
   const entries = await Promise.all(Object.entries(adapters).map(async ([kind, endpoint]) => {
     try {
       const result = await backend(endpoint, undefined, 2500);
       const status = value(result.status).toUpperCase();
+      const passed = ["PASS", "READY", "HEALTHY", "CONNECTED", "EXECUTION_EVIDENCE_FOUND"].includes(status);
       return [kind, {
-        status: status === "PASS" || status === "READY" || status === "HEALTHY" ? "PASS" : "UNVERIFIED",
-        detail: status === "PASS" || status === "READY" || status === "HEALTHY" ? "Current adapter read passed" : errorText(result.reason) || errorText(result.detail) || "Current adapter did not return a passing state",
+        status: passed ? "PASS" : "UNVERIFIED",
+        detail: passed ? (kind === "dbt" && value(result.execution_status) === "NOT_RUN_OR_NO_RUN_RESULTS" ? "dbt project is ready; no execution evidence is recorded" : "Current adapter read passed") : errorText(result.reason) || errorText(result.detail) || "Current adapter did not return a passing state",
         source: "Current adapter read",
         testedAt: checkedAt,
         metadata: result,

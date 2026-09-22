@@ -61,6 +61,9 @@ test("cleared reconciliation and overview views cannot source current state from
   assert.doesNotMatch(reconciliationRoute, /onboarding-state\.json|onboarding-connections\.json/);
   assert.match(reconciliationRoute, /discoveriesByTable/);
   assert.match(reconciliationRoute, /uniqueItems/);
+  const onboardingRoute = await readFile(path.join(root, "app/api/onboarding/route.ts"), "utf8");
+  assert.match(onboardingRoute, /connections\/dbt\/status/);
+  assert.match(onboardingRoute, /"CONNECTED"/);
   assert.doesNotMatch(reconciliationPage, /connectionStatus\?\.source, "CONNECTED"|connectionStatus\?\.target, "CONNECTED"/);
   assert.doesNotMatch(overview, /ade-operations-summary:|ade-operations:/);
 });
