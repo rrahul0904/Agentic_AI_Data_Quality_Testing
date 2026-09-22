@@ -1,0 +1,34 @@
+.pageHeader { margin-bottom: 16px; }
+
+.answerDetails {
+  overflow: hidden;
+  border: 1px solid #dce7e1;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.answerDetails > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 15px;
+  color: #29483a;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.answerDetails > summary span {
+  color: #718078;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.answerDetails[open] > summary { border-bottom: 1px solid #e3ebe6; background: #f7fbf8; }
+.answerDetails > summary:focus-visible { outline: 3px solid rgba(23, 131, 91, .28); outline-offset: -3px; }
+.detailContent { display: grid; gap: 14px; padding: 14px 15px; }
+
+@media (max-width: 640px) {
+  .answerDetails > summary { align-items: flex-start; flex-direction: column; }
+}

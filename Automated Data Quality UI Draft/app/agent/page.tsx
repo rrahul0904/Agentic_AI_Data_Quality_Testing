@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import DraftShell from "../DraftShell";
 import styles from "../workflow.module.css";
 import { currentWorkspaceParams, scopedApiUrl } from "../../lib/client-workspace";
+import local from "./agent.module.css";
 
 type EvidenceLink = { label?: string; type?: string; status?: string; reference?: string; href?: string | null };
 type AirflowDag = { dag_id?: string; is_paused?: boolean; timetable_description?: string; timetable_summary?: string };
@@ -188,17 +189,17 @@ export default function AgentPage() {
   const assetOptions = (Array.isArray(agentStatus.assets) ? agentStatus.assets : Array.isArray(agentStatus.catalog) ? agentStatus.catalog : []).map((item) => typeof item === "string" ? item : item && typeof item === "object" ? String((item as Record<string, unknown>).qualified_name ?? (item as Record<string, unknown>).name ?? "") : "").filter(Boolean);
   const runOptions = (Array.isArray(agentStatus.runs) ? agentStatus.runs : []).map((item) => typeof item === "string" ? item : item && typeof item === "object" ? String((item as Record<string, unknown>).run_id ?? "") : "").filter(Boolean);
   return <DraftShell active="agent">
-    <header className={styles.topbar}>
+    <header className={`${styles.topbar} ${local.pageHeader}`}>
       <div>
         <span className={styles.eyebrow}>ASK AI / EVIDENCE-BACKED ANSWERS</span>
         <h1>Ask AI</h1>
-        <p>Ask questions about this project, its systems, assets, runs, and quality evidence. Execution is reviewed separately in Run jobs.</p>
+        <p>Ask about the selected project, asset, or run. Answers cite only the scope below.</p>
       </div>
     </header>
     <div className={styles.askAiLayout}>
       <section className={styles.panel}>
         <header className={styles.panelHead}>
-          <div><h2>Question</h2><p>Ask about actual assets, executions, failures, lineage, or connection state.</p></div>
+          <div><h2>Question</h2><p>Choose the context first, then ask one clear question.</p></div>
         </header>
         <div className={styles.scopeGrid}>
           <label className={styles.field}>Current project<input value={projectId} readOnly aria-readonly="true" /></label>
@@ -216,9 +217,9 @@ export default function AgentPage() {
             {busy ? "Thinking…" : "Ask AI"}
           </button>
         </div>
-        {response?.error && <div className={styles.dangerStrip}>{response.error}</div>}
-        {response?.agent?.error && <div className={styles.dangerStrip}>Live agent unavailable: {response.agent.error}</div>}
-        {response && !response.error && readable && <div className={styles.sectionStack}>
+        {response?.error && <div className={styles.dangerStrip} role="alert">{response.error}</div>}
+        {response?.agent?.error && <div className={styles.dangerStrip} role="alert">Live agent unavailable: {response.agent.error}</div>}
+        {response && !response.error && readable && <div className={styles.sectionStack} aria-live="polite">
           <h3>Answer</h3>
           <section className={styles.answerCard}>
             <div className={styles.answerHeader}><span className={styles.answerEyebrow}>CURRENT STATUS</span><span className={styles.answerStatus}>{humanStatus(resultRecord(response.result).status ?? response.agent?.status)}</span></div>
@@ -227,10 +228,10 @@ export default function AgentPage() {
             <div className={styles.answerFacts}>{readable.facts.map((item) => <div className={styles.answerFact} key={item.label}><small>{item.label}</small><strong className={item.tone === "warn" ? styles.answerWarn : item.tone === "good" ? styles.answerGood : ""}>{item.value}</strong></div>)}</div>
             <div className={styles.answerMeta}>Based on exact connector evidence · updated {readable.updated}</div>
           </section>
-          <section><h3>Evidence</h3><div className={styles.summaryList}>{[...(readable.facts.map((item) => ({ fact: `${item.label}: ${item.value}`, status: item.tone === "warn" ? "ATTENTION" : "OBSERVED" }))), ...supportingFacts.map((item) => ({ fact: typeof item.fact === "string" ? item.fact : "Observed evidence", status: typeof item.status === "string" ? item.status : "OBSERVED" }))].map((item, index) => <div className={styles.summaryRow} key={`${item.fact}-${index}`}><span>{item.fact}</span><strong>{item.status}</strong></div>)}</div><div className={styles.summaryList}>{evidenceLinks.length ? evidenceLinks.map((item, index) => <div className={styles.summaryRow} key={`${typeof item.reference === "string" ? item.reference : item.type ?? "evidence"}-${index}`}><span>{typeof item.label === "string" ? item.label : "Evidence record"}<small>{typeof item.type === "string" ? item.type : "evidence"} · {typeof item.reference === "string" ? item.reference : "No reference"}</small></span><span className={styles.evidenceActions}><strong>{typeof item.status === "string" ? item.status : "not checked"}</strong>{evidenceHref(item.href) ? <a href={evidenceHref(item.href)!}>Open</a> : null}</span></div>) : <div className={styles.summaryRow}><span>No evidence links returned</span><strong>—</strong></div>}</div></section>
+          <details className={local.answerDetails}><summary>Evidence and supporting records <span>{evidenceLinks.length} linked record{evidenceLinks.length === 1 ? "" : "s"}</span></summary><div className={local.detailContent}><div className={styles.summaryList}>{[...(readable.facts.map((item) => ({ fact: `${item.label}: ${item.value}`, status: item.tone === "warn" ? "Attention" : "Observed" }))), ...supportingFacts.map((item) => ({ fact: typeof item.fact === "string" ? item.fact : "Observed evidence", status: typeof item.status === "string" ? humanStatus(item.status) : "Observed" }))].map((item, index) => <div className={styles.summaryRow} key={`${item.fact}-${index}`}><span>{item.fact}</span><strong>{item.status}</strong></div>)}</div><div className={styles.summaryList}>{evidenceLinks.length ? evidenceLinks.map((item, index) => <div className={styles.summaryRow} key={`${typeof item.reference === "string" ? item.reference : item.type ?? "evidence"}-${index}`}><span>{typeof item.label === "string" ? item.label : "Evidence record"}<small>{typeof item.type === "string" ? item.type : "evidence"} · {typeof item.reference === "string" ? item.reference : "No reference"}</small></span><span className={styles.evidenceActions}><strong>{humanStatus(item.status)}</strong>{evidenceHref(item.href) ? <a href={evidenceHref(item.href)!}>Open record</a> : null}</span></div>) : <div className={styles.summaryRow}><span>No evidence links returned</span><strong>Not available</strong></div>}</div></div></details>
           <section><h3>Uncertainty</h3><div className={styles.infoStrip}><span>i</span><div>{(readable.unknowns.length ? readable.unknowns : ["No additional uncertainty was returned."]).map((item, index) => <p key={`${item}-${index}`}>{item}</p>)}</div></div></section>
           <section><h3>Next action</h3><div className={styles.callout}><strong>{readable.nextAction}</strong></div></section>
-          <details><summary>Technical evidence</summary>
+          <details className={local.answerDetails}><summary>Technical details</summary><div className={local.detailContent}>
           <section><h3>Interpretation mode</h3><div className={styles.summaryRow}><span>{readable.mode}</span><strong>{readable.updated}</strong></div></section>
           {response.answer && !/evidence collection completed with status/i.test(response.answer) && <section><h3>Full AI answer</h3><p className={styles.rawNarrative}>{response.answer}</p></section>}
           <section>
@@ -246,7 +247,7 @@ export default function AgentPage() {
             ) : <div className={styles.summaryRow}><span>No evidence sources returned</span><strong>—</strong></div>}</div>
           </section>
             <details><summary>Structured result</summary><pre className={styles.codeViewer}><code>{JSON.stringify(response.result, null, 2)}</code></pre></details>
-          </details>
+          </div></details>
         </div>}
       </section>
     </div>

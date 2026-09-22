@@ -1,0 +1,33 @@
+.drawerBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(12, 26, 19, .42);
+  backdrop-filter: blur(2px);
+}
+
+.runDrawer {
+  width: min(760px, 94vw);
+  height: 100%;
+  overflow: auto;
+  padding: 24px;
+  background: #fff;
+  box-shadow: -18px 0 48px rgba(12, 34, 23, .2);
+}
+
+.drawerHeaderActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.drawerHeaderActions small { color: #6f7e76; font-size: 12px; }
+
+@media (max-width: 640px) {
+  .runDrawer { width: 100%; max-width: none; padding: 18px 14px; }
+  .drawerHeaderActions { justify-content: flex-start; }
+}

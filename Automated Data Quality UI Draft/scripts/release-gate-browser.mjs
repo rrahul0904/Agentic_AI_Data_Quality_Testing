@@ -264,17 +264,23 @@ async function clickFirstRun(client) {
 async function applyMonitoringAssetFilter(client) {
   const prepared = await client.eval(`(() => {
     const input = document.querySelector('input[placeholder="table, DAG, model"]');
-    const apply = [...document.querySelectorAll('button')].find((button) => (button.innerText || '').trim().toLowerCase() === 'apply filters');
-    if (!input || !apply) return false;
+    if (!input) return false;
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
     setter.call(input, 'definitely-not-a-real-table');
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
-    apply.click();
     return true;
   })()`);
   if (!prepared) throw new Error("Monitoring table-filter controls were not rendered");
-  await waitFor(client, "(document.body?.innerText || '').toLowerCase().includes('no persisted jobs match this table filter')", "monitoring table filter empty state");
+  await waitFor(client, `document.querySelector('input[placeholder="table, DAG, model"]')?.value === 'definitely-not-a-real-table'`, "monitoring table filter value");
+  const applied = await client.eval(`(() => {
+    const button = [...document.querySelectorAll('button')].find((candidate) => (candidate.innerText || '').trim().toLowerCase() === 'apply filters');
+    if (!button) return false;
+    button.click();
+    return true;
+  })()`);
+  if (!applied) throw new Error("Monitoring table-filter apply control was not rendered");
+  await waitFor(client, "(document.body?.innerText || '').toLowerCase().includes('no jobs match this table filter')", "monitoring table filter empty state");
   return pageState(client);
 }
 
