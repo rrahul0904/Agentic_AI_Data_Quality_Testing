@@ -64,6 +64,127 @@ def test_snowflake_demo_refuses_without_confirm(tmp_path: Path):
         raise AssertionError("live Snowflake demo must be fail-closed")
 
 
+def test_snowflake_demo_persists_structured_live_evidence(tmp_path: Path, monkeypatch):
+    workspace = tmp_path / "demo"
+    dbt_dir = workspace / "dbt"
+    (workspace / "snowflake").mkdir(parents=True)
+    (workspace / "release" / "semantic").mkdir(parents=True)
+    dbt_dir.mkdir(parents=True)
+
+    monkeypatch.setattr(
+        cli,
+        "readiness_status",
+        lambda **_: {
+            "external": {
+                "snowflake_live_ready": True,
+                "snowflake_missing": [],
+                "dbt_live_ready": True,
+            }
+        },
+    )
+    monkeypatch.setattr(cli, "_dbt_profiles", lambda _: None)
+
+    query_counter = {"value": 0}
+
+    def fake_run_checked(command, *, cwd=None, env=None):
+        command = list(command)
+        if "execute_snowflake_sql.py" in " ".join(command):
+            query_counter["value"] += 1
+            sql_file = command[command.index("--sql-file") + 1]
+            return {
+                "command": command,
+                "returncode": 0,
+                "stdout": json.dumps(
+                    {
+                        "status": "PASS",
+                        "sql_file": sql_file,
+                        "statements": [
+                            {
+                                "query_id": f"qid-{query_counter['value']}",
+                                "rowcount": query_counter["value"],
+                            }
+                        ],
+                    }
+                ),
+                "stderr": "",
+            }
+
+        target = dbt_dir / "target"
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "run_results.json").write_text(
+            json.dumps(
+                {
+                    "metadata": {
+                        "dbt_schema_version": "https://schemas.getdbt.com/dbt/run-results/v6.json",
+                        "dbt_version": "1.9.0",
+                        "generated_at": "2026-09-21T00:00:00Z",
+                        "invocation_id": "dbt-invocation-1",
+                    },
+                    "results": [
+                        {
+                            "unique_id": "model.rga.fact_premium",
+                            "status": "success",
+                            "execution_time": 1.25,
+                            "failures": None,
+                        },
+                        {
+                            "unique_id": "test.rga.mart_grain_unique",
+                            "status": "pass",
+                            "execution_time": 0.25,
+                            "failures": 0,
+                        },
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        return {
+            "command": command,
+            "returncode": 0,
+            "stdout": "dbt build completed",
+            "stderr": "",
+        }
+
+    monkeypatch.setattr(cli, "_run_checked", fake_run_checked)
+
+    result = cli.snowflake_demo(
+        workspace,
+        confirm=True,
+        deploy_semantic=False,
+        deploy_ai=False,
+    )
+
+    assert result["status"] == "PASS"
+    assert result["semantic_deployed"] is False
+    assert result["production_rollout_certified"] is False
+    assert [stage["name"] for stage in result["stages"]] == [
+        "snowflake_bootstrap",
+        "snowflake_raw_load",
+        "dbt_build",
+        "semantic_view_server_verify",
+    ]
+    assert result["stages"][0]["executor"]["statements"][0]["query_id"] == "qid-1"
+    assert result["stages"][1]["executor"]["statements"][0]["rowcount"] == 2
+    assert result["stages"][2]["dbt"]["metadata"]["invocation_id"] == "dbt-invocation-1"
+    assert result["stages"][2]["dbt"]["result_count"] == 2
+
+    evidence_path = Path(result["evidence_file"])
+    assert evidence_path.exists()
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    assert evidence["status"] == "PASS"
+    assert evidence["production_rollout_certified"] is False
+    assert evidence["stages"][3]["executor"]["statements"][0]["query_id"] == "qid-3"
+
+
+def test_dbt_run_evidence_fails_closed_when_artifact_is_missing(tmp_path: Path):
+    try:
+        cli._dbt_run_evidence(tmp_path)
+    except RuntimeError as exc:
+        assert "run_results.json" in str(exc)
+    else:
+        raise AssertionError("missing dbt run_results.json must fail closed")
+
+
 def test_cli_about_returns_json(capsys):
     assert cli.main(["about"]) == 0
     payload = json.loads(capsys.readouterr().out)

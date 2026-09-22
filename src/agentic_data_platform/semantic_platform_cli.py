@@ -691,6 +691,61 @@ def evaluate_optimization(
     return payload
 
 
+def _parse_executor_evidence(result: dict[str, Any], *, stage_name: str) -> dict[str, Any]:
+    """Extract the structured Snowflake executor payload without persisting raw logs."""
+    try:
+        payload = json.loads(result.get("stdout") or "")
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"{stage_name} completed without structured Snowflake executor evidence"
+        ) from exc
+    if payload.get("status") != "PASS":
+        raise RuntimeError(
+            f"{stage_name} executor evidence did not report PASS: {payload.get('status')}"
+        )
+    return payload
+
+
+def _dbt_run_evidence(dbt_dir: Path) -> dict[str, Any]:
+    """Summarize dbt's machine-readable run artifact for certification evidence."""
+    run_results_path = dbt_dir / "target" / "run_results.json"
+    if not run_results_path.exists():
+        raise RuntimeError(
+            "dbt build completed without target/run_results.json; "
+            "live certification evidence would be incomplete"
+        )
+    try:
+        payload = json.loads(run_results_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("dbt target/run_results.json is not valid JSON") from exc
+
+    metadata = payload.get("metadata") or {}
+    results = []
+    for item in payload.get("results") or []:
+        results.append(
+            {
+                "unique_id": item.get("unique_id"),
+                "status": item.get("status"),
+                "execution_time": item.get("execution_time"),
+                "failures": item.get("failures"),
+            }
+        )
+    return {
+        "artifact": str(run_results_path),
+        "metadata": {
+            key: metadata.get(key)
+            for key in (
+                "dbt_schema_version",
+                "dbt_version",
+                "generated_at",
+                "invocation_id",
+            )
+        },
+        "result_count": len(results),
+        "results": results,
+    }
+
+
 def snowflake_demo(
     workspace: Path,
     *,
@@ -708,57 +763,112 @@ def snowflake_demo(
     sql_dir = workspace / "snowflake"
     dbt_dir = workspace / "dbt"
     release = workspace / "release"
+    evidence_dir = workspace / "evidence"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
     _dbt_profiles(dbt_dir)
 
     stages: list[dict[str, Any]] = []
-    for sql_file in (sql_dir / "001_raw_tables.sql", sql_dir / "002_load_raw.sql"):
+
+    def execute_snowflake_stage(stage_name: str, sql_file: Path) -> None:
+        execution = _run_checked(
+            _python_script(
+                "execute_snowflake_sql.py",
+                "--sql-file",
+                str(sql_file),
+                "--confirm",
+            )
+        )
         stages.append(
-            _run_checked(_python_script("execute_snowflake_sql.py", "--sql-file", str(sql_file), "--confirm"))
+            {
+                "name": stage_name,
+                "command": execution["command"],
+                "returncode": execution["returncode"],
+                "executor": _parse_executor_evidence(
+                    execution,
+                    stage_name=stage_name,
+                ),
+            }
         )
 
+    execute_snowflake_stage("snowflake_bootstrap", sql_dir / "001_raw_tables.sql")
+    execute_snowflake_stage("snowflake_raw_load", sql_dir / "002_load_raw.sql")
+
+    dbt_execution = _run_checked(
+        [
+            shutil.which("dbt") or "dbt",
+            "build",
+            "--project-dir",
+            str(dbt_dir),
+            "--profiles-dir",
+            str(dbt_dir),
+        ],
+        cwd=dbt_dir,
+    )
     stages.append(
-        _run_checked(
-            [
-                shutil.which("dbt") or "dbt",
-                "build",
-                "--project-dir",
-                str(dbt_dir),
-                "--profiles-dir",
-                str(dbt_dir),
-            ],
-            cwd=dbt_dir,
-        )
+        {
+            "name": "dbt_build",
+            "command": dbt_execution["command"],
+            "returncode": dbt_execution["returncode"],
+            "dbt": _dbt_run_evidence(dbt_dir),
+        }
     )
 
-    verify_sql = release / "semantic" / "verify_semantic_view.sql"
-    stages.append(
-        _run_checked(_python_script("execute_snowflake_sql.py", "--sql-file", str(verify_sql), "--confirm"))
+    execute_snowflake_stage(
+        "semantic_view_server_verify",
+        release / "semantic" / "verify_semantic_view.sql",
     )
 
     if deploy_semantic:
-        deploy_sql = release / "semantic" / "deploy_semantic_view.sql"
-        stages.append(
-            _run_checked(_python_script("execute_snowflake_sql.py", "--sql-file", str(deploy_sql), "--confirm"))
+        execute_snowflake_stage(
+            "semantic_view_deploy",
+            release / "semantic" / "deploy_semantic_view.sql",
         )
         if deploy_ai:
-            for sql_file in (release / "ai" / "create_agent.sql", release / "ai" / "create_mcp_server.sql"):
-                stages.append(
-                    _run_checked(_python_script("execute_snowflake_sql.py", "--sql-file", str(sql_file), "--confirm"))
-                )
+            execute_snowflake_stage(
+                "cortex_agent_deploy",
+                release / "ai" / "create_agent.sql",
+            )
+            execute_snowflake_stage(
+                "managed_mcp_deploy",
+                release / "ai" / "create_mcp_server.sql",
+            )
     elif deploy_ai:
         raise RuntimeError("--deploy-ai requires --deploy-semantic")
 
-    return {
+    remaining_external = [
+        "run live concurrency benchmark",
+        "capture Cortex Agent/MCP answer evidence" if deploy_ai else "deploy and verify Cortex Agent/MCP",
+        "Power BI/Excel XMLA governed parity",
+    ]
+    evidence = {
+        "evidence_version": 1,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "status": "PASS",
+        "scope": "bounded_target_account_bootstrap_load_dbt_semantic_verification",
         "workspace": str(workspace),
+        "environment": {
+            "account": os.environ.get("SNOWFLAKE_ACCOUNT"),
+            "warehouse": os.environ.get("SNOWFLAKE_WAREHOUSE"),
+            "role": os.environ.get("SNOWFLAKE_ROLE", "SYSADMIN"),
+            "database": os.environ.get(
+                "RGA_SNOWFLAKE_DATABASE",
+                "RGA_SYNTHETIC_TESTBED",
+            ),
+        },
         "semantic_deployed": deploy_semantic,
         "ai_deployed": deploy_ai,
-        "stages": [{"command": item["command"], "returncode": item["returncode"]} for item in stages],
-        "remaining_external": [
-            "run live concurrency benchmark",
-            "capture Cortex Agent/MCP answer evidence" if deploy_ai else "deploy and verify Cortex Agent/MCP",
-            "Power BI/Excel XMLA governed parity",
-        ],
+        "stages": stages,
+        "remaining_external": remaining_external,
+        "production_rollout_certified": False,
+    }
+    evidence_path = evidence_dir / "snowflake_demo.json"
+    evidence_path.write_text(
+        json.dumps(evidence, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
+    return {
+        **evidence,
+        "evidence_file": str(evidence_path),
     }
 
 
