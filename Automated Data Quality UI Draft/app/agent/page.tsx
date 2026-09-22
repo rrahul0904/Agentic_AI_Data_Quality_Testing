@@ -141,9 +141,11 @@ function usageLabel(usage?: AgentUsage | null): string {
 }
 
 function AskHistory({ items }: { items: AgentHistoryItem[] }) {
+  const completeItems = items.filter((item) => Boolean(item.answer) || Boolean(item.error) || typeof item.latency_ms === "number");
+  const legacyItems = items.filter((item) => !completeItems.includes(item));
   return <section className={styles.panel} aria-labelledby="ask-ai-history-heading">
-    <header className={styles.panelHead}><div><h2 id="ask-ai-history-heading">Ask AI history</h2><p>Saved questions and their scoped answers. Entries are separated by project and environment.</p></div><span>{items.length} saved</span></header>
-    {items.length ? <div className={local.historyList}>{items.map((item, index) => {
+    <header className={styles.panelHead}><div><h2 id="ask-ai-history-heading">Ask AI history</h2><p>Saved questions and their scoped answers. Entries are separated by project and environment.</p></div><span>{completeItems.length} complete</span></header>
+    {completeItems.length ? <div className={local.historyList}>{completeItems.map((item, index) => {
       const scope = item.scope ?? {};
       const failed = String(item.status ?? "").toUpperCase() === "LIVE_ERROR" || Boolean(item.error);
       return <article className={local.historyItem} key={item.invocation_id ?? `${item.question}-${index}`}>
@@ -152,7 +154,8 @@ function AskHistory({ items }: { items: AgentHistoryItem[] }) {
         <section className={local.historyAnswer}><h4>{failed ? "Result" : "Answer"}</h4><p>{item.answer || (failed ? "No final AI answer was recorded." : "This older entry did not retain a complete answer.")}</p>{item.error ? <p className={styles.warningText}>{agentErrorMessage(item.error)}</p> : null}</section>
         <details className={local.answerDetails}><summary>Scope and evidence <span>{Array.isArray(item.evidence_references) ? item.evidence_references.length : 0} records</span></summary><div className={local.detailContent}><div className={styles.summaryList}><div className={styles.summaryRow}><span>Project <small>{scope.project_id ?? "Not recorded"} · {scope.environment ?? "Not recorded"}</small></span><strong>Scoped</strong></div>{scope.selected_asset ? <div className={styles.summaryRow}><span>Asset <small>{scope.selected_asset}</small></span><strong>Selected</strong></div> : null}{scope.run_id ? <div className={styles.summaryRow}><span>Run <small>{scope.run_id}</small></span><strong>Selected</strong></div> : null}</div><div className={styles.capabilityList}>{stringList(item.tools_used).length ? stringList(item.tools_used).map((tool) => <span className={styles.capability} key={tool}>{tool}</span>) : <span className={styles.muted}>No AI tool calls recorded</span>}</div></div></details>
       </article>;
-    })}</div> : <div className={local.historyEmpty}><strong>No Ask AI questions saved yet</strong><p>Ask a scoped question to create the first history entry.</p></div>}
+    })}</div> : <div className={local.historyEmpty}><strong>No complete Ask AI answers saved yet</strong><p>The next question will retain its answer, model, usage, latency, scope, and evidence references.</p></div>}
+    {legacyItems.length ? <details className={local.legacyHistory}><summary>Earlier activity without a stored answer <span>{legacyItems.length} entries</span></summary><p>These questions were recorded by the earlier implementation, but it did not persist their answers or latency. They cannot be reconstructed truthfully.</p><div className={styles.summaryList}>{legacyItems.map((item, index) => <div className={styles.summaryRow} key={item.invocation_id ?? `${item.question}-${index}`}><span>{item.question || "Question not retained"}<small>{formatDateTime(item.created_at)}</small></span><strong>{humanStatus(item.status)}</strong></div>)}</div></details> : null}
   </section>;
 }
 

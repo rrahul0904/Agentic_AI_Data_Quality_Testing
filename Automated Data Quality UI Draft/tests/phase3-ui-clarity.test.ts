@@ -38,6 +38,7 @@ test("Ask AI keeps the concise answer primary and makes evidence and technical o
   assert.match(page, /usageLabel\(item\.usage\)/);
   assert.match(page, /agent_history/);
   assert.match(page, /Scope and evidence/);
+  assert.match(page, /Earlier activity without a stored answer/);
   assert.match(page, /placeholder="Ask a question about this project, selected asset, or run"/);
   assert.doesNotMatch(page, /What is the current quality status and which evidence supports it\?/);
   assert.match(page, /<summary>Evidence and supporting records/);
