@@ -40,12 +40,13 @@ Implemented and verified:
   - `8e3bc515754352d4bee40fece67a04feb6c7335a` — `fix scoped current-state reads and cleanup`.
   - `850c36958846092fb0d246215d5210ab63860e63` — `return zero incident counts for empty stores`.
 - UI commit: `60d2054b9f2fceee14cea1e7b053e23fbb8b9523` — `docs: record two-phase remediation evidence`.
+- Follow-up UI commit: `d5868be12745bcc3fbe3a892b769cac9979be003` — `fix synchronized workspace and live adapter state`.
 - Backend full suite: 712 passed, 1 existing Starlette deprecation warning.
 - Backend targeted scope/cleanup/evidence suite: 23 passed, 1 existing Starlette deprecation warning.
 - UI unit/regression suite: 41 passed.
 - UI typecheck: passed with `npm run typecheck -- --incremental false`.
 - UI production build: passed with `npm run build`.
-- Browser/API checks: build coherence, API contracts, fixture checks, and the read-only release gate passed on the isolated production server at port 3040.
+- Browser/API checks: build coherence, API contracts, fixture checks, and the read-only release gate passed on the isolated production server at port 3040. The canonical production build was then rebuilt and restarted on port 3020; the project page now consumes the same current adapter read as Overview.
 
 ## Explicit limitation
 
