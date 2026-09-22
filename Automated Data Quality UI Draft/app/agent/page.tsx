@@ -11,6 +11,7 @@ type AirflowDag = { dag_id?: string; is_paused?: boolean; timetable_description?
 type OrchestrationRun = { dag_id?: string; status?: string; run_id?: string | null; started_at?: string | null; ended_at?: string | null };
 type AgentResult = {
   status?: string;
+  request_type?: string;
   source?: string;
   dags?: AirflowDag[];
   runs?: unknown[];
@@ -128,31 +129,39 @@ function readableResult(response: AgentResponse): { headline: string; detail: st
   const freshness = result.freshness ?? "";
   const targetName = dag?.dag_id ?? "the requested workflow";
   const modelAnswer = isGenericEvidenceAnswer(response.answer) ? "" : response.answer;
-  const providerUnavailable = String(response.agent?.status ?? "").toUpperCase() === "LIVE_ERROR" || Boolean(response.agent?.error);
-  const evidenceOnly = ["VERIFIED_TOOL_RESPONSE", "TOOL_EVIDENCE_ONLY"].includes(String(response.agent?.status ?? "").toUpperCase())
+  const agentOutcome = String(response.agent?.status ?? "").toUpperCase();
+  const liveExplanation = agentOutcome === "LIVE_RESPONSE" && Boolean(modelAnswer);
+  const directAnswer = liveExplanation ? "" : modelAnswer;
+  const providerUnavailable = agentOutcome === "LIVE_ERROR" || Boolean(response.agent?.error);
+  const evidenceOnly = ["VERIFIED_TOOL_RESPONSE", "TOOL_EVIDENCE_ONLY"].includes(agentOutcome)
     || String(response.evidence?.mode ?? "").toLowerCase() === "evidence_only";
-  const executionRequest = /^(can you\s+)?(run|execute|start|trigger|refresh|load|rerun|retry)\b/i.test(normalizedQuestion);
-  const headline = dag
+  const executionRequest = result.request_type === "execution"
+    || /^(can you\s+)?(run|execute|start|trigger|refresh|load|rerun|retry)\b/i.test(normalizedQuestion);
+  const headline = executionRequest
+    ? "This is an execution request, not an explanation request."
+    : dag
     ? `${targetName} is ${dag.is_paused ? "paused" : "active"}.`
-    : modelAnswer
+    : liveExplanation
       ? "AI explanation completed."
+      : directAnswer
+        ? "Evidence collected."
       : providerUnavailable
         ? "AI explanation is unavailable right now."
       : evidenceOnly
         ? "Evidence was collected; AI review was not run."
-      : executionRequest
-        ? "This is an execution request, not an explanation request."
         : `Evidence collection is ${humanStatus(result.status)}.`;
-  const detail = dag && latestRun
+  const detail = executionRequest
+    ? "Ask AI does not submit jobs. Open Run jobs to select the exact scope, preview it, and approve it before execution."
+    : dag && latestRun
     ? `Its latest recorded run is ${humanStatus(status).toLowerCase()}${latestRun.started_at ? `, starting ${formatDateTime(latestRun.started_at)}` : ""} (${formatDuration(latestRun.started_at, latestRun.ended_at)}).`
-    : modelAnswer
+    : liveExplanation
       ? compactNarrative(modelAnswer, "The available connector evidence is summarized below.")
+      : directAnswer
+        ? directAnswer
       : providerUnavailable
         ? "The live AI provider could not complete this request. Deterministic evidence is shown below, but it is not an AI explanation."
       : evidenceOnly
         ? "The selected connectors returned scoped evidence. No model-generated explanation was produced for this request."
-      : executionRequest
-        ? "Ask AI does not submit jobs. Open Run jobs to preview, approve, and execute the requested dbt scope."
         : "No model-generated explanation was returned. The available scoped evidence is summarized below.";
   const facts: Array<{ label: string; value: string; tone?: "good" | "warn" | "neutral" }> = [];
   if (dag) facts.push({ label: "Schedule", value: dag.timetable_description ?? dag.timetable_summary ?? "Not scheduled", tone: "neutral" });
@@ -167,7 +176,11 @@ function readableResult(response: AgentResponse): { headline: string; detail: st
       : item);
   if (dag) unknowns.unshift("This confirms Airflow runtime metadata only; it does not prove Snowflake loads, dbt completion, or data-quality results.");
   if (freshness.toUpperCase() === "STALE") unknowns.push(`The runtime snapshot may be stale. Last refresh: ${formatDateTime(result.last_refreshed)}.`);
-  const nextAction = evidenceOnly
+  const nextAction = executionRequest
+    ? "Open Run jobs, select one exact operation, then preview and approve the resulting plan."
+    : directAnswer
+      ? response.next_action ?? "Use the exact operation name in Run jobs if you want to prepare an execution request."
+    : evidenceOnly
     ? "Ask a scoped factual question again when you want an AI interpretation; connector evidence alone is not an AI review."
     : String(latestRun?.status ?? "").toUpperCase() === "SUCCESS"
     ? "Open the exact run evidence to inspect task results, then verify downstream Snowflake/dbt steps separately."
@@ -269,7 +282,7 @@ export default function AgentPage() {
           <section><h3>Next action</h3><div className={styles.callout}><strong>{readable.nextAction}</strong></div></section>
           <details className={local.answerDetails}><summary>Technical details</summary><div className={local.detailContent}>
           <section><h3>Interpretation mode</h3><div className={styles.summaryRow}><span>{readable.mode}</span><strong>{readable.updated}</strong></div></section>
-          {response.answer && !isGenericEvidenceAnswer(response.answer) && <section><h3>Full AI answer</h3><p className={styles.rawNarrative}>{response.answer}</p></section>}
+          {String(response.agent?.status ?? "").toUpperCase() === "LIVE_RESPONSE" && response.answer && !isGenericEvidenceAnswer(response.answer) && <section><h3>Full AI answer</h3><p className={styles.rawNarrative}>{response.answer}</p></section>}
           <section>
             <h3>Tools used</h3>
             <div className={styles.capabilityList}>{toolsUsed.length ? toolsUsed.map((item, index) =>

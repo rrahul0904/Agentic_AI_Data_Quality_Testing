@@ -41,6 +41,12 @@ test("Ask AI keeps the concise answer primary and makes evidence and technical o
   assert.match(page, /Deterministic evidence is shown below, but it is not an AI explanation\./);
   assert.match(page, /Evidence-only fallback \(AI unavailable\)/);
   assert.match(page, /AI explanation completed\./);
+  assert.match(page, /const liveExplanation = agentOutcome === "LIVE_RESPONSE" && Boolean\(modelAnswer\);/);
+  assert.match(page, /const directAnswer = liveExplanation \? "" : modelAnswer;/);
+  assert.match(page, /const headline = executionRequest/);
+  assert.match(page, /: directAnswer\n\s+\? "Evidence collected\."/);
+  assert.match(page, /result\.request_type === "execution"/);
+  assert.match(page, /LIVE_RESPONSE" && response\.answer/);
   assert.match(page, /humanStatus\(response\.agent\?\.status \?\? resultRecord\(response\.result\)\.status\)/);
   assert.doesNotMatch(page, /compactNarrative\(response\.question/);
 });
