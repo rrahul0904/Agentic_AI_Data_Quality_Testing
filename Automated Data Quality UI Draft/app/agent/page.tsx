@@ -258,7 +258,7 @@ export default function AgentPage() {
         {response && !response.error && readable && <div className={styles.sectionStack} aria-live="polite">
           <h3>Answer</h3>
           <section className={styles.answerCard}>
-            <div className={styles.answerHeader}><span className={styles.answerEyebrow}>CURRENT STATUS</span><span className={styles.answerStatus}>{humanStatus(resultRecord(response.result).status ?? response.agent?.status)}</span></div>
+            <div className={styles.answerHeader}><span className={styles.answerEyebrow}>CURRENT STATUS</span><span className={styles.answerStatus}>{humanStatus(response.agent?.status ?? resultRecord(response.result).status)}</span></div>
             <h2>{readable.headline}</h2>
             <p>{readable.detail}</p>
             <div className={styles.answerFacts}>{readable.facts.map((item) => <div className={styles.answerFact} key={item.label}><small>{item.label}</small><strong className={item.tone === "warn" ? styles.answerWarn : item.tone === "good" ? styles.answerGood : ""}>{item.value}</strong></div>)}</div>
