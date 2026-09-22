@@ -32,7 +32,7 @@ type AgentResponse = {
   uncertainty?: string[];
   next_action?: string;
   evidence_links?: EvidenceLink[];
-  agent?: { status?: string; error?: string; provider?: string; model?: string | null };
+  agent?: { status?: string; error?: string | Record<string, unknown>; provider?: string; model?: string | null };
   evidence?: { tools_used?: string[]; data_sources?: string[]; records?: EvidenceLink[]; scope?: Record<string, unknown>; mode?: string; timestamp?: string };
   tools_used?: string[];
   data_sources?: string[];
@@ -70,6 +70,7 @@ function humanStatus(value?: string | null): string {
   if (status === "VERIFIED_TOOL_RESPONSE" || status === "TOOL_EVIDENCE_ONLY") return "Evidence collected";
   if (status === "LIVE_RESPONSE") return "AI explanation completed";
   if (status === "LIVE_ERROR") return "AI explanation unavailable";
+  if (status === "SKIP_EXTERNAL") return "External provider not called";
   if (status === "SUCCESS" || status === "COMPLETED" || status === "PASS" || status === "PASSED") return "Passed";
   if (status === "FAILED" || status === "ERROR" || status === "FAIL") return "Failed";
   if (status === "QUEUED" || status === "RUNNING" || status === "MONITORING") return "In progress";
@@ -81,9 +82,16 @@ function humanStatus(value?: string | null): string {
 function friendlyMode(value?: string | null): string {
   const mode = String(value ?? "").toUpperCase();
   if (mode.includes("LIVE_OPENAI")) return "Live AI answer with verified tools";
+  if (mode === "AI_UNAVAILABLE_EVIDENCE_ONLY") return "Evidence-only fallback (AI unavailable)";
   if (mode === "VERIFIED_TOOL_RESPONSE") return "Evidence-backed connector result";
   if (mode === "DETERMINISTIC") return "Deterministic evidence result";
   return value ? String(value).replaceAll("_", " ").toLowerCase().replace(/(^|\s)\S/g, (letter) => letter.toUpperCase()) : "Evidence-backed answer";
+}
+
+function agentErrorMessage(value?: string | Record<string, unknown>): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value.message === "string") return value.message;
+  return "The configured AI provider could not complete the request.";
 }
 
 function compactNarrative(value: string | undefined, fallback: string): string {
@@ -119,11 +127,14 @@ function readableResult(response: AgentResponse): { headline: string; detail: st
   const freshness = result.freshness ?? "";
   const targetName = dag?.dag_id ?? "the requested workflow";
   const modelAnswer = isGenericEvidenceAnswer(response.answer) ? "" : response.answer;
+  const providerUnavailable = String(response.agent?.status ?? "").toUpperCase() === "LIVE_ERROR" || Boolean(response.agent?.error);
   const executionRequest = /^(can you\s+)?(run|execute|start|trigger|refresh|load|rerun|retry)\b/i.test(normalizedQuestion);
   const headline = dag
     ? `${targetName} is ${dag.is_paused ? "paused" : "active"}.`
     : modelAnswer
       ? compactNarrative(modelAnswer, `Evidence collection is ${humanStatus(result.status)}.`)
+      : providerUnavailable
+        ? "AI explanation is unavailable right now."
       : executionRequest
         ? "This is an execution request, not an explanation request."
         : `Evidence collection is ${humanStatus(result.status)}.`;
@@ -131,6 +142,8 @@ function readableResult(response: AgentResponse): { headline: string; detail: st
     ? `Its latest recorded run is ${humanStatus(status).toLowerCase()}${latestRun.started_at ? `, starting ${formatDateTime(latestRun.started_at)}` : ""} (${formatDuration(latestRun.started_at, latestRun.ended_at)}).`
     : modelAnswer
       ? compactNarrative(modelAnswer, "The available connector evidence is summarized below.")
+      : providerUnavailable
+        ? "The live AI provider could not complete this request. Deterministic evidence is shown below, but it is not an AI explanation."
       : executionRequest
         ? "Ask AI does not submit jobs. Open Run jobs to preview, approve, and execute the requested dbt scope."
         : "No model-generated explanation was returned. The available scoped evidence is summarized below.";
@@ -232,7 +245,7 @@ export default function AgentPage() {
           </button>
         </div>
         {response?.error && <div className={styles.dangerStrip} role="alert">{response.error}</div>}
-        {response?.agent?.error && <div className={styles.dangerStrip} role="alert">Live agent unavailable: {response.agent.error}</div>}
+        {response?.agent?.error && <div className={styles.dangerStrip} role="alert">Live agent unavailable: {agentErrorMessage(response.agent.error)}</div>}
         {response && !response.error && readable && <div className={styles.sectionStack} aria-live="polite">
           <h3>Answer</h3>
           <section className={styles.answerCard}>
