@@ -81,6 +81,7 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
     evidence_dir = evidence_dir or (workspace / "external-evidence")
     release_path = workspace / "release" / "release_manifest.json"
     live_path = workspace / "evidence" / "certification_manifest.json"
+    bounded_path = workspace / "evidence" / "snowflake_demo.json"
     consumer_path = workspace / "evidence" / "cross_consumer_parity.json"
     agent_path = workspace / "evidence" / "agent_smoke.json"
     cdc_path = workspace / "evidence" / "cdc_application.json"
@@ -93,6 +94,7 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
 
     release = _load(release_path)
     live = _load(live_path)
+    bounded = _load(bounded_path)
     consumer = _load(consumer_path)
     agent = _load(agent_path)
     cdc = _load(cdc_path)
@@ -104,6 +106,7 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
 
     local_status = "PASS" if release else "MISSING"
     live_status = live.get("status") if live else "PENDING"
+    bounded_status = bounded.get("status") if bounded else "PENDING"
     consumer_status = consumer.get("status") if consumer else "PENDING"
     agent_status = agent.get("status") if agent else "PENDING"
     cdc_status = cdc.get("status") if cdc else "PENDING"
@@ -140,7 +143,13 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
     if not release:
         blockers.append("governed semantic release bundle is missing")
     if live_status != "PASS":
-        blockers.append("live Snowflake semantic-runtime certification has not passed")
+        if bounded_status == "PASS":
+            blockers.append(
+                "full live Snowflake semantic-runtime certification has not passed; "
+                "bounded bootstrap/load/dbt/Semantic View verification evidence has passed"
+            )
+        else:
+            blockers.append("live Snowflake semantic-runtime certification has not passed")
     if consumer_status != "PASS":
         blockers.append("cross-consumer Snowflake/AI/Power BI/Excel parity has not passed")
     if cdc and cdc_status != "PASS":
@@ -183,13 +192,15 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
         overall_status = "END_TO_END_CERTIFIED_FOR_EXECUTED_WORKLOAD"
     elif release and live_status == "PASS":
         overall_status = "LIVE_RUNTIME_CERTIFIED_CONSUMER_PARITY_PENDING"
+    elif release and bounded_status == "PASS":
+        overall_status = "BOUNDED_TARGET_ACCOUNT_CERTIFIED_FULL_RUNTIME_PENDING"
     elif release:
         overall_status = "REPOSITORY_READY_LIVE_CERTIFICATION_PENDING"
     else:
         overall_status = "INCOMPLETE"
 
     return {
-        "certification_report_version": 1,
+        "certification_report_version": 2,
         "overall_status": overall_status,
         "end_to_end_certified": end_to_end_certified,
         "production_rollout_certified": False,
@@ -202,6 +213,23 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
             "semantic_manifest_sha256": release.get("semantic_manifest_sha256") if release else None,
             "generated_file_count": release.get("generated_file_count") if release else None,
             "change_status": release.get("change_status") if release else None,
+        },
+        "bounded_target_account": {
+            "status": bounded_status,
+            "path": str(bounded_path),
+            "scope": bounded.get("scope") if bounded else None,
+            "source_sha": bounded.get("source_sha") if bounded else None,
+            "semantic_manifest_sha256": (
+                bounded.get("semantic_manifest_sha256") if bounded else None
+            ),
+            "environment": bounded.get("environment") if bounded else None,
+            "semantic_deployed": bounded.get("semantic_deployed") if bounded else None,
+            "ai_deployed": bounded.get("ai_deployed") if bounded else None,
+            "stages": bounded.get("stages") if bounded else None,
+            "remaining_external": bounded.get("remaining_external") if bounded else None,
+            "production_rollout_certified": (
+                bounded.get("production_rollout_certified") if bounded else False
+            ),
         },
         "live_runtime": {
             "status": live_status,
@@ -300,9 +328,12 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
             "target-scale SLA/load evidence and organizational operational approval are outside this report"
         ],
         "truth_boundary": (
-            "END_TO_END_CERTIFIED_FOR_EXECUTED_WORKLOAD means the governed release, live Snowflake runtime, "
-            "captured consumer evidence, and cross-consumer parity passed for the executed workload/environment. "
-            "It does not by itself certify a production rollout."
+            "A PASS bounded_target_account status means only the executed bootstrap, RAW load, dbt build, "
+            "and server-side Semantic View verification stages in snowflake_demo.json passed for the recorded "
+            "target account and exact source/semantic hashes. It does not imply Semantic View deployment, "
+            "Cortex Agent/MCP runtime proof, direct-versus-semantic benchmark certification, consumer parity, "
+            "target-scale SLA, or production rollout approval. END_TO_END_CERTIFIED_FOR_EXECUTED_WORKLOAD "
+            "requires the broader live runtime plus captured consumer evidence and cross-consumer parity."
         ),
     }
 
@@ -320,6 +351,12 @@ def render_markdown(report: dict[str, Any]) -> str:
         "## Certification surfaces",
         "",
         f"- Governed release: **{report['release']['status']}**",
+        (
+            "- Bounded target-account slice: "
+            f"**{report['bounded_target_account']['status']}** "
+            f"(semantic_deployed={report['bounded_target_account']['semantic_deployed']}, "
+            f"ai_deployed={report['bounded_target_account']['ai_deployed']})"
+        ),
         f"- Live Snowflake runtime: **{report['live_runtime']['status']}**",
         f"- Cortex Agent runtime: **{report['agent_runtime']['status']}**",
         f"- CDC correction/late-arrival cycle: **{report['change_data']['status']}**",
