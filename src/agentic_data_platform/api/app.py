@@ -829,6 +829,8 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             "explore-execute": "dbt_next_explore_execute",
             "chart-validate": "dbt_next_chart_validate",
             "chart-compile": "dbt_next_chart_compile",
+            "chart-contract": "dbt_next_chart_query_contract",
+            "chart-execute": "dbt_next_chart_execute",
             "model-compute-plan": "dbt_next_model_compute_plan",
             "lake-plan": "dbt_next_lake_compute_plan",
             "lake-run": "dbt_next_lake_compute_run",

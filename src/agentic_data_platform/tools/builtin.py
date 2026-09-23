@@ -43,6 +43,7 @@ from agentic_data_platform.dbt.advanced import (
 from agentic_data_platform.dbt.nextgen import (
     agents_schema as dbt_next_agents_schema_impl,
     chart_compile as dbt_next_chart_compile_impl,
+    chart_query_contract as dbt_next_chart_query_contract_impl,
     chart_validate as dbt_next_chart_validate_impl,
     context_bundle as dbt_next_context_bundle_impl,
     context_search as dbt_next_context_search_impl,
@@ -1197,6 +1198,48 @@ def build_tool_registry() -> ToolRegistry:
         dbt_next_chart_compile_impl,
         "Compile dashboard YAML into provider-neutral contracts for ADE web, Power BI, Excel and AI consumers.",
         platforms=frozenset({Platform.LOCAL, Platform.DBT}),
+    )
+    add(
+        "dbt_next_chart_query_contract",
+        Capability.PLAN,
+        dbt_next_chart_query_contract_impl,
+        "Compile one dashboard chart into explicit read-only SQL or a governed verified-query execution contract.",
+        platforms=frozenset({Platform.LOCAL, Platform.DBT, Platform.SNOWFLAKE, Platform.BIGQUERY, Platform.REDSHIFT, Platform.DATABRICKS, Platform.POSTGRES, Platform.DUCKDB}),
+    )
+
+    def dbt_next_chart_execute_handler(a: dict[str, Any]) -> dict[str, Any]:
+        contract = dbt_next_chart_query_contract_impl(a)
+        if contract.get("status") != "READY":
+            return contract
+        try:
+            connector = connector_from_args(a)
+        except ExternalConnectionUnavailable as exc:
+            return {
+                **contract,
+                "status": "SKIP_EXTERNAL",
+                "reason": str(exc),
+                "execution": None,
+            }
+        execution = sql_execute_impl(
+            connector,
+            str(contract["sql"]),
+            a.get("dialect") or a.get("platform") or contract.get("dialect_hint"),
+            row_limit=max(1, min(int(a.get("row_limit", 1000)), 5000)),
+        )
+        return {
+            "status": execution.get("status", "PASS"),
+            "dashboard": contract["dashboard"],
+            "chart": contract["chart"],
+            "contract": contract,
+            "execution": execution,
+        }
+
+    add(
+        "dbt_next_chart_execute",
+        Capability.EXECUTE,
+        dbt_next_chart_execute_handler,
+        "Execute only explicit read-only or governed verified-query dashboard chart SQL through an ADE connector.",
+        platforms=frozenset({Platform.LOCAL, Platform.DBT, Platform.SNOWFLAKE, Platform.BIGQUERY, Platform.REDSHIFT, Platform.DATABRICKS, Platform.POSTGRES, Platform.DUCKDB}),
     )
     add(
         "dbt_next_model_compute_plan",
