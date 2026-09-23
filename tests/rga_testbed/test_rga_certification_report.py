@@ -78,6 +78,86 @@ def test_certification_report_is_truthful_when_only_repository_release_exists(tm
     assert "REPOSITORY_READY_LIVE_CERTIFICATION_PENDING" in markdown
 
 
+def test_certification_report_surfaces_bounded_target_account_without_promoting_live_runtime(tmp_path: Path):
+    module = _module()
+    workspace = tmp_path / "demo"
+    evidence_dir = workspace / "external-evidence"
+
+    _write(
+        workspace / "release" / "release_manifest.json",
+        {
+            "source_sha": "abc123",
+            "semantic_manifest_sha256": "semantic-hash",
+            "generated_file_count": 20,
+            "change_status": "UNCHANGED",
+        },
+    )
+    _write(
+        workspace / "release" / "parity" / "parity_manifest.json",
+        _parity_manifest(),
+    )
+    _write(
+        workspace / "evidence" / "snowflake_demo.json",
+        {
+            "status": "PASS",
+            "scope": "bounded_target_account_bootstrap_load_dbt_semantic_verification",
+            "source_sha": "abc123",
+            "semantic_manifest_sha256": "semantic-hash",
+            "environment": {
+                "account": "acct",
+                "warehouse": "wh",
+                "role": "ROLE_ANALYST",
+                "database": "RGA_SYNTHETIC_TESTBED",
+            },
+            "semantic_deployed": False,
+            "ai_deployed": False,
+            "stages": [
+                {"name": "snowflake_bootstrap"},
+                {"name": "snowflake_raw_load"},
+                {"name": "dbt_build"},
+                {"name": "semantic_view_server_verify"},
+            ],
+            "remaining_external": [
+                "run live concurrency benchmark",
+                "deploy and verify Cortex Agent/MCP",
+                "Power BI/Excel XMLA governed parity",
+            ],
+            "production_rollout_certified": False,
+        },
+    )
+
+    report = module.build_report(workspace, evidence_dir)
+    assert report["certification_report_version"] == 2
+    assert (
+        report["overall_status"]
+        == "BOUNDED_TARGET_ACCOUNT_CERTIFIED_FULL_RUNTIME_PENDING"
+    )
+    assert report["bounded_target_account"]["status"] == "PASS"
+    assert report["bounded_target_account"]["source_sha"] == "abc123"
+    assert report["bounded_target_account"]["semantic_manifest_sha256"] == "semantic-hash"
+    assert report["bounded_target_account"]["semantic_deployed"] is False
+    assert report["bounded_target_account"]["ai_deployed"] is False
+    assert [stage["name"] for stage in report["bounded_target_account"]["stages"]] == [
+        "snowflake_bootstrap",
+        "snowflake_raw_load",
+        "dbt_build",
+        "semantic_view_server_verify",
+    ]
+    assert report["live_runtime"]["status"] == "PENDING"
+    assert report["end_to_end_certified"] is False
+    assert report["production_rollout_certified"] is False
+    assert any(
+        "bounded bootstrap/load/dbt/Semantic View verification evidence has passed"
+        in blocker
+        for blocker in report["blockers"]
+    )
+
+    markdown = module.render_markdown(report)
+    assert "Bounded target-account slice: **PASS**" in markdown
+    assert "Live Snowflake runtime: **PENDING**" in markdown
+    assert "Production rollout certified:** NO" in markdown
+
+
 def test_certification_report_marks_production_only_after_all_surfaces_pass(tmp_path: Path):
     module = _module()
     workspace = tmp_path / "demo"
