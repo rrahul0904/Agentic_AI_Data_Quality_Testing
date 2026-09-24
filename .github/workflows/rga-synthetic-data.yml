@@ -165,6 +165,8 @@ jobs:
           grep -q '"overall_status": "REPOSITORY_READY_LIVE_CERTIFICATION_PENDING"' /tmp/semantic-platform-certification-report.json
           grep -q '"end_to_end_certified": false' /tmp/semantic-platform-certification-report.json
           grep -q '"production_rollout_certified": false' /tmp/semantic-platform-certification-report.json
+          grep -q '"repository_scope_complete": true' /tmp/semantic-platform-certification-report.json
+          grep -q '"repository_completion_status": "REPOSITORY_SCOPE_COMPLETE_EXTERNAL_CERTIFICATION_DEFERRED"' /tmp/semantic-platform-certification-report.json
           test -f /tmp/semantic-platform-certification-report/certification_summary.json
           test -f /tmp/semantic-platform-certification-report/CERTIFICATION_SUMMARY.md
           grep -q 'Production rollout certified.*NO' /tmp/semantic-platform-certification-report/CERTIFICATION_SUMMARY.md
