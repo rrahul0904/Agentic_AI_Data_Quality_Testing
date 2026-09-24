@@ -8,6 +8,36 @@ from pathlib import Path
 from typing import Any
 
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+REPOSITORY_PACKAGING_ARTIFACTS = (
+    ".github/workflows/production-release.yml",
+    "apps/web/Dockerfile",
+    "deploy/Dockerfile.api",
+    "deploy/k8s/base/kustomization.yaml",
+    "deploy/k8s/base/api-deployment.yaml",
+    "deploy/k8s/base/web-deployment.yaml",
+    "deploy/k8s/base/networkpolicy.yaml",
+    "docker-compose.release.yml",
+    "docs/PRODUCTION_DEPLOYMENT.md",
+    "tests/test_production_deployment_manifests.py",
+)
+
+
+def _repository_packaging_status() -> dict[str, Any]:
+    artifacts = [
+        {"path": item, "exists": (REPO_ROOT / item).exists()}
+        for item in REPOSITORY_PACKAGING_ARTIFACTS
+    ]
+    missing = [item["path"] for item in artifacts if not item["exists"]]
+    return {
+        "status": "PASS" if not missing else "INCOMPLETE",
+        "required": len(artifacts),
+        "present": len(artifacts) - len(missing),
+        "missing": missing,
+        "artifacts": artifacts,
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", type=Path, required=True)
@@ -103,6 +133,7 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
     optimization = _load(optimization_path)
     optimization_diagnostics = _load(optimization_diagnostics_path)
     evidence_status = _consumer_evidence_status(workspace, evidence_dir)
+    repository_packaging = _repository_packaging_status()
 
     local_status = "PASS" if release else "MISSING"
     live_status = live.get("status") if live else "PENDING"
@@ -140,6 +171,8 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
     )
 
     blockers: list[str] = []
+    if repository_packaging["status"] != "PASS":
+        blockers.append("immutable repository deployment packaging is incomplete")
     if not release:
         blockers.append("governed semantic release bundle is missing")
     if live_status != "PASS":
@@ -181,6 +214,10 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
             f"({evidence_status['captured']}/{evidence_status['expected']} captured)"
         )
 
+    repository_scope_complete = bool(
+        release and repository_packaging["status"] == "PASS"
+    )
+
     end_to_end_certified = bool(
         release
         and live_status == "PASS"
@@ -204,6 +241,21 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
         "overall_status": overall_status,
         "end_to_end_certified": end_to_end_certified,
         "production_rollout_certified": False,
+        "repository_scope_complete": repository_scope_complete,
+        "repository_completion_status": (
+            "REPOSITORY_SCOPE_COMPLETE_EXTERNAL_CERTIFICATION_DEFERRED"
+            if repository_scope_complete
+            else "REPOSITORY_SCOPE_INCOMPLETE"
+        ),
+        "repository_packaging": repository_packaging,
+        "deferred_external_certification": [
+            "live Snowflake bootstrap/load/dbt/Semantic View target-account evidence",
+            "deployed Semantic View and Cortex Agent/MCP runtime evidence",
+            "direct-vs-semantic target-account benchmark measurements",
+            "governed Power BI/Excel live parity evidence",
+            "target-scale SLA evidence",
+            "hosted production rollout approval and environment evidence",
+        ],
         "workspace": str(workspace),
         "evidence_dir": str(evidence_dir),
         "release": {
@@ -347,6 +399,8 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"**Overall status:** {report['overall_status']}",
         f"**End-to-end certified for executed workload:** {'YES' if report['end_to_end_certified'] else 'NO'}",
         f"**Production rollout certified:** {'YES' if report['production_rollout_certified'] else 'NO'}",
+        f"**Repository scope complete:** {'YES' if report['repository_scope_complete'] else 'NO'}",
+        f"**Repository completion status:** {report['repository_completion_status']}",
         "",
         "## Certification surfaces",
         "",
@@ -421,6 +475,8 @@ def generate(
         "overall_status": report["overall_status"],
         "end_to_end_certified": report["end_to_end_certified"],
         "production_rollout_certified": report["production_rollout_certified"],
+        "repository_scope_complete": report["repository_scope_complete"],
+        "repository_completion_status": report["repository_completion_status"],
         "json": str(json_path),
         "markdown": str(markdown_path),
         "blockers": report["blockers"],
