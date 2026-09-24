@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ade
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - persistent-volume-claims.yaml
+  - api-deployment.yaml
+  - web-deployment.yaml
+  - services.yaml
+  - networkpolicy.yaml
+images:
+  - name: ghcr.io/rrahul0904/agentic-ai-data-quality-testing-api
+    newTag: sha-REPLACE
+  - name: ghcr.io/rrahul0904/agentic-ai-data-quality-testing-web
+    newTag: sha-REPLACE
