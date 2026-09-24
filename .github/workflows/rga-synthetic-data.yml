@@ -63,7 +63,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Install repository dependencies
-        run: python -m pip install -e '.[dev]'
+        run: python -m pip install -e '.[dev,testbed]'
       - name: Compile RGA Python surface
         run: python -m compileall -q scripts/rga_testbed tests/rga_testbed
       - name: Run RGA and immutable deployment tests
