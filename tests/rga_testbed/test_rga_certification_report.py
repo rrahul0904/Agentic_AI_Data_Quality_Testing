@@ -62,6 +62,9 @@ def test_certification_report_is_truthful_when_only_repository_release_exists(tm
     assert report["overall_status"] == "REPOSITORY_READY_LIVE_CERTIFICATION_PENDING"
     assert report["end_to_end_certified"] is False
     assert report["production_rollout_certified"] is False
+    assert report["repository_scope_complete"] is True
+    assert report["repository_completion_status"] == "REPOSITORY_SCOPE_COMPLETE_EXTERNAL_CERTIFICATION_DEFERRED"
+    assert report["repository_packaging"]["status"] == "PASS"
     assert report["release"]["status"] == "PASS"
     assert report["live_runtime"]["status"] == "PENDING"
     assert report["consumer_parity"]["status"] == "PENDING"
@@ -75,6 +78,8 @@ def test_certification_report_is_truthful_when_only_repository_release_exists(tm
     markdown = module.render_markdown(report)
     assert "End-to-end certified for executed workload:** NO" in markdown
     assert "Production rollout certified:** NO" in markdown
+    assert "Repository scope complete:** YES" in markdown
+    assert "REPOSITORY_SCOPE_COMPLETE_EXTERNAL_CERTIFICATION_DEFERRED" in markdown
     assert "REPOSITORY_READY_LIVE_CERTIFICATION_PENDING" in markdown
 
 
