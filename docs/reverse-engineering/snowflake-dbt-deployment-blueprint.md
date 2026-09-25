@@ -299,3 +299,28 @@ The first ADE implementation slice is complete only when:
 Reverse engineering is **started**. The architecture, deployment phases, validation model, migration semantics, dbt runtime behavior, Snowpark/Streamlit patterns, and key production gaps have been captured.
 
 Next concrete engineering action: implement the read-only hybrid deployment analyzer and evidence schema in ADE, then add tests before introducing any Snowflake mutation path.
+
+## 20. Post / comments / feedback audit
+
+This source was supplied as a **GitHub repository URL**, not as a Reddit/product post. There is therefore no Reddit post/comment thread associated with this request that can truthfully be treated as product feedback.
+
+To avoid inventing feedback, the repository's GitHub collaboration history was audited separately:
+
+- PRs **#1 through #38** were checked for top-level issue comments;
+- the same PRs were checked for inline review comments;
+- the same PRs were checked for review submissions;
+- the connector returned **no comments or reviews on any of those PRs**;
+- repository issue search returned no standalone issues.
+
+Accordingly, there is **no external commenter/reviewer feedback to incorporate** from this repository history. The reverse engineering must not manufacture user sentiment, requested features, or reviewer concerns.
+
+The useful feedback/evolution signal comes from the successive implementation changes visible in the PR history itself:
+
+- PRs around **#9–#15** repeatedly adjust incremental-loading behavior;
+- PRs around **#16–#26** build out consumption-layer dimensions/facts plus SCD1/SCD2 behavior;
+- PRs **#27–#28** add failure logging and email notification;
+- PRs **#29–#33** repeatedly correct deployment ordering, culminating in the explicit pre-dbt → dbt → post-dbt dependency model;
+- PRs **#35–#37** focus on documentation and architecture representation;
+- PR **#38** merges the latest development branch state.
+
+Those changes are treated as **observed engineering evolution**, not as community feedback. They strengthen the interpretation that the repository's core product is the hybrid Snowflake/dbt deployment framework and that ordering, incremental correctness, SCD behavior, and run observability were recurring implementation concerns.
