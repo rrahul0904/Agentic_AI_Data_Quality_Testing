@@ -1,4 +1,5 @@
 import { resolveWorkspace } from "../../../lib/server-workspace";
+import { isPhase4Fixture } from "../../../lib/server-test-fixture";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,7 @@ async function backend(endpoint: string, projectId: string): Promise<Record<stri
 export async function GET(request: Request) {
   try {
     const scope = await resolveWorkspace(request);
+    if (isPhase4Fixture(request)) return Response.json({ status: "CONNECTED", tables: [{ id: "postgres:public:orders", database: "fixture-postgres", schema: "public", table: "orders", columns: [{ name: "order_id", type: "integer", nullable: false }] }], workspace: scope }, { headers: { "Cache-Control": "no-store", "X-ADQ-Test-Fixture": "phase4" } });
     const metadata = await backend("/api/v1/connections/postgres/metadata", scope.projectId);
     const objects = Array.isArray(metadata.objects) ? metadata.objects : [];
     const tables = objects.flatMap((item) => {

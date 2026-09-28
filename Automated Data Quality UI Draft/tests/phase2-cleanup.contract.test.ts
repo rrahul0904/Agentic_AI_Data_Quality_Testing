@@ -81,7 +81,7 @@ test("cleared reconciliation and overview views cannot source current state from
   assert.match(reconciliationPage, /Selected database has not been tested/);
   assert.doesNotMatch(reconciliationPage, /sourceCatalog\[0\]\?\.table|targetCatalog\[0\]\?\.table/);
   assert.match(reconciliationPage, /const \[metadataRetry, setMetadataRetry\] = useState\(0\);/);
-  assert.match(reconciliationPage, /status\.toUpperCase\(\) === "LOADING"/);
+  assert.match(reconciliationPage, /\["LOADING", "UNAVAILABLE"\]\.includes\(status\.toUpperCase\(\)\)/);
   const onboardingRoute = await readFile(path.join(root, "app/api/onboarding/route.ts"), "utf8");
   assert.match(onboardingRoute, /connections\/dbt\/status/);
   assert.match(onboardingRoute, /"CONNECTED"/);

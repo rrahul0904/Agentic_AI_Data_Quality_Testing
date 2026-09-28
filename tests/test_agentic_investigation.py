@@ -27,7 +27,7 @@ def test_roster_contains_twelve_first_class_roles():
 
 def test_scenario_library_contains_all_required_failures():
     scenarios = scenario_catalog()
-    assert len(scenarios) == 18
+    assert len(scenarios) == 19
     assert "airflow_green_data_bad" in {item["scenario_id"] for item in scenarios}
 
 

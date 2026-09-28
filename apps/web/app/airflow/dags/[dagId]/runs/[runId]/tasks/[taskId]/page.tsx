@@ -1,0 +1,2 @@
+import { AirflowTask } from "../../../../../../../_components/AirflowWorkspace";
+export default async function TaskPage({ params, searchParams }: { params: Promise<{ dagId: string; runId: string; taskId: string }>; searchParams: Promise<{ incident?: string }> }) { const [{ dagId, runId, taskId }, search] = await Promise.all([params, searchParams]); return <AirflowTask dagId={decodeURIComponent(dagId)} runId={decodeURIComponent(runId)} taskId={decodeURIComponent(taskId)} incidentId={search.incident} />; }

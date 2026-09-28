@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import ProjectManagementShell from "../ProjectManagementShell";
 import styles from "../workflow.module.css";
 import ScopedLink from "../components/ScopedLink";
@@ -116,6 +117,13 @@ function evidenceSource(value: unknown): string {
 }
 
 export default function QualityPlanPage() {
+  return <Suspense fallback={<div role="status">Loading runs and evidence…</div>}><QualityPlanContent /></Suspense>;
+}
+
+function QualityPlanContent() {
+  const searchParams = useSearchParams();
+  const routeQuery = searchParams.toString();
+  const workspaceScope = [searchParams.get("project_id"), searchParams.get("environment"), searchParams.get("fixture"), searchParams.get("workspace_revision")].join(":");
   const [view, setView] = useState<View>("contracts");
   const [mode, setMode] = useState<WorkspaceMode>("review");
   const [executionTab, setExecutionTab] = useState<ExecutionTab>("run");
@@ -123,6 +131,9 @@ export default function QualityPlanPage() {
   const [plan, setPlan] = useState<QualityPlan | null>(null);
   const [runs, setRuns] = useState<QualityPlanRunSummary[]>([]);
   const [runDetails, setRunDetails] = useState<Record<string, QualityPlanRun>>({});
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [selectedRunLoading, setSelectedRunLoading] = useState(false);
+  const [selectedRunError, setSelectedRunError] = useState<string | null>(null);
   const [runPage, setRunPage] = useState(1);
   const [runTotal, setRunTotal] = useState(0);
   const [runHasNext, setRunHasNext] = useState(false);
@@ -162,27 +173,38 @@ export default function QualityPlanPage() {
   };
 
   useEffect(() => {
-    setWorkspaceLoading(true);
-    setWorkspaceError(null);
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(routeQuery);
     setWorkspaceQuery(currentWorkspaceParams().toString());
     setView(params.get("view") === "execution" ? "execution" : "contracts");
     setMode(params.get("mode") === "manage" ? "manage" : "review");
     const requestedTab = params.get("tab");
     setExecutionTab(requestedTab === "history" || requestedTab === "schedules" ? requestedTab : "run");
+    setSelectedRunId(params.get("run_id"));
+  }, [routeQuery]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setWorkspaceLoading(true);
+    setWorkspaceError(null);
+    setRunDetails({});
+    setPlan(null);
     void fetch(scopedApiUrl("/api/onboarding"), { cache: "no-store" }).then((response) => response.ok ? response.json() as Promise<OnboardingBootstrap> : Promise.reject(new Error("onboarding unavailable"))).then(setOnboarding).catch(() => setOnboarding(null));
     request().then((value) => {
+      if (cancelled) return;
       const workspace = value as unknown as QualityPlanWorkspace;
       applyWorkspace(workspace);
     }).catch((error: Error) => {
+      if (cancelled) return;
       const message = error.message || "Runs and evidence are unavailable";
       setWorkspaceError(message);
       setNotice(message);
     }).finally(() => {
+      if (cancelled) return;
       setWorkspaceLoading(false);
       setWorkspaceLoaded(true);
     });
-  }, [workspaceReload]);
+    return () => { cancelled = true; };
+  }, [workspaceReload, workspaceScope]);
 
   const executionHref = (tab: ExecutionTab): string => {
     const base = `/test-plan?view=execution&mode=manage&tab=${tab}`;
@@ -193,10 +215,13 @@ export default function QualityPlanPage() {
     setBusy(action); setNotice(null);
     try {
       const value = await request({ action, planId: plan?.plan_id, ...extra });
+      let planReloaded = false;
       if (value.plan || value.request || value.schedule) {
         const workspace = await request() as unknown as QualityPlanWorkspace;
         applyWorkspace(workspace);
+        planReloaded = Boolean(workspace.plan);
       }
+      if (action === "generate" && !planReloaded) throw new Error("Plan generation returned, but no plan matching this project, environment, and source-table scope could be loaded. The page is not showing it as ready.");
       if (value.run) {
         const run = value.run as unknown as QualityPlanRun;
         setRunDetails((current) => ({ ...current, [run.run_id]: run }));
@@ -218,15 +243,38 @@ export default function QualityPlanPage() {
   };
 
   useEffect(() => {
-    const summary = runs[0];
-    if (!summary || runDetails[summary.run_id] || !plan?.plan_id) return;
+    const summary = runs.find((run) => run.plan_id === plan?.plan_id);
+    if (!summary || runDetails[summary.run_id]) return;
     let cancelled = false;
-    fetch(scopedApiUrl(`/api/quality-plans/runs/${encodeURIComponent(summary.run_id)}?plan_id=${encodeURIComponent(plan.plan_id)}`), { cache: "no-store", signal: AbortSignal.timeout(4000) })
+    fetch(scopedApiUrl(`/api/quality-plans/runs/${encodeURIComponent(summary.run_id)}`), { cache: "no-store", signal: AbortSignal.timeout(4000) })
       .then((response) => response.ok ? response.json() as Promise<QualityPlanRun> : Promise.reject(new Error("Latest run details are unavailable")))
       .then((detail) => { if (!cancelled) setRunDetails((current) => ({ ...current, [detail.run_id]: detail })); })
       .catch(() => undefined);
     return () => { cancelled = true; };
   }, [plan?.plan_id, runDetails, runs]);
+
+  useEffect(() => {
+    if (!selectedRunId) return;
+    if (runDetails[selectedRunId]?.run_id === selectedRunId) {
+      setSelectedRunLoading(false);
+      setSelectedRunError(null);
+      return;
+    }
+    let cancelled = false;
+    setSelectedRunLoading(true);
+    setSelectedRunError(null);
+    fetch(scopedApiUrl(`/api/quality-plans/runs/${encodeURIComponent(selectedRunId)}`), { cache: "no-store", signal: AbortSignal.timeout(10000) })
+      .then(async (response) => {
+        const value = await response.json() as QualityPlanRun & { error?: string };
+        if (!response.ok) throw new Error(value.error || `Run details unavailable (${response.status})`);
+        if (value.run_id !== selectedRunId) throw new Error("Run details did not match the selected run.");
+        return value;
+      })
+      .then((detail) => { if (!cancelled) setRunDetails((current) => ({ ...current, [detail.run_id]: detail })); })
+      .catch((error: Error) => { if (!cancelled) setSelectedRunError(error.message || "Run details are unavailable"); })
+      .finally(() => { if (!cancelled) setSelectedRunLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedRunId, runDetails]);
 
   useEffect(() => {
     if (!runRequests.some((item) => ["QUEUED", "RUNNING", "CANCEL_REQUESTED"].includes(item.status))) return;
@@ -346,12 +394,13 @@ export default function QualityPlanPage() {
       const platform = lower.endsWith(".csv") || lower.endsWith(".parquet") ? "file" : lower.startsWith("postgres.") ? "postgres" : "snowflake";
       const qualified = selected.split(".");
       const params: Record<string, unknown> = { platform, schema: platform === "file" ? undefined : qualified.at(-2), table: platform === "file" ? undefined : qualified.at(-1), path: platform === "file" ? selected : undefined, contract: buildNewContract() };
-      void mutate("update", { addChecks: [{ name: `${newContractType} ${selected}`, category: "DATA_QUALITY", params, enabled: false, requires_review: true, provenance: "OPERATOR_DEFINED", evidence: "Added by operator; requires approval before execution." }] });
+      void mutate("update", { addChecks: [{ mapping_id: mapping.mapping_id, name: `${newContractType} ${selected}`, category: "DATA_QUALITY", params, enabled: false, requires_review: true, provenance: "OPERATOR_DEFINED", evidence: "Added by operator; requires approval before execution." }] });
     } catch (error) { setNotice(error instanceof Error ? error.message : "The quality rule is incomplete."); }
   };
   const categories = useMemo(() => ["ALL", ...new Set(plan?.checks.map((item) => item.category) ?? [])], [plan]);
-  const latestRun = runs[0] ? runDetails[runs[0].run_id] ?? null : null;
-  const latestRunLoading = Boolean(runs[0] && !latestRun);
+  const currentPlanRun = runs.find((run) => run.plan_id === plan?.plan_id);
+  const latestRun = currentPlanRun ? runDetails[currentPlanRun.run_id] ?? null : null;
+  const latestRunLoading = Boolean(currentPlanRun && !latestRun);
   const initialWorkspaceLoading = workspaceLoading && !workspaceLoaded;
   const retryWorkspace = () => { setNotice(null); setWorkspaceReload((current) => current + 1); };
   const hasCurrentEvidence = Boolean(onboarding && (
@@ -410,7 +459,7 @@ export default function QualityPlanPage() {
     {newContractType === "CUSTOM_SQL" && <><label className={`${styles.field} ${styles.wide}`}>Read-only SELECT<textarea value={newRule.sql} onChange={(event) => updateNewRule("sql", event.target.value)} placeholder="SELECT ... WHERE ..." /></label><label className={styles.field}>Pass when<select value={newRule.expectation} onChange={(event) => updateNewRule("expectation", event.target.value as RuleDraft["expectation"])}><option value="NO_ROWS">Query returns no rows</option><option value="ZERO">First value equals zero</option></select></label><label className={styles.checkField}><input type="checkbox" checked={newRule.persistSample} onChange={(event) => updateNewRule("persistSample", event.target.checked)} /><span><strong>Persist bounded failure sample</strong><small>Stores at most ten returned rows.</small></span></label></>}
     {newContractType === "PROFILE" && <div className={styles.ruleInfo}><strong>No threshold is required.</strong><span>The executor records row count and uses an approved mapping key, when available, for null and duplicate checks.</span></div>}
   </div>;
-  const contractAuthoring = view === "contracts" && mode === "manage" && plan ? <details className={styles.ruleBuilder}><summary><span>+</span><div><strong>Create a quality rule</strong><small>Choose where the rule runs and define its expectation with guided fields.</small></div></summary><section><div className={styles.ruleBuilderGrid}><label className={styles.field}>Data or pipeline object<select aria-label="Quality rule object" value={newContractTarget} onChange={(event) => setNewContractTarget(event.target.value)}><option value="">Choose an object from a detected mapping</option>{mappedObjects.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label className={styles.field}>What should be tested?<select aria-label="Quality rule type" value={newContractType} onChange={(event) => setNewContractType(event.target.value)}>{contractTypes.map((item) => <option key={item} value={item}>{item.replaceAll("_", " ")}</option>)}</select></label></div><div className={styles.ruleExplanation}><strong>{newContractType.replaceAll("_", " ")}</strong><span>{contractHelp[newContractType]}</span></div>{ruleFields}<datalist id="quality-rule-columns">{discoveredColumns.map((column) => <option key={column} value={column} />)}</datalist><datalist id="quality-rule-tables">{discoveredTables.map((table) => <option key={table} value={table} />)}</datalist><footer><span>Saving creates a new draft revision. A human must approve the resulting rule set before execution.</span><button className={styles.primary} disabled={busy !== null || plan.status === "APPROVED"} onClick={addContract}>Create draft rule</button></footer></section></details> : null;
+  const contractAuthoring = view === "contracts" && mode === "manage" && plan ? <details className={styles.ruleBuilder}><summary><span>+</span><div><strong>Create a quality rule</strong><small>Choose where the rule runs and define its expectation with guided fields.</small></div></summary><section><div className={styles.ruleBuilderGrid}><label className={styles.field}>Data or pipeline object<select aria-label="Quality rule object" value={newContractTarget} onChange={(event) => setNewContractTarget(event.target.value)}><option value="">Choose an object from a detected mapping</option>{mappedObjects.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label className={styles.field}>What should be tested?<select aria-label="Quality rule type" value={newContractType} onChange={(event) => setNewContractType(event.target.value)}>{contractTypes.map((item) => <option key={item} value={item}>{item.replaceAll("_", " ")}</option>)}</select></label></div><div className={styles.ruleExplanation}><strong>{newContractType.replaceAll("_", " ")}</strong><span>{contractHelp[newContractType]}</span></div>{ruleFields}<datalist id="quality-rule-columns">{discoveredColumns.map((column) => <option key={column} value={column} />)}</datalist><datalist id="quality-rule-tables">{discoveredTables.map((table) => <option key={table} value={table} />)}</datalist><footer><span>Saving creates a new draft revision and ends the current approval. A human must approve the new rule set before execution.</span><button className={styles.primary} disabled={busy !== null} onClick={addContract}>Create draft rule</button></footer></section></details> : null;
   const contractEditor = (item: QualityCheck) => {
     const contract = item.params.contract && typeof item.params.contract === "object" ? item.params.contract as Record<string, unknown> : null;
     if (!contract) return <span className={styles.muted}>Runtime adapter check</span>;
@@ -428,9 +477,21 @@ export default function QualityPlanPage() {
     const status = ruleStatus(selectedCheck, plan, latestRun ?? undefined);
     const sourceObject = selectedMapping?.source_name ?? [params.source_schema, params.source_table, params.schema, params.table, params.path].filter(Boolean).join(".");
     const targetObject = selectedMapping?.target_name ?? [params.target_schema, params.target_table].filter(Boolean).join(".");
-    const historicalRuns = runs.filter((run) => runDetails[run.run_id]?.results.some((result) => result.check_id === selectedCheck.check_id)).slice(0, 5);
+    const historicalRuns = runs.filter((run) => run.plan_id === plan.plan_id && runDetails[run.run_id]?.results.some((result) => result.check_id === selectedCheck.check_id)).slice(0, 5);
     return <div className={styles.drawerBackdrop} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setSelectedCheckId(null); setEditingCheckId(null); } }}><aside className={styles.ruleDrawer} role="dialog" aria-modal="true" aria-labelledby="rule-details-title"><header className={styles.drawerHeader}><div><span className={styles.eyebrow}>RULE DETAILS</span><h2 id="rule-details-title">{selectedCheck.name}</h2><div className={styles.drawerBadges}><span className={styles.ruleId}>{selectedCheck.check_id}</span><span className={`${styles.ruleStatus} ${styles[`ruleStatus${status.replaceAll("_", "")}`] ?? ""}`}>{status}</span></div></div><button className={styles.drawerClose} aria-label="Close rule details" onClick={() => { setSelectedCheckId(null); setEditingCheckId(null); }}>×</button></header><div className={styles.drawerBody}><section className={styles.drawerSection}><h3>Definition</h3><dl className={styles.detailGrid}><div><dt>Rule type</dt><dd>{valueText(contract.type, selectedCheck.category.replaceAll("_", " "))}</dd></div><div><dt>Category</dt><dd>{selectedCheck.category.replaceAll("_", " ")}</dd></div><div><dt>Severity</dt><dd>{selectedCheck.severity}</dd></div><div><dt>Execution</dt><dd>{valueText(selectedCheck.executor, "Adapter required")}</dd></div><div><dt>Threshold / expectation</dt><dd>{Object.entries(contract).filter(([key]) => key !== "type").map(([key, value]) => `${key.replaceAll("_", " ")}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`).join(" · ") || "No explicit threshold"}</dd></div><div><dt>Evidence state</dt><dd>{selectedCheck.requires_review ? "Needs confirmation" : "Evidence backed"}</dd></div></dl></section><section className={styles.drawerSection}><h3>Tables and columns</h3><dl className={styles.detailGrid}><div><dt>Source</dt><dd>{valueText(sourceObject)}</dd></div><div><dt>Target</dt><dd>{valueText(targetObject)}</dd></div><div><dt>Comparison key</dt><dd>{valueText(Array.isArray(params.key_columns) ? params.key_columns.join(", ") : "", selectedMapping?.key_inference || "Not recorded")}</dd></div><div><dt>Mapping</dt><dd>{valueText(selectedCheck.mapping_id)}</dd></div></dl></section><section className={styles.drawerSection}><h3>Ingestion and transformation</h3><dl className={styles.detailGrid}><div><dt>Pipeline objects</dt><dd>{selectedMapping?.orchestrator_asset_ids.length ? selectedMapping.orchestrator_asset_ids.join(" → ") : selectedCheck.category.includes("INGESTION") ? "Runtime ingestion check" : "Not recorded"}</dd></div><div><dt>Transformation</dt><dd>{selectedCheck.executor === "dbt_test" || selectedCheck.category.includes("TRANSFORMATION") ? valueText(params.dbt_project ?? params.project, "dbt execution context") : "Not recorded"}</dd></div><div><dt>Parameters</dt><dd>{Object.entries(params).filter(([key]) => key !== "contract" && key !== "key_columns").map(([key, value]) => `${key.replaceAll("_", " ")}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`).join(" · ") || "Not recorded"}</dd></div></dl></section><section className={styles.drawerSection}><h3>Lineage and evidence</h3><p className={styles.drawerEvidence}>{valueText(selectedCheck.evidence || selectedCheck.provenance)}</p><div className={styles.lineagePath}>{(selectedMapping?.path_asset_ids ?? []).map((assetId, index) => <span key={assetId}><strong>{assetId}</strong>{index < (selectedMapping?.path_asset_ids.length ?? 0) - 1 && <b>→</b>}</span>)}{!selectedMapping?.path_asset_ids.length && <span>Lineage path not recorded for this rule.</span>}</div><small className={styles.drawerMuted}>{valueText(selectedMapping?.key_inference, "No key inference recorded")}</small></section><section className={styles.drawerSection}><h3>Last run and history</h3>{latestRunLoading ? <p className={styles.drawerMuted}>Loading latest run details…</p> : selectedRunResult ? <div className={styles.lastResult}><span className={`${styles.evidence} ${selectedRunResult.status === "PASS" ? styles.parsed : styles.conflict}`}>{selectedRunResult.status}</span><p>{evidenceSource(selectedRunResult.result.source)}</p></div> : <p className={styles.drawerMuted}>This rule has no result in the latest persisted run.</p>}<div className={styles.historyList}>{historicalRuns.map((run) => { const result = runDetails[run.run_id]?.results.find((item) => item.check_id === selectedCheck.check_id); return <div key={run.run_id}><span>{new Date(run.started_at).toLocaleString()}</span><strong>{result?.status ?? "—"}</strong></div>; })}{!historicalRuns.length && <span className={styles.drawerMuted}>No execution history loaded on this page.</span>}</div></section>{editingCheckId === selectedCheck.check_id && <section className={styles.drawerEdit} id="rule-edit-form"><h3>Edit rule <small className={styles.editHint}>Changes stay local until you save this rule.</small></h3><label className={styles.field}>Rule name<input value={selectedCheck.name} onChange={(event) => updateCheck(selectedCheck.check_id, { name: event.target.value })} /></label><div className={styles.drawerEditRow}><label className={styles.field}>Severity<select value={selectedCheck.severity} onChange={(event) => updateCheck(selectedCheck.check_id, { severity: event.target.value as QualityCheck["severity"] })}><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option></select></label><label className={styles.checkField}><input type="checkbox" checked={selectedCheck.enabled} disabled={Boolean(selectedCheck.archived)} onChange={(event) => updateCheck(selectedCheck.check_id, { enabled: event.target.checked })} /><span><strong>Enabled</strong><small>Include this rule in the approved run.</small></span></label></div><div className={styles.drawerContractEditor}>{contractEditor(selectedCheck)}</div><button className={styles.primary} disabled={busy !== null || !planDirty} onClick={saveCurrentRule}>Save this rule</button></section>}</div><footer className={styles.drawerFooter}>{mode === "manage" && <><button className={styles.secondary} onClick={() => setEditingCheckId(selectedCheck.check_id)}>{editingCheckId === selectedCheck.check_id ? "Editing rule" : "Edit rule"}</button><button className={styles.secondary} disabled={busy !== null || plan.status !== "APPROVED" || !selectedCheck.enabled || Boolean(selectedCheck.archived)} onClick={() => void mutate("runRule", { checkId: selectedCheck.check_id })}>Run rule</button><button className={styles.secondary} disabled={busy !== null} onClick={() => duplicateRule(selectedCheck)}>Duplicate</button><button className={styles.danger} disabled={busy !== null || Boolean(selectedCheck.archived)} onClick={() => archiveRule(selectedCheck)}>Archive</button></>}{mode === "review" && <button className={styles.secondary} onClick={() => setEditingCheckId(selectedCheck.check_id)}>{editingCheckId === selectedCheck.check_id ? "Editing rule" : "Edit rule"}</button>}<button className={styles.quiet} onClick={() => setSelectedCheckId(null)}>Close</button></footer></aside></div>;
   })() : null;
+
+  const selectedRunDetail = selectedRunId ? runDetails[selectedRunId] : null;
+  const historyDetail = selectedRunId && view === "execution" && executionTab === "history" ? <section className={`${styles.panel} ${styles.fullWidthHistory} ${styles.historyDetail}`} aria-labelledby="selected-run-title" aria-live="polite">
+    <header className={styles.panelHead}><div><span className={styles.eyebrow}>SELECTED RUN</span><h2 id="selected-run-title">Run details</h2><p>Results from this exact persisted quality-plan run.</p></div><Link className={styles.secondary} href={executionHref("history")}>Close details</Link></header>
+    {selectedRunLoading && !selectedRunDetail && <p role="status">Loading results for {selectedRunId}…</p>}
+    {selectedRunError && <div role="alert" className={styles.dangerStrip}>Could not load this run: {selectedRunError} <Link href={executionHref("history")}>Return to history</Link></div>}
+    {!selectedRunLoading && !selectedRunError && selectedRunDetail && <>
+      <dl className={styles.historyDetailFacts}><div><dt>Run ID</dt><dd>{selectedRunDetail.run_id}</dd></div><div><dt>Status</dt><dd>{selectedRunDetail.status}</dd></div><div><dt>Plan</dt><dd>{selectedRunDetail.plan_id} · revision {selectedRunDetail.plan_revision}</dd></div><div><dt>Started</dt><dd>{new Date(selectedRunDetail.started_at).toLocaleString()}</dd></div><div><dt>Completed</dt><dd>{selectedRunDetail.completed_at ? new Date(selectedRunDetail.completed_at).toLocaleString() : "Not completed"}</dd></div><div><dt>Checks executed</dt><dd>{selectedRunDetail.summary?.executed ?? selectedRunDetail.results.length}</dd></div></dl>
+      <h3>Check results</h3>
+      {selectedRunDetail.results.length ? <div className={styles.historyCheckList}>{selectedRunDetail.results.map((result) => <article className={styles.historyCheck} key={result.check_id}><div><strong>{result.name}</strong><span className={result.status === "PASS" ? styles.ruleResultPass : styles.ruleResultFail}>{result.status}</span></div><p>{result.category.replaceAll("_", " ")} · {result.check_id}</p><p>Evidence source: {evidenceSource(result.result?.source)}</p><details><summary>Technical result</summary><pre>{JSON.stringify(result.result ?? {}, null, 2)}</pre></details></article>)}</div> : <p>No check results were recorded for this run.</p>}
+    </>}
+  </section> : null;
 
   return <ProjectManagementShell phase={view === "contracts" ? "rules" : "review"} navActive={view === "execution" || mode === "manage" ? "plan" : "register"} contextOnly={view === "execution" || mode === "manage"} title={view === "contracts" ? (mode === "manage" ? "Quality rules" : "Define quality rules") : "Runs & evidence"} description={view === "contracts" ? (mode === "manage" ? "Inspect and manage individual rules without changing the approved project workflow." : "Select, review, and approve deterministic checks for mapped assets.") : "Review job outcomes and manage approved schedules."} headerActions={<><span className={styles.draftBadge}>{plan?.status ?? "NO PLAN"}</span>{view === "contracts" && mode === "review" && <button className={styles.secondary} disabled={busy !== null} onClick={() => void mutate("generate")}>{busy === "generate" ? "Analyzing evidence…" : plan ? "Refresh recommendations" : "Recommend tests from evidence"}</button>}</>}>
     {notice && <div className={notice.includes("failed") || notice.includes("must") || notice.includes("cannot") ? styles.dangerStrip : styles.successStrip}>{notice}</div>}
@@ -443,7 +504,16 @@ export default function QualityPlanPage() {
       <Link role="tab" aria-selected={executionTab === "schedules"} aria-current={executionTab === "schedules" ? "page" : undefined} aria-label="Schedules" className={executionTab === "schedules" ? styles.executionTabActive : ""} href={executionHref("schedules")}>Schedules</Link>
     </nav>}
     <span id="run-results" aria-hidden="true" />
-    {view === "execution" && executionTab === "history" && <section className={`${styles.panel} ${styles.fullWidthHistory}`} aria-busy={initialWorkspaceLoading}><header className={styles.panelHead}><div><span className={styles.eyebrow}>HISTORY</span><h2>Run history</h2><p>Persisted quality-plan runs for the selected project and environment. Open a record without losing this scope.</p></div><span>{initialWorkspaceLoading ? "LOADING…" : `${runTotal} TOTAL`}</span></header><div className={styles.summaryList}>{initialWorkspaceLoading && <div className={styles.loadingState} role="status" aria-live="polite"><strong>Loading run history</strong><span>Reading persisted runs for this project and environment…</span><div className={styles.loadingList}><span className={styles.loadingRow} /><span className={styles.loadingRow} /></div></div>}{runs.map((run) => <div className={styles.summaryRow} key={run.run_id}><span><ScopedLink href={`/test-plan?view=execution&mode=manage&tab=history&run_id=${encodeURIComponent(run.run_id)}`}>{new Date(run.started_at).toLocaleString()}</ScopedLink><small>{run.result_count} checks · {Object.entries(run.status_counts ?? {}).map(([status, count]) => `${status}: ${count}`).join(", ") || "No result details"}</small></span><strong>{run.status}</strong></div>)}{!initialWorkspaceLoading && !runs.length && <div className={styles.summaryRow}><span>No persisted runs</span><strong>—</strong></div>}</div><div className={styles.tablePagination}><span>Page {runPage} · {runTotal} total</span><div><button disabled={busy !== null || initialWorkspaceLoading || runPage <= 1} onClick={() => void loadRunPage(runPage - 1)}>Previous</button><button disabled={busy !== null || initialWorkspaceLoading || !runHasNext} onClick={() => void loadRunPage(runPage + 1)}>Next</button></div></div></section>}
+    {historyDetail}
+    {view === "execution" && executionTab === "history" && <section className={`${styles.panel} ${styles.fullWidthHistory}`} aria-busy={initialWorkspaceLoading}>
+      <header className={styles.panelHead}><div><span className={styles.eyebrow}>HISTORY</span><h2>Run history</h2><p>All saved quality runs for this project and environment, including earlier plan revisions. The current draft remains separate.</p></div><span>{initialWorkspaceLoading ? "LOADING…" : `${runTotal} TOTAL`}</span></header>
+      <div className={styles.summaryList}>
+        {initialWorkspaceLoading && <div className={styles.loadingState} role="status">Loading persisted run history…</div>}
+        {runs.map((run) => <div className={styles.summaryRow} key={run.run_id}><span><ScopedLink href={`/test-plan?view=execution&mode=manage&tab=history&run_id=${encodeURIComponent(run.run_id)}`}>{new Date(run.started_at).toLocaleString()}</ScopedLink><small>Plan {run.plan_id} · revision {run.plan_revision} · {run.result_count} checks · {Object.entries(run.status_counts ?? {}).map(([status, count]) => `${status}: ${count}`).join(", ") || "No result details"}</small></span><strong>{run.status}</strong></div>)}
+        {!initialWorkspaceLoading && !runs.length && <div className={styles.summaryRow}><span>No persisted quality runs for this project and environment</span><strong>—</strong></div>}
+      </div>
+      <div className={styles.tablePagination}><span>Page {runPage} · {runTotal} total</span><div><button disabled={busy !== null || initialWorkspaceLoading || runPage <= 1} onClick={() => void loadRunPage(runPage - 1)}>Previous</button><button disabled={busy !== null || initialWorkspaceLoading || !runHasNext} onClick={() => void loadRunPage(runPage + 1)}>Next</button></div></div>
+    </section>}
     {view === "execution" && executionTab === "schedules" && <section className={`${styles.panel} ${styles.fullWidthHistory}`} aria-busy={initialWorkspaceLoading}><header className={styles.panelHead}><div><span className={styles.eyebrow}>SCHEDULING</span><h2>Schedules</h2><p>Scheduling is separate from one-off execution. Changes still require an approved quality-plan revision.</p></div><span>{initialWorkspaceLoading ? "LOADING…" : `${schedules.length} CONFIGURED`}</span></header><section id="schedules" className={styles.schedulePanel}><div className={styles.scheduleGrid}><label className={styles.field}>Trigger<select aria-label="Schedule trigger" value={scheduleType} onChange={(event) => setScheduleType(event.target.value as "INTERVAL" | "EVENT")}><option>INTERVAL</option><option>EVENT</option></select></label>{scheduleType === "INTERVAL" ? <label className={styles.field}>Every (minutes)<input aria-label="Schedule interval minutes" type="number" min="1" value={intervalMinutes} onChange={(event) => setIntervalMinutes(Number(event.target.value))} /></label> : <label className={styles.field}>Event name<input aria-label="Schedule event name" value={eventName} onChange={(event) => setEventName(event.target.value)} /></label>}<button className={styles.secondary} disabled={busy !== null || initialWorkspaceLoading || plan?.status !== "APPROVED"} onClick={() => void mutate("createSchedule", { triggerType: scheduleType, intervalMinutes: scheduleType === "INTERVAL" ? intervalMinutes : undefined, eventName: scheduleType === "EVENT" ? eventName : undefined })}>Create schedule</button></div><div className={styles.summaryList}>{initialWorkspaceLoading && <div className={styles.loadingState} role="status" aria-live="polite"><strong>Loading schedules</strong><span>Reading persisted schedule configuration…</span><div className={styles.loadingList}><span className={styles.loadingRow} /><span className={styles.loadingRow} /></div></div>}{schedules.map((item) => <div className={styles.summaryRow} key={item.schedule_id}><span>{item.trigger_type === "INTERVAL" ? `Every ${item.interval_minutes} min` : item.event_name}<small>{item.next_run_at ? `Next ${new Date(item.next_run_at).toLocaleString()}` : "No next interval run"}</small></span><button className={styles.quiet} disabled={busy !== null} onClick={() => void mutate("toggleSchedule", { scheduleId: item.schedule_id, enabled: item.status !== "ACTIVE" })}>{item.status}</button></div>)}{!initialWorkspaceLoading && !schedules.length && <div className={styles.summaryRow}><span>No persistent schedule</span><strong>—</strong></div>}</div></section></section>}
     {(view === "contracts" || executionTab === "run") && (!plan ? <section className={styles.panel}><header className={styles.panelHead}><div><h2>{view === "execution" ? "Run results" : hasCurrentEvidence ? "No quality recommendations yet" : "No current quality plan"}</h2><p>{view === "execution" ? "No approved quality-plan run is available for this project and environment." : hasCurrentEvidence ? "Run project analysis first, then let the deterministic engine recommend tests only for evidence-supported mappings." : "This project has no current discovery evidence. Quality rules and runs will appear after a connection is tested and discovery is saved."}</p></div></header><button className={styles.primary} disabled={busy !== null || !hasCurrentEvidence} onClick={() => void mutate("generate")}>{hasCurrentEvidence ? "Recommend tests from evidence" : "Awaiting current discovery evidence"}</button></section> : <>
       <section className={styles.planMetrics}><article><span>Evidence-supported mappings</span><strong>{plan.summary.mapping_count}</strong><small>Detected source-to-target paths</small></article><article><span>Recommended quality tests</span><strong>{plan.summary.check_count}</strong><small>{plan.checks.filter((item) => item.enabled).length} currently selected</small></article><article><span>Needs your confirmation</span><strong>{plan.summary.review_required_count}</strong><small>Assumptions must be reviewed</small></article><article><span>Sources not linked to a target</span><strong>{plan.summary.unmapped_source_count}</strong><small>Excluded rather than silently guessed</small></article></section>
@@ -453,7 +523,7 @@ export default function QualityPlanPage() {
         <section className={styles.panel}>
           <header className={styles.panelHead}><div><h2>Execution evidence</h2><p>Queued requests execute the exact approved revision through real read-only adapters and persist every transition.</p></div><button className={styles.primary} disabled={busy !== null || plan.status !== "APPROVED"} onClick={() => void mutate("queue", { idempotencyKey: `manual:${crypto.randomUUID()}`, maxAttempts: 1, timeoutSeconds: 3600 })}>{busy === "queue" ? "Queueing…" : "Queue approved plan"}</button></header>
           {plan.status !== "APPROVED" && <div className={styles.dangerStrip}>Review and approve the current rule-set revision before execution.</div>}
-          {latestRun ? <><div className={latestRun.status === "PASS" ? styles.successStrip : styles.dangerStrip}><strong>Run {latestRun.status}</strong> · {latestRun.summary.executed} checks · {new Date(latestRun.completed_at).toLocaleString()}</div><div className={styles.analysisTable}><table className={styles.testTable}><thead><tr><th>Check</th><th>Category</th><th>Status</th><th>Evidence source</th></tr></thead><tbody>{latestRun.results.map((item) => <tr key={item.check_id}><td className={styles.testName}><strong>{item.name}</strong></td><td>{item.category}</td><td><span className={`${styles.evidence} ${item.status === "PASS" ? styles.parsed : styles.conflict}`}>{item.status}</span></td><td>{evidenceSource(item.result.source)}</td></tr>)}</tbody></table></div></> : <div className={styles.infoStrip}><span>i</span><div><strong>No execution yet</strong><p>Review and approve the quality rules, then queue the exact revision here. No success state is fabricated.</p></div></div>}
+          {latestRun ? <><div className={latestRun.status === "PASS" ? styles.successStrip : styles.dangerStrip}><strong>Run {latestRun.status}</strong> · {latestRun.summary.executed} checks · {latestRun.completed_at ? new Date(latestRun.completed_at).toLocaleString() : "In progress"}</div><div className={styles.analysisTable}><table className={styles.testTable}><thead><tr><th>Check</th><th>Category</th><th>Status</th><th>Evidence source</th></tr></thead><tbody>{latestRun.results.map((item) => <tr key={item.check_id}><td className={styles.testName}><strong>{item.name}</strong></td><td>{item.category}</td><td><span className={`${styles.evidence} ${item.status === "PASS" ? styles.parsed : styles.conflict}`}>{item.status}</span></td><td>{evidenceSource(item.result.source)}</td></tr>)}</tbody></table></div></> : <div className={styles.infoStrip}><span>i</span><div><strong>No execution yet</strong><p>Review and approve the quality rules, then queue the exact revision here. No success state is fabricated.</p></div></div>}
         </section>
         <aside className={styles.sideStack}>
           <div className={styles.callout}><strong>Governed automation</strong><p>Scheduler polls every {schedulerPollSeconds || "—"} seconds, allows one run per plan, deduplicates persisted trigger keys, retries recoverable failures and recovers interrupted requests after restart.</p></div>

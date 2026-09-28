@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { canonicalAssetIdentity, nextWorkflowGeneration, projectSlug, recordMatchesCurrentTable, workflowGeneration, workspaceQuery, workspaceRevision, type CurrentWorkspaceState } from "../lib/server-workspace.ts";
+import { canonicalAssetIdentity, nextWorkflowGeneration, projectSlug, recordMatchesCurrentActionScope, recordMatchesCurrentAnalysisScope, recordMatchesCurrentQualityScope, recordMatchesCurrentTable, workflowGeneration, workspaceQuery, workspaceRevision, type CurrentWorkspaceState } from "../lib/server-workspace.ts";
 import { invalidateWorkspaceCache, normalizeWorkspaceUrl, readOnboardingBootstrap, rememberWorkspaceRevision, scopedApiUrl } from "../lib/client-workspace.ts";
 
 test("workspace scope derives stable project identifiers", () => {
@@ -98,6 +98,18 @@ const selectedState: CurrentWorkspaceState = {
   targetName: "raw.properties",
 };
 
+test("action plans require their persisted source scope while independent typed jobs remain accessible", () => {
+  const scope = { projectId: "finance-qa", environment: "test", name: "Finance", source: "persisted_project" as const };
+  const scoped = { plan_id: "plan-1", project_id: "finance-qa", environment: "test", source_table_scope_id: selectedState.sourceTableScopeId, operation_kind: "quality_checks" };
+  assert.equal(recordMatchesCurrentActionScope(scoped, scope, selectedState), true);
+  assert.equal(recordMatchesCurrentActionScope({ ...scoped, source_table_scope_id: "postgres:public:other" }, scope, selectedState), false);
+  assert.equal(recordMatchesCurrentActionScope({ ...scoped, project_id: "another-project" }, scope, selectedState), false);
+  assert.equal(recordMatchesCurrentActionScope({ ...scoped, environment: "production" }, scope, selectedState), false);
+  assert.equal(recordMatchesCurrentActionScope({ ...scoped, source_table_scope_id: undefined }, scope, selectedState), false);
+  assert.equal(recordMatchesCurrentActionScope({ ...scoped, source_table_scope_id: undefined, operation_kind: "dbt_execute" }, scope, selectedState), true);
+  assert.equal(recordMatchesCurrentActionScope(scoped, scope, { ...selectedState, sourceTableScopeId: "" }), false);
+});
+
 test("canonical identity does not match an unrelated record with a coincidental properties field", () => {
   const unrelated = { asset_id: "postgres:public:guests", properties: "postgres.public.properties appears in a descriptive field" };
   assert.equal(recordMatchesCurrentTable(unrelated, selectedState), false);
@@ -113,4 +125,33 @@ test("canonical identity matches the same table and rejects schema or connection
 test("missing canonical identity fails closed", () => {
   assert.equal(canonicalAssetIdentity({ name: "postgres.public.properties", description: "properties" }), null);
   assert.equal(recordMatchesCurrentTable({ name: "properties", description: "properties" }, selectedState), false);
+});
+
+test("quality plan visibility validates exact project, environment, and source scope rather than one asset identity", () => {
+  const scope = { projectId: "data-quality-testing-beta", environment: "Development", name: "Beta", source: "persisted_project" as const };
+  const state = { ...selectedState, sourceTableScopeId: "postgres:public:guests" };
+  const plan = {
+    project_id: "data-quality-testing-beta",
+    environment: "development",
+    source_table_scope_id: "postgres:public:guests",
+    mappings: [{ source_name: "postgres.public.guests" }, { source_name: "postgres.public.loyalty_accounts" }],
+  };
+
+  assert.equal(recordMatchesCurrentQualityScope(plan, scope, state), true);
+  assert.equal(recordMatchesCurrentQualityScope({ ...plan, project_id: "another-project" }, scope, state), false);
+  assert.equal(recordMatchesCurrentQualityScope({ ...plan, environment: "production" }, scope, state), false);
+  assert.equal(recordMatchesCurrentQualityScope({ ...plan, source_table_scope_id: "postgres:public:booking_channels" }, scope, state), false);
+  assert.equal(recordMatchesCurrentQualityScope({ project_id: scope.projectId, environment: scope.environment }, scope, state), false);
+});
+
+test("analysis visibility requires exact project, environment, and active source-table scope", () => {
+  const scope = { projectId: "data-quality-testing-beta", environment: "Development", name: "Beta", source: "persisted_project" as const };
+  const state = { ...selectedState, sourceTableScopeId: "postgres:public:guests" };
+  const analysis = { project_id: scope.projectId, environment: "development", source_table_scope_id: "postgres:public:guests" };
+
+  assert.equal(recordMatchesCurrentAnalysisScope(analysis, scope, state), true);
+  assert.equal(recordMatchesCurrentAnalysisScope({ ...analysis, source_table_scope_id: "postgres:public:booking_channels" }, scope, state), false);
+  assert.equal(recordMatchesCurrentAnalysisScope({ ...analysis, environment: "production" }, scope, state), false);
+  assert.equal(recordMatchesCurrentAnalysisScope({ ...analysis, project_id: "another-project" }, scope, state), false);
+  assert.equal(recordMatchesCurrentAnalysisScope({ project_id: scope.projectId, environment: scope.environment }, scope, state), false);
 });

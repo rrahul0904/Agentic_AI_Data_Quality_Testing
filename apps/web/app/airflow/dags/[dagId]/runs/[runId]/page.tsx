@@ -1,0 +1,2 @@
+import { AirflowRun } from "../../../../../_components/AirflowWorkspace";
+export default async function RunPage({ params, searchParams }: { params: Promise<{ dagId: string; runId: string }>; searchParams: Promise<{ incident?: string }> }) { const [{ dagId, runId }, search] = await Promise.all([params, searchParams]); return <AirflowRun dagId={decodeURIComponent(dagId)} runId={decodeURIComponent(runId)} incidentId={search.incident} />; }

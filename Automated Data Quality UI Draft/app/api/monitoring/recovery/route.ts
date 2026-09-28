@@ -1,4 +1,5 @@
 import { resolveWorkspace, workspaceQuery } from "../../../../lib/server-workspace";
+import { isPhase4Fixture } from "../../../../lib/server-test-fixture";
 
 export const dynamic = "force-dynamic";
 
@@ -7,6 +8,7 @@ const API_BASE = process.env.ADE_API_BASE_URL ?? "http://127.0.0.1:8011";
 export async function GET(request: Request) {
   try {
     const scope = await resolveWorkspace(request);
+    if (isPhase4Fixture(request)) return Response.json({ status: "OK", items: [], workspace: scope }, { headers: { "Cache-Control": "no-store", "X-ADQ-Test-Fixture": "phase4" } });
     const incoming = new URL(request.url).searchParams;
     const query = new URLSearchParams(workspaceQuery(scope));
     query.set("limit", incoming.get("limit") ?? "50");

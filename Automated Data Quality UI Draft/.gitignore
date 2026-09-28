@@ -1,5 +1,6 @@
 .next/
 .next-development/
 .next-production/
+.next-phase3-fixture/
 node_modules/
 *.tsbuildinfo

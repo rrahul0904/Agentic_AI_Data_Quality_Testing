@@ -23,11 +23,20 @@ class AgentRole(str, Enum):
 
 
 class EvidenceTier(IntEnum):
-    DIRECT_MEASUREMENT = 1
-    RUNTIME_METADATA = 2
-    STATIC_ANALYSIS = 3
-    HISTORICAL_INFERENCE = 4
-    LLM_INTERPRETATION = 5
+    DIRECT_EXECUTION = 1
+    RUNTIME_STATE = 2
+    TASK_PROCESS_LOG = 3
+    ORCHESTRATOR_METADATA = 4
+    DEPENDENCY_RESPONSE = 5
+    DATA_STATE = 6
+    STATIC_ANALYSIS = 7
+    LLM_INFERENCE = 8
+
+    # Backwards-compatible names used by existing agents and persisted fixtures.
+    DIRECT_MEASUREMENT = DIRECT_EXECUTION
+    RUNTIME_METADATA = RUNTIME_STATE
+    HISTORICAL_INFERENCE = ORCHESTRATOR_METADATA
+    LLM_INTERPRETATION = LLM_INFERENCE
 
     @property
     def label(self) -> str:
@@ -51,10 +60,111 @@ class IncidentState(str, Enum):
 
 
 class HypothesisStatus(str, Enum):
-    PROPOSED = "PROPOSED"
+    OPEN = "OPEN"
     SUPPORTED = "SUPPORTED"
-    REJECTED = "REJECTED"
-    INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
+    WEAKENED = "WEAKENED"
+    DISPROVEN = "DISPROVEN"
+    PROBABLE = "PROBABLE"
+    PROVEN = "PROVEN"
+
+    # Compatibility aliases for reports created before the trust-core release.
+    PROPOSED = OPEN
+    REJECTED = DISPROVEN
+    INSUFFICIENT_EVIDENCE = OPEN
+
+
+class DiagnosticLayer(str, Enum):
+    INFRASTRUCTURE = "L0_INFRASTRUCTURE"
+    ORCHESTRATOR_LIFECYCLE = "L1_ORCHESTRATOR_LIFECYCLE"
+    TASK_RUNTIME = "L2_TASK_RUNTIME"
+    APPLICATION_CODE = "L3_APPLICATION_OPERATOR_CODE"
+    SOURCE_CONNECTIVITY = "L4_SOURCE_CONNECTIVITY"
+    EXTRACTION = "L5_EXTRACTION"
+    TRANSFORMATION = "L6_TRANSFORMATION"
+    TARGET_LOAD = "L7_TARGET_LOAD"
+    DATA_QUALITY = "L8_DATA_QUALITY"
+    RECONCILIATION = "L9_RECONCILIATION"
+    CONSUMPTION = "L10_CONSUMPTION"
+    CERTIFICATION = "L11_CERTIFICATION"
+
+
+class FindingClassification(str, Enum):
+    PRIMARY_ROOT_CAUSE = "PRIMARY_ROOT_CAUSE"
+    PROBABLE_ROOT_CAUSE = "PROBABLE_ROOT_CAUSE"
+    CONTRIBUTING_FACTOR = "CONTRIBUTING_FACTOR"
+    SECONDARY_FINDING = "SECONDARY_FINDING"
+    LATENT_DEFECT = "LATENT_DEFECT"
+    CONSEQUENCE = "CONSEQUENCE"
+    UNRELATED_FINDING = "UNRELATED_FINDING"
+    UNKNOWN = "UNKNOWN"
+
+
+@dataclass(frozen=True)
+class ExecutionLifecycleEvidence:
+    task_id: str
+    run_id: str
+    dag_id: str | None = None
+    created_at: str | None = None
+    scheduled_at: str | None = None
+    queued_at: str | None = None
+    executor_accepted_at: str | None = None
+    process_created_at: str | None = None
+    running_at: str | None = None
+    operator_started_at: str | None = None
+    first_external_call_at: str | None = None
+    ended_at: str | None = None
+    metadata_state: str | None = None
+    executor_state: str | None = None
+    task_log_exists: bool | None = None
+    operator_start_proven: bool = False
+    runtime_start_proven: bool = False
+    try_number: int | None = None
+    mapped_task_index: int | None = None
+    pool: str | None = None
+    queue: str | None = None
+    priority: int | None = None
+    executor: str | None = None
+    parallelism: int | None = None
+    queued_duration_seconds: float | None = None
+    evidence_ids: tuple[str, ...] = ()
+
+    def public(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class FirstDivergence:
+    layer: DiagnosticLayer
+    component: str
+    expected_state: str
+    observed_state: str
+    occurred_at: str | None
+    evidence_ids: tuple[str, ...]
+    confidence: float
+    proven: bool
+
+    def public(self) -> dict[str, Any]:
+        value = asdict(self)
+        value["layer"] = self.layer.value
+        return value
+
+
+@dataclass(frozen=True)
+class Finding:
+    title: str
+    description: str
+    classification: FindingClassification
+    domain: str
+    confidence: float
+    evidence_ids: tuple[str, ...] = ()
+    relationship: str = ""
+    finding_id: str = field(default_factory=lambda: new_id("finding"))
+    created_at: str = field(default_factory=utc_now)
+
+    def public(self) -> dict[str, Any]:
+        value = asdict(self)
+        value["classification"] = self.classification.value
+        return value
 
 
 @dataclass(frozen=True)
@@ -110,6 +220,11 @@ class AgentHypothesis:
     supporting_evidence_ids: tuple[str, ...] = ()
     contradictory_evidence_ids: tuple[str, ...] = ()
     hypothesis_id: str = field(default_factory=lambda: new_id("hypothesis"))
+    domain: str = "unknown"
+    prerequisites_to_prove: tuple[str, ...] = ()
+    prerequisites_to_disprove: tuple[str, ...] = ()
+    created_at: str = field(default_factory=utc_now)
+    updated_at: str = field(default_factory=utc_now)
 
     def public(self) -> dict[str, Any]:
         value = asdict(self)
@@ -185,6 +300,10 @@ class InvestigationReport:
     approved: bool = False
     execution_result: dict[str, Any] = field(default_factory=dict)
     verification_result: dict[str, Any] = field(default_factory=dict)
+    question: str = ""
+    structured_first_divergence: FirstDivergence | None = None
+    execution_lifecycles: tuple[ExecutionLifecycleEvidence, ...] = ()
+    findings: tuple[Finding, ...] = ()
 
     def public(self) -> dict[str, Any]:
         return {
@@ -213,4 +332,10 @@ class InvestigationReport:
             "approved": self.approved,
             "execution_result": self.execution_result,
             "verification_result": self.verification_result,
+            "question": self.question,
+            "structured_first_divergence": (
+                self.structured_first_divergence.public() if self.structured_first_divergence else None
+            ),
+            "execution_lifecycles": [item.public() for item in self.execution_lifecycles],
+            "findings": [item.public() for item in self.findings],
         }

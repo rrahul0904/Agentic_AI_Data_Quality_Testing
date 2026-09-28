@@ -213,19 +213,48 @@ class SupervisorAgent:
             "investigation": self.public_report(report.incident_id),
         }
 
-    def investigate(self, scenario_id: str) -> InvestigationReport:
+    @staticmethod
+    def scenario_for_question(question: str) -> str:
+        """Route a natural-language question to available deterministic evidence collectors."""
+        normalized = " ".join(question.casefold().replace("_", " ").split())
+        if "ingest reference data" in normalized or "reference data" in normalized:
+            return "airflow_queued_task_timeout"
+        candidates = scenario_catalog()
+        scored: list[tuple[int, str]] = []
+        terms = {term for term in normalized.replace("?", "").split() if len(term) > 3}
+        for item in candidates:
+            haystack = f"{item['scenario_id']} {item['title']} {item['affected_asset']}".casefold().replace("_", " ")
+            score = sum(term in haystack for term in terms)
+            if score:
+                scored.append((score, str(item["scenario_id"])))
+        if not scored:
+            raise KeyError("ADE could not resolve the question to a known pipeline or asset")
+        return max(scored)[1]
+
+    def prepare_investigation(self, scenario_id: str, *, question: str = "") -> str:
         scenario = get_scenario(scenario_id)
         quality_preview = {
             "airflow_state": scenario.signals.get("airflow_state"),
             "dbt_state": scenario.signals.get("dbt_state"),
             "failed_boundaries": [item["pair"] for item in scenario.comparisons if item.get("status") == "FAIL"],
         }
-        incident_id = self.store.create_incident(
+        return self.store.create_incident(
             scenario.scenario_id,
             scenario.title,
             scenario.affected_asset,
             quality_preview,
+            question=question,
         )
+
+    def investigate(
+        self,
+        scenario_id: str,
+        *,
+        incident_id: str | None = None,
+        question: str = "",
+    ) -> InvestigationReport:
+        scenario = get_scenario(scenario_id)
+        incident_id = incident_id or self.prepare_investigation(scenario_id, question=question)
         results: list[AgentResult] = []
         evidence: list[EvidenceRecord] = []
         context = AgentContext(scenario.runtime_input(), incident_id, self.project, self._invoke, evidence, {})
@@ -297,11 +326,15 @@ class SupervisorAgent:
         self._save(incident_id, rca_result, results)
         for item in hypotheses:
             self.store.save_hypothesis(incident_id, item)
+        for item in context.shared.get("findings", []):
+            self.store.save_finding(incident_id, item)
         self.store.update_outcome(
             incident_id,
             root_cause=context.shared.get("root_cause"),
             root_cause_confidence=rca_result.confidence,
             first_divergence=context.shared.get("first_divergence"),
+            structured_first_divergence=context.shared.get("structured_first_divergence"),
+            execution_lifecycles=context.shared.get("execution_lifecycles"),
         )
 
         self.store.transition(incident_id, IncidentState.IMPACT_ANALYSIS, "Root cause supported; calculate downstream business impact.")
@@ -457,14 +490,37 @@ class SupervisorAgent:
             approved=incident["approved"],
             execution_result=incident["execution_result"],
             verification_result=incident["verification_result"],
+            question=incident.get("question", ""),
         )
 
     def public_report(self, incident_id: str) -> dict[str, Any]:
         report = self.get_report(incident_id).public()
+        incident = self.store.incident(incident_id)
+        report["state"] = incident["state"]
+        report["first_divergence"] = incident["first_divergence"]
+        report["root_cause"] = incident["root_cause"]
+        report["root_cause_confidence"] = float(incident["root_cause_confidence"])
         report["agent_results"] = self.store.agent_results(incident_id)
         report["evidence"] = self.store.evidence(incident_id)
         report["hypotheses"] = self.store.hypotheses(incident_id)
         report["remediation"] = self.store.remediation(incident_id)
         report["mappings"] = self.store.mappings(incident_id)
         report["certifications"] = self.store.latest_certifications(incident_id)
+        report["question"] = incident.get("question", "")
+        report["structured_first_divergence"] = incident.get("structured_first_divergence")
+        report["execution_lifecycles"] = incident.get("execution_lifecycles", [])
+        report["findings"] = self.store.findings(incident_id)
+        report["progress"] = {
+            "state": incident["state"],
+            "steps": [
+                {
+                    "id": item.transition_id,
+                    "status": "complete",
+                    "label": item.reason,
+                    "at": item.created_at,
+                    "state": item.to_state.value,
+                }
+                for item in self.store.transitions(incident_id)
+            ],
+        }
         return report

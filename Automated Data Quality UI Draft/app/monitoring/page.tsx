@@ -9,7 +9,11 @@ import ScopedLink from "../components/ScopedLink";
 import { scopedApiUrl } from "../../lib/client-workspace";
 import { currentWorkspaceParams } from "../../lib/client-workspace";
 import { monitoringStatusLabel as statusLabel, safeDisplayError as errorMessage } from "../../lib/ui-contracts";
+import type { ProjectAnalysisReport } from "../../lib/project-analysis";
+import { correlateRuntimeExecutions, type RuntimeExecutionRecord, type RuntimeExecutionReference } from "../../lib/runtime-status-consistency";
 import { clearMonitoringSelection, monitoringSelectedRunKey, monitoringScopeKey, readMonitoringFilters, rememberedMonitoringRun, type MonitoringScope } from "../../lib/monitoring-state";
+import { isActiveActionState } from "../../lib/action-monitor-status";
+import RuntimeEvidenceContext from "./RuntimeEvidenceContext";
 import local from "./monitoring.module.css";
 
 type Job = Record<string, unknown>;
@@ -18,6 +22,7 @@ type RecoveryAction = { action: string; label: string; impact: string; required_
 type RecoveryItem = { work?: Job; run?: Job; plan?: Job; recovery_actions?: RecoveryAction[] };
 type RecoveryFeed = { items?: RecoveryItem[]; error?: unknown };
 type RunDetail = Job & { error?: unknown; load_error?: unknown };
+type RuntimeEvidenceState = { report: ProjectAnalysisReport | null; executions: RuntimeExecutionReference[]; loading: boolean; checkedAt: string | null; reportError?: string; executionsError?: string };
 function scopeFromRecord(value: Job): MonitoringScope | null {
   const plan = value.plan && typeof value.plan === "object" ? value.plan as Job : {};
   const projectId = rawId(value.project_id ?? plan.project_id);
@@ -56,12 +61,16 @@ export default function MonitoringPage() {
   const [restoredRunId, setRestoredRunId] = useState("");
   const [busy, setBusy] = useState(false);
   const [detailBusy, setDetailBusy] = useState(false);
+  const [qualityBusy, setQualityBusy] = useState(false);
+  const [qualityError, setQualityError] = useState("");
   const [recovery, setRecovery] = useState<RecoveryFeed>({});
+  const [runtimeEvidence, setRuntimeEvidence] = useState<RuntimeEvidenceState>({ report: null, executions: [], loading: false, checkedAt: null });
   const [expandedSequence, setExpandedSequence] = useState<string | null>(null);
   const [scopeReady, setScopeReady] = useState(false);
   const [scopeError, setScopeError] = useState("");
   const detailOpener = useRef<HTMLElement | null>(null);
   const restoredScopeRef = useRef("");
+  const runtimeEvidenceRequestRef = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -95,11 +104,14 @@ export default function MonitoringPage() {
     clearMonitoringSelection(window.localStorage, previous);
     restoredScopeRef.current = "";
     setDetail(null); setRestoredRunId(""); setExpandedSequence(null); setFeed({}); setRecovery({}); setPage(1);
+    runtimeEvidenceRequestRef.current += 1;
+    setRuntimeEvidence({ report: null, executions: [], loading: false, checkedAt: null });
     setProjectId(nextProjectId); setEnvironment(nextEnvironment);
     const next = new URL(window.location.href);
     if (nextProjectId) next.searchParams.set("project_id", nextProjectId); else next.searchParams.delete("project_id");
     if (nextEnvironment) next.searchParams.set("environment", nextEnvironment); else next.searchParams.delete("environment");
     window.history.replaceState({}, "", next.toString());
+    window.dispatchEvent(new Event("ade-workspace-scope-change"));
   };
 
   async function selectRun(runId: string) {
@@ -154,8 +166,51 @@ export default function MonitoringPage() {
     } finally { setBusy(false); }
   }
 
+  async function runQualityCheck(runId: string, count: number) {
+    if (!runId || !window.confirm(`Run ${count} approved, read-only quality checks for this completed job? This will query the source and target databases; it will not rerun the pipeline. Inspect rule assumptions first if you have not reviewed them.`)) return;
+    setQualityBusy(true); setQualityError("");
+    try {
+      const response = await fetch(scopedApiUrl(`/api/monitoring/runs/${encodeURIComponent(runId)}/quality-check`), {
+        method: "POST", headers: { "content-type": "application/json" }, body: "{}", cache: "no-store", signal: AbortSignal.timeout(120000),
+      });
+      const value = await response.json() as { detail?: unknown; error?: unknown };
+      if (!response.ok) throw new Error(errorMessage(value.detail ?? value.error, "Quality checks could not be completed"));
+      await load(page);
+      await selectRun(runId);
+    } catch (error) { setQualityError(error instanceof Error ? error.message : "Quality checks could not be completed"); }
+    finally { setQualityBusy(false); }
+  }
+
+  const loadRuntimeEvidence = async () => {
+    if (!projectId || !environment) return;
+    const requestId = ++runtimeEvidenceRequestRef.current;
+    setRuntimeEvidence((current) => ({ ...current, loading: true, reportError: undefined, executionsError: undefined }));
+    const analysisQuery = new URLSearchParams({ project_id: projectId, environment });
+    const runQuery = new URLSearchParams({ project_id: projectId, environment, page: "1", page_size: "100" });
+    const [analysisResult, runsResult] = await Promise.allSettled([
+      fetch(scopedApiUrl(`/api/project-analysis?${analysisQuery}`), { cache: "no-store", signal: AbortSignal.timeout(7000) }).then(async (response) => {
+        const value = await response.json() as { report?: ProjectAnalysisReport | null; error?: unknown };
+        if (!response.ok) throw new Error(errorMessage(value.error, "Lineage snapshot is unavailable"));
+        return value.report ?? null;
+      }),
+      fetch(scopedApiUrl(`/api/monitoring?${runQuery}`), { cache: "no-store", signal: AbortSignal.timeout(7000) }).then(async (response) => {
+        const value = await response.json() as Feed;
+        if (!response.ok) throw new Error(errorMessage(value.error, "Persisted run records are unavailable"));
+        return Array.isArray(value.items) ? value.items as RuntimeExecutionRecord[] : [];
+      }),
+    ]);
+    if (runtimeEvidenceRequestRef.current !== requestId) return;
+    const report = analysisResult.status === "fulfilled" ? analysisResult.value : null;
+    const runs = runsResult.status === "fulfilled" ? runsResult.value : [];
+    setRuntimeEvidence({ report, executions: correlateRuntimeExecutions(report, runs), loading: false, checkedAt: new Date().toISOString(),
+      ...(analysisResult.status === "rejected" ? { reportError: analysisResult.reason instanceof Error ? analysisResult.reason.message : "Lineage snapshot is unavailable" } : {}),
+      ...(runsResult.status === "rejected" ? { executionsError: runsResult.reason instanceof Error ? runsResult.reason.message : "Persisted run records are unavailable" } : {}),
+    });
+  };
+
   const load = async (requestedPage = page) => {
     setBusy(true);
+    void loadRuntimeEvidence();
     try {
       const params = new URLSearchParams({ page: String(requestedPage), page_size: "25", project_id: projectId, environment });
       if (status) params.set("status", status);
@@ -179,6 +234,17 @@ export default function MonitoringPage() {
   };
 
   useEffect(() => { if (scopeReady && projectId && environment) void load(page); }, [scopeReady, projectId, environment]);
+  const activeInFeed = Array.isArray(feed.items) && feed.items.some((item) => isActiveActionState(String(item.state || "")));
+  const selectedRunId = detail ? rawId(detail.run_id) : "";
+  const selectedRunActive = Boolean(selectedRunId && isActiveActionState(String(detail?.state || "")));
+  useEffect(() => {
+    if (!scopeReady || !projectId || !environment || (!activeInFeed && !selectedRunActive)) return;
+    const timer = window.setInterval(() => {
+      void load(page);
+      if (selectedRunActive) void selectRun(selectedRunId);
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [scopeReady, projectId, environment, page, status, technology, asset, since, until, activeInFeed, selectedRunActive, selectedRunId]);
   useEffect(() => {
     const scope = { projectId, environment };
     const marker = `${monitoringScopeKey(scope)}:${restoredRunId}`;
@@ -200,6 +266,7 @@ export default function MonitoringPage() {
   };
 
   return <DraftShell active="monitoring">
+    {scopeReady && <RuntimeEvidenceContext report={runtimeEvidence.report} executions={runtimeEvidence.executions} loading={runtimeEvidence.loading || !runtimeEvidence.checkedAt} checkedAt={runtimeEvidence.checkedAt} reportError={runtimeEvidence.reportError} executionsError={runtimeEvidence.executionsError} onSelectRun={(runId) => void selectRun(runId)} />}
     <PageHeader eyebrow="AUTOMATED DATA QUALITY / MONITORING" title="Monitoring" description="Review persisted job history for the active project and environment. Current adapter state is not inferred from an old run." status={<span className={styles.draftBadge}>{scopeReady ? `${feed.total ?? 0} PERSISTED JOBS` : "SCOPE UNAVAILABLE"}</span>} actions={<button className={styles.secondary} disabled={busy || !scopeReady} aria-busy={busy} onClick={() => void load()}>{busy ? "Refreshing…" : "Refresh"}</button>} />
     <section className={styles.panel}>
       <header className={styles.panelHead}><div><h2>Job monitor</h2><p>Execution success and data-quality success are separate outcomes. Reading this page never starts a job.</p></div><ScopedLink className={`${styles.secondary} ${styles.linkButton}`} href="/actions">Create run plan</ScopedLink></header>
@@ -214,13 +281,59 @@ export default function MonitoringPage() {
       <div className={styles.sectionStack}>{groups.map(([sequence, group]) => <section className={styles.panel} key={sequence}><header className={styles.panelHead}><div><h3>{sequence === "unassigned" ? "Individual jobs" : "Selected sequence"}</h3><p>{sequence === "unassigned" ? `${group.length} independent job${group.length === 1 ? "" : "s"}` : `${group.length} ordered step${group.length === 1 ? "" : "s"} · expand to inspect dependencies`}</p></div><div className={styles.monitorGroupActions}><StatusBadge value={group[0].execution_status} />{sequence !== "unassigned" && <button className={styles.secondary} onClick={() => setExpandedSequence((current) => current === sequence ? null : sequence)} aria-expanded={expandedSequence === sequence}>{expandedSequence === sequence ? "Hide steps" : "Show steps"}</button>}</div></header>{expandedSequence === sequence && sequence !== "unassigned" && <div className={styles.sequenceSummary} aria-label={`Steps in ${sequence}`}>{group.map((job, index) => { const step = job.current_step_details && typeof job.current_step_details === "object" ? job.current_step_details as Job : {}; const dependencies = Array.isArray(job.depends_on) ? job.depends_on.map(String).join(", ") : "none recorded"; return <div className={styles.sequenceSummaryRow} key={rawId(job.run_id) || `${sequence}-${index}`}><b>{text(step.sequence ?? job.sequence ?? index + 1)}</b><div><strong>{shortJobName(job)}</strong><small>Depends on: {dependencies}</small></div><div><StatusBadge value={job.execution_status} /><StatusBadge value={job.execution_verification_status ?? job.verification_status} label={statusLabel(job.execution_verification_status ?? job.verification_status, "Not checked")} /></div></div>; })}</div>}<div className={styles.attentionTableWrap}><table className={styles.attentionTable}><thead><tr><th>Job / asset</th><th>Execution</th><th>Verification</th><th>Last checked</th><th> </th></tr></thead><tbody>{group.map((job) => { const runId = rawId(job.run_id); return <tr key={runId}><td><strong>{shortJobName(job)}</strong><small>{runId || "Run identifier unavailable"}</small></td><td><StatusBadge value={job.execution_status} /></td><td><StatusBadge value={job.execution_verification_status ?? job.verification_status} label={statusLabel(job.execution_verification_status ?? job.verification_status, "Not checked")} /></td><td>{date(job.last_observation)}{job.stale ? <small className={styles.warningText}>Refresh recommended</small> : null}</td><td><button className={styles.secondary} disabled={!runId} aria-label={`View details for ${runId || "selected job"}`} onClick={(event) => { detailOpener.current = event.currentTarget; void selectRun(runId); }}>View details</button></td></tr>; })}</tbody></table></div></section>)}</div>
       <nav className={styles.tablePagination} aria-label="Monitoring pages"><span>Project {projectId} · {environment} · Page {feed.page ?? page} · {feed.total ?? 0} total</span><div><button disabled={busy || page <= 1} onClick={() => { const next = page - 1; setPage(next); void load(next); }}>Previous</button><button disabled={busy || !feed.has_next} onClick={() => { const next = page + 1; setPage(next); void load(next); }}>Next</button></div></nav>
     </section>
-    {detail && <RunDetails detail={detail} busy={detailBusy} projectId={projectId} environment={environment} onRecovery={(operation) => void runRecovery(detailRunId(detail), operation)} onClear={closeDetails} />}
+    {detail && <RunDetails detail={detail} busy={detailBusy} qualityBusy={qualityBusy} qualityError={qualityError} projectId={projectId} environment={environment} onRecovery={(operation) => void runRecovery(detailRunId(detail), operation)} onQualityCheck={(count) => void runQualityCheck(detailRunId(detail), count)} onClear={closeDetails} />}
   </DraftShell>;
 }
 
 function detailRunId(detail: RunDetail): string { return rawId(detail.run_id); }
 
-function RunDetails({ detail, busy, projectId, environment, onRecovery, onClear }: { detail: RunDetail; busy: boolean; projectId: string; environment: string; onRecovery: (operation: string) => void; onClear: () => void }) {
+function PipelineEvidenceSection({ runId, projectId, environment }: { runId: string; projectId: string; environment: string }) {
+  const [evidence, setEvidence] = useState<Job | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!runId) return;
+    const controller = new AbortController();
+    const query = new URLSearchParams({ project_id: projectId, environment });
+    void fetch(scopedApiUrl(`/api/monitoring/runs/${encodeURIComponent(runId)}/pipeline-evidence?${query}`), { cache: "no-store", signal: controller.signal })
+      .then(async (response) => { const value = await response.json() as Job; if (!response.ok) throw new Error(errorMessage(value.reason ?? value.error, "Pipeline task evidence is unavailable")); return value; })
+      .then((value) => { if (!controller.signal.aborted) setEvidence(value); })
+      .catch((cause) => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Pipeline task evidence is unavailable"); });
+    return () => controller.abort();
+  }, [runId, projectId, environment]);
+  const tasks = Array.isArray(evidence?.tasks) ? evidence.tasks as Job[] : [];
+  const warehouse = evidence?.snowflake && typeof evidence.snowflake === "object" ? evidence.snowflake as Job : {};
+  const dbt = evidence?.dbt && typeof evidence.dbt === "object" ? evidence.dbt as Job : {};
+  return <section className={styles.recoveryCallout} aria-label="Pipeline stage evidence">
+    <h3>Pipeline stage evidence</h3>
+    <p>Exact Airflow run <code>{rawId(evidence?.dag_run_id) || "loading"}</code>. Task states come from Airflow; Snowflake row counts and dbt runs require separate evidence.</p>
+    {!evidence && !error && <p>Loading exact task instances…</p>}
+    {error && <p role="status">{error}</p>}
+    {evidence && <>
+      {tasks.length ? <div className={styles.summaryList}>{tasks.map((task) => <div className={styles.summaryRow} key={String(task.task_id)}><span><code>{String(task.task_id)}</code><small>{date(task.start_date)} → {date(task.end_date)}</small></span><StatusBadge value={task.state} /></div>)}</div> : <p>{text(evidence.reason, "Task instances were not available.")}</p>}
+      <p><strong>Snowflake load:</strong> {text(warehouse.status, "Not verified")}. {text(warehouse.reason, "No independent warehouse load result is linked.")}</p>
+      <p><strong>dbt:</strong> {text(dbt.status, "Not linked")}. {text(dbt.reason, dbt.status === "VERIFIED" ? "Exact dbt execution is linked to this action." : "No exact dbt execution is linked to this action.")}</p>
+      {Array.isArray(dbt.steps) && (dbt.steps as Job[]).map((step, index) => <p key={index}>Selector {text(step.selector)} · invocation <code>{text(step.invocation_id)}</code> · exit code {text(step.exit_code, "Not recorded")}</p>)}
+    </>}
+  </section>;
+}
+
+function DbtEvidenceSection({ steps }: { steps: Job[] }) {
+  const dbtSteps = steps.filter((item) => (item.step as Job)?.kind === "dbt_execute");
+  return <section className={styles.recoveryCallout} aria-label="dbt execution evidence">
+    <h3>dbt execution evidence</h3>
+    <p>This action ran dbt directly. Airflow was not part of this run; Snowflake load and data quality require separate evidence.</p>
+    <div className={styles.summaryList}>{dbtSteps.map((item, index) => {
+      const step = item.step as Job;
+      const verification = item.verification && typeof item.verification === "object" ? item.verification as Job : {};
+      const execution = item.execution && typeof item.execution === "object" ? item.execution as Job : {};
+      const selected = Array.isArray(verification.selected_nodes) ? verification.selected_nodes.map(String) : [];
+      const failed = Array.isArray(verification.failed_nodes) ? verification.failed_nodes.map(String) : [];
+      return <div className={styles.summaryRow} key={String(step.sequence ?? index)}><span><strong>{text(step.asset)}</strong><small>Invocation <code>{text(verification.invocation_id ?? execution.invocation_id, "Not recorded")}</code> · Exit code {text(verification.exit_code ?? execution.exit_code, "Not recorded")} · {selected.length} selected node{selected.length === 1 ? "" : "s"} · {failed.length} failed</small></span><StatusBadge value={verification.status} /></div>;
+    })}</div>
+  </section>;
+}
+
+function RunDetails({ detail, busy, qualityBusy, qualityError, projectId, environment, onRecovery, onQualityCheck, onClear }: { detail: RunDetail; busy: boolean; qualityBusy: boolean; qualityError: string; projectId: string; environment: string; onRecovery: (operation: string) => void; onQualityCheck: (count: number) => void; onClear: () => void }) {
   const closeButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     closeButton.current?.focus();
@@ -228,6 +341,16 @@ function RunDetails({ detail, busy, projectId, environment, onRecovery, onClear 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClear]);
+  const qualityCheck = detail.quality_check && typeof detail.quality_check === "object" ? detail.quality_check as Job : {};
+  const qualityAssessment = detail.quality_assessment && typeof detail.quality_assessment === "object" ? detail.quality_assessment as Job : {};
+  const qualityPanel = !detail.load_error && <section className={styles.recoveryCallout} aria-label="Post-execution data quality">
+    <h3>Post-execution data quality</h3>
+    {qualityAssessment.quality_run_id ? <><p>{statusLabel(qualityAssessment.status)} · {text(qualityAssessment.check_count)} checks · quality run <code>{String(qualityAssessment.quality_run_id)}</code>. This result was collected after the selected job completed.</p><ScopedLink className={styles.secondary} href={`/test-plan?view=execution&mode=manage&tab=history&run_id=${encodeURIComponent(String(qualityAssessment.quality_run_id))}`}>Open quality result</ScopedLink></> : <>
+      <p>{String(qualityCheck.reason || "No post-execution quality result is linked to this job. Airflow success does not certify table quality.")}</p>
+      {qualityCheck.ready ? <><p>{Number(qualityCheck.review_assumptions || 0)} rule assumptions were included in the approved revision. Review them before running if their thresholds are not intended.</p><div className={styles.recoveryActions}><ScopedLink className={styles.secondary} href="/test-plan?view=contracts">Review quality rules</ScopedLink><button className={styles.primary} disabled={qualityBusy} onClick={() => onQualityCheck(Number(qualityCheck.check_count || 0))}>{qualityBusy ? "Checking source and target…" : `Run ${String(qualityCheck.check_count)} approved quality checks`}</button></div></> : <ScopedLink className={styles.secondary} href="/test-plan?view=contracts">Review quality rules</ScopedLink>}
+    </>}
+    {qualityError && <p role="alert" className={styles.warningText}>{qualityError}</p>}
+  </section>;
   const shell = (children: ReactNode) => <div className={local.drawerBackdrop} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClear(); }}><aside className={local.runDrawer} id="selected-run" role="dialog" aria-modal="true" aria-labelledby="selected-run-title">{children}</aside></div>;
   if (detail.load_error) return shell(<><header className={styles.panelHead}><div><span className={styles.eyebrow}>SELECTED JOB</span><h2 id="selected-run-title">Unable to load selected run</h2><p><code>{rawId(detail.run_id) || "Unavailable"}</code></p></div><button className={styles.secondary} ref={closeButton} onClick={onClear}>Close</button></header><ErrorState title="Run details unavailable"><>{errorMessage(detail.load_error, "The selected run could not be loaded for this project and environment.")} The remembered run was not replaced with another run. Close this drawer and select a persisted run from the list.</></ErrorState></>);
   const plan = detail.plan && typeof detail.plan === "object" ? detail.plan as Job : {};
@@ -237,8 +360,8 @@ function RunDetails({ detail, busy, projectId, environment, onRecovery, onClear 
   const identifiers = Array.isArray(detail.external_identifiers) ? detail.external_identifiers as Job[] : [];
   const detailRunId = rawId(detail.run_id);
   const exactEvidence = detailRunId ? `/actions?project_id=${encodeURIComponent(projectId)}&environment=${encodeURIComponent(environment)}&run_id=${encodeURIComponent(detailRunId)}#execution-monitor` : "#selected-run";
-  const hasAttention = Boolean(detail.uncertainty || detail.stale);
-  const uncertaintyMessage = typeof detail.uncertainty === "string" ? detail.uncertainty : detail.stale ? "The last external observation is stale." : "Uncertainty was recorded for this job.";
+  const hasAttention = Boolean(detail.uncertainty || detail.stale || detail.state === "RECOVERY_EXHAUSTED");
+  const uncertaintyMessage = detail.state === "RECOVERY_EXHAUSTED" ? "The application stopped observing this run before its external result was confirmed. Verify the exact external result without submitting another job." : typeof detail.uncertainty === "string" ? detail.uncertainty : detail.stale ? "The last external observation is stale." : "Uncertainty was recorded for this job.";
   const recoveryActions = Array.isArray(detail.recovery_actions) ? detail.recovery_actions as Job[] : [];
-  return shell(<><header className={styles.panelHead}><div><span className={styles.eyebrow}>SELECTED JOB</span><h2 id="selected-run-title">{text(plan.intent, detailRunId)}</h2><p><code>{detailRunId || "Unavailable"}</code> · {date(detail.started_at)}</p></div><div className={local.drawerHeaderActions}><StatusBadge value={detail.state} />{busy && <small>Refreshing details…</small>}<button className={styles.secondary} ref={closeButton} onClick={onClear}>Close</button></div></header><div className={styles.summaryGrid}><div><small>Project</small><strong>{text(plan.project_id, projectId)}</strong></div><div><small>Environment</small><strong>{text(plan.environment, environment)}</strong></div><div><small>Execution outcome</small><strong>{statusLabel(detail.execution_status ?? detail.state)}</strong></div><div><small>Execution verification</small><strong>{statusLabel(detail.execution_verification_status ?? detail.verification_status, "Not checked")}</strong></div><div><small>Data-quality outcome</small><strong>{statusLabel(detail.data_quality_status, "Not checked")}</strong></div><div><small>Evidence availability</small><strong>{statusLabel(detail.evidence_status, "Not checked")}</strong></div></div>{hasAttention && <div className={styles.infoStrip}><strong>Status needs attention</strong><p>{uncertaintyMessage}</p></div>}{recoveryActions.length > 0 && <section className={styles.recoveryCallout}><h3>Recovery actions</h3><p>These actions are scoped to this run. Reconcile reads external state; continue only advances approved work.</p><div className={styles.recoveryActions}>{recoveryActions.map((action) => <button className={styles.secondary} key={String(action.action)} disabled={action.allowed === false || busy} title={String(action.allowed === false ? action.disabled_reason ?? "Permission required" : action.impact ?? "Scoped recovery action")} onClick={() => onRecovery(String(action.action))}>{String(action.label ?? action.action)}</button>)}</div></section>}<div className={styles.sectionStack}><section><h3>Lifecycle and dependencies</h3><div className={styles.summaryList}>{dependencies.map((item) => <div className={styles.summaryRow} key={String(item.sequence)}><span>{String(item.sequence)} · {text(item.asset)}<small>{text(item.kind)} · depends on {Array.isArray(item.depends_on) && item.depends_on.length ? item.depends_on.map((dependency) => String(dependency)).join(", ") : "none"}</small></span><StatusBadge value={item.status} /></div>)}</div></section><section><h3>External execution identifiers</h3><div className={styles.summaryList}>{identifiers.length ? identifiers.map((item, index) => <div className={styles.summaryRow} key={`${String(item.value)}-${index}`}><span>{text(item.technology)} · {text(item.kind)}<small><code>{String(item.value)}</code> · step {String(item.step_sequence ?? "—")}</small></span>{typeof item.url === "string" ? <a href={item.url} target="_blank" rel="noreferrer">Open external run</a> : <StatusBadge value="VERIFIED" label="Observed" />}</div>) : <div className={styles.summaryRow}><span>No external identifier persisted yet</span><strong>—</strong></div>}</div></section><section><h3>Attempt history</h3><div className={styles.summaryList}>{attempts.length ? attempts.map((item) => <div className={styles.summaryRow} key={String(item.attempt_id)}><span>Attempt {String(item.attempt)} · {text(item.worker_id)}<small>Claimed {date(item.claimed_at)} · released {date(item.released_at)}{item.error ? ` · ${text(item.error)}` : ""}</small></span><StatusBadge value={item.state} /></div>) : <div className={styles.summaryRow}><span>No worker attempts recorded</span><strong>—</strong></div>}</div></section><section><h3>Step evidence</h3><div className={styles.summaryList}>{steps.map((item) => <div className={styles.summaryRow} key={String((item.step as Job)?.sequence)}><span>{text((item.step as Job)?.asset)}<small>Execution: {statusLabel(outcomeStatus(item, "execution") ?? (item.execution as Job)?.status)} · Verification: {statusLabel(outcomeStatus(item, "execution_verification") ?? (item.verification as Job)?.status, "Not checked")} · Data quality: {statusLabel(outcomeStatus(item, "data_quality"), "Not checked")}</small></span><Link href={exactEvidence}>Open this run&apos;s evidence</Link></div>)}</div></section></div></>);
+  return shell(<><header className={styles.panelHead}><div><span className={styles.eyebrow}>SELECTED JOB</span><h2 id="selected-run-title">{text(plan.intent, detailRunId)}</h2><p><code>{detailRunId || "Unavailable"}</code> · {date(detail.started_at)}</p></div><div className={local.drawerHeaderActions}><StatusBadge value={detail.state} />{busy && <small>Refreshing details…</small>}<button className={styles.secondary} ref={closeButton} onClick={onClear}>Close</button></div></header><div className={styles.summaryGrid}><div><small>Project</small><strong>{text(plan.project_id, projectId)}</strong></div><div><small>Environment</small><strong>{text(plan.environment, environment)}</strong></div><div><small>Execution outcome</small><strong>{statusLabel(detail.execution_status ?? detail.state)}</strong></div><div><small>Execution verification</small><strong>{statusLabel(detail.execution_verification_status ?? detail.verification_status, "Not checked")}</strong></div><div><small>Data-quality outcome</small><strong>{statusLabel(detail.data_quality_status, "Not checked")}</strong></div><div><small>Evidence availability</small><strong>{statusLabel(detail.evidence_status, "Not checked")}</strong></div></div>{qualityPanel}{steps.some((item) => (item.step as Job)?.kind === "airflow_trigger") ? <PipelineEvidenceSection runId={detailRunId} projectId={projectId} environment={environment} /> : steps.some((item) => (item.step as Job)?.kind === "dbt_execute") ? <DbtEvidenceSection steps={steps} /> : null}{hasAttention && <div className={styles.infoStrip}><strong>Status needs attention</strong><p>{uncertaintyMessage}</p></div>}{recoveryActions.length > 0 && <section className={styles.recoveryCallout}><h3>Recovery actions</h3><p>These actions are scoped to this run. Reconcile reads external state; continue only advances approved work.</p><div className={styles.recoveryActions}>{recoveryActions.map((action) => <button className={styles.secondary} key={String(action.action)} disabled={action.allowed === false || busy} title={String(action.allowed === false ? action.disabled_reason ?? "Permission required" : action.impact ?? "Scoped recovery action")} onClick={() => onRecovery(String(action.action))}>{String(action.label ?? action.action)}</button>)}</div></section>}<div className={styles.sectionStack}><section><h3>Lifecycle and dependencies</h3><div className={styles.summaryList}>{dependencies.map((item) => <div className={styles.summaryRow} key={String(item.sequence)}><span>{String(item.sequence)} · {text(item.asset)}<small>{text(item.kind)} · depends on {Array.isArray(item.depends_on) && item.depends_on.length ? item.depends_on.map((dependency) => String(dependency)).join(", ") : "none"}</small></span><StatusBadge value={item.status} /></div>)}</div></section><section><h3>External execution identifiers</h3><div className={styles.summaryList}>{identifiers.length ? identifiers.map((item, index) => <div className={styles.summaryRow} key={`${String(item.value)}-${index}`}><span>{text(item.technology)} · {text(item.kind)}<small><code>{String(item.value)}</code> · step {String(item.step_sequence ?? "—")}</small></span>{typeof item.url === "string" ? <a href={item.url} target="_blank" rel="noreferrer">Open external run</a> : <StatusBadge value="VERIFIED" label="Observed" />}</div>) : <div className={styles.summaryRow}><span>No external identifier persisted yet</span><strong>—</strong></div>}</div></section><section><h3>Worker check history</h3><p>These are historical worker observations. The current verified outcome is shown above.</p><div className={styles.summaryList}>{attempts.length ? attempts.map((item) => <div className={styles.summaryRow} key={String(item.attempt_id)}><span>Attempt {String(item.attempt)} · {text(item.worker_id)}<small>Claimed {date(item.claimed_at)} · released {date(item.released_at)}{item.error ? ` · ${text(item.error)}` : ""}</small></span><StatusBadge value={item.state} /></div>) : <div className={styles.summaryRow}><span>No worker attempts recorded</span><strong>—</strong></div>}</div></section><section><h3>Step evidence</h3><div className={styles.summaryList}>{steps.map((item) => <div className={styles.summaryRow} key={String((item.step as Job)?.sequence)}><span>{text((item.step as Job)?.asset)}<small>Submission: {statusLabel(outcomeStatus(item, "execution") ?? (item.execution as Job)?.status)} · External runtime: {statusLabel((item.verification as Job)?.runtime_state, "Not checked")} · Verification: {statusLabel(outcomeStatus(item, "execution_verification") ?? (item.verification as Job)?.status, "Not checked")} · Data quality: {statusLabel(outcomeStatus(item, "data_quality"), "Not checked")}</small></span><Link href={exactEvidence}>Open this run&apos;s evidence</Link></div>)}</div></section></div></>);
 }

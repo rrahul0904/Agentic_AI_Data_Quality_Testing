@@ -1,0 +1,197 @@
+{
+  "version": 3,
+  "pages404": true,
+  "caseSensitive": false,
+  "basePath": "",
+  "redirects": [
+    {
+      "source": "/:path+/",
+      "destination": "/:path+",
+      "internal": true,
+      "statusCode": 308,
+      "regex": "^(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))/$"
+    }
+  ],
+  "headers": [],
+  "rewrites": {
+    "beforeFiles": [],
+    "afterFiles": [],
+    "fallback": []
+  },
+  "dynamicRoutes": [
+    {
+      "page": "/api/evidence/[evidenceId]",
+      "regex": "^/api/evidence/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPevidenceId": "nxtPevidenceId"
+      },
+      "namedRegex": "^/api/evidence/(?<nxtPevidenceId>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/monitoring/runs/[runId]",
+      "regex": "^/api/monitoring/runs/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPrunId": "nxtPrunId"
+      },
+      "namedRegex": "^/api/monitoring/runs/(?<nxtPrunId>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/monitoring/runs/[runId]/pipeline-evidence",
+      "regex": "^/api/monitoring/runs/([^/]+?)/pipeline\\-evidence(?:/)?$",
+      "routeKeys": {
+        "nxtPrunId": "nxtPrunId"
+      },
+      "namedRegex": "^/api/monitoring/runs/(?<nxtPrunId>[^/]+?)/pipeline\\-evidence(?:/)?$"
+    },
+    {
+      "page": "/api/monitoring/runs/[runId]/quality-check",
+      "regex": "^/api/monitoring/runs/([^/]+?)/quality\\-check(?:/)?$",
+      "routeKeys": {
+        "nxtPrunId": "nxtPrunId"
+      },
+      "namedRegex": "^/api/monitoring/runs/(?<nxtPrunId>[^/]+?)/quality\\-check(?:/)?$"
+    },
+    {
+      "page": "/api/monitoring/runs/[runId]/[operation]",
+      "regex": "^/api/monitoring/runs/([^/]+?)/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPrunId": "nxtPrunId",
+        "nxtPoperation": "nxtPoperation"
+      },
+      "namedRegex": "^/api/monitoring/runs/(?<nxtPrunId>[^/]+?)/(?<nxtPoperation>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/project-analysis/source/[assetId]",
+      "regex": "^/api/project\\-analysis/source/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPassetId": "nxtPassetId"
+      },
+      "namedRegex": "^/api/project\\-analysis/source/(?<nxtPassetId>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/quality-plans/runs/[runId]",
+      "regex": "^/api/quality\\-plans/runs/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPrunId": "nxtPrunId"
+      },
+      "namedRegex": "^/api/quality\\-plans/runs/(?<nxtPrunId>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/evidence/[evidenceId]",
+      "regex": "^/evidence/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPevidenceId": "nxtPevidenceId"
+      },
+      "namedRegex": "^/evidence/(?<nxtPevidenceId>[^/]+?)(?:/)?$"
+    }
+  ],
+  "staticRoutes": [
+    {
+      "page": "/",
+      "regex": "^/(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/(?:/)?$"
+    },
+    {
+      "page": "/_not-found",
+      "regex": "^/_not\\-found(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_not\\-found(?:/)?$"
+    },
+    {
+      "page": "/actions",
+      "regex": "^/actions(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/actions(?:/)?$"
+    },
+    {
+      "page": "/agent",
+      "regex": "^/agent(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/agent(?:/)?$"
+    },
+    {
+      "page": "/icon.svg",
+      "regex": "^/icon\\.svg(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/icon\\.svg(?:/)?$"
+    },
+    {
+      "page": "/incidents",
+      "regex": "^/incidents(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/incidents(?:/)?$"
+    },
+    {
+      "page": "/investigations",
+      "regex": "^/investigations(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/investigations(?:/)?$"
+    },
+    {
+      "page": "/map-flows",
+      "regex": "^/map\\-flows(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/map\\-flows(?:/)?$"
+    },
+    {
+      "page": "/monitoring",
+      "regex": "^/monitoring(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/monitoring(?:/)?$"
+    },
+    {
+      "page": "/objects-flows",
+      "regex": "^/objects\\-flows(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/objects\\-flows(?:/)?$"
+    },
+    {
+      "page": "/project-design",
+      "regex": "^/project\\-design(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/project\\-design(?:/)?$"
+    },
+    {
+      "page": "/reconciliation",
+      "regex": "^/reconciliation(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/reconciliation(?:/)?$"
+    },
+    {
+      "page": "/register-project",
+      "regex": "^/register\\-project(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/register\\-project(?:/)?$"
+    },
+    {
+      "page": "/settings/ai",
+      "regex": "^/settings/ai(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/settings/ai(?:/)?$"
+    },
+    {
+      "page": "/test-plan",
+      "regex": "^/test\\-plan(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/test\\-plan(?:/)?$"
+    }
+  ],
+  "dataRoutes": [],
+  "rsc": {
+    "header": "rsc",
+    "varyHeader": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+    "prefetchHeader": "next-router-prefetch",
+    "didPostponeHeader": "x-nextjs-postponed",
+    "contentTypeHeader": "text/x-component",
+    "suffix": ".rsc",
+    "prefetchSuffix": ".prefetch.rsc",
+    "prefetchSegmentHeader": "next-router-segment-prefetch",
+    "prefetchSegmentSuffix": ".segment.rsc",
+    "prefetchSegmentDirSuffix": ".segments"
+  },
+  "rewriteHeaders": {
+    "pathHeader": "x-nextjs-rewritten-path",
+    "queryHeader": "x-nextjs-rewritten-query"
+  }
+}

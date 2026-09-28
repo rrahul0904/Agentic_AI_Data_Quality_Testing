@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -43,10 +45,41 @@ def test_agentic_roster_and_scenarios_are_first_class_api_resources(tmp_path, mo
 
     scenarios = api.get("/api/v1/investigations/scenarios")
     assert scenarios.status_code == 200
-    assert scenarios.json()["count"] == 18
+    assert scenarios.json()["count"] == 19
     assert "airflow_green_data_bad" in {
         item["scenario_id"] for item in scenarios.json()["scenarios"]
     }
+
+
+def test_natural_language_investigation_exposes_live_progress_and_airflow_evidence(tmp_path, monkeypatch):
+    api = client(tmp_path, monkeypatch)
+    accepted = api.post(
+        "/api/v1/investigations",
+        json={"question": "Why did ingest_reference_data fail?"},
+    )
+    assert accepted.status_code == 202
+    incident_id = accepted.json()["incident_id"]
+    detail = None
+    for _ in range(400):
+        response = api.get(f"/api/v1/investigations/{incident_id}")
+        assert response.status_code == 200
+        detail = response.json()
+        if detail["root_cause"]:
+            break
+        time.sleep(0.02)
+    assert detail is not None
+    assert detail["question"] == "Why did ingest_reference_data fail?"
+    assert detail["root_cause"] == "AIRFLOW_TASK_LAUNCH_FAILURE"
+    assert detail["structured_first_divergence"]["layer"] == "L1_ORCHESTRATOR_LIFECYCLE"
+    assert any(item["classification"] == "LATENT_DEFECT" for item in detail["findings"])
+    assert detail["progress"]["steps"]
+
+    airflow = api.get(f"/api/v1/investigations/{incident_id}/airflow")
+    assert airflow.status_code == 200
+    payload = airflow.json()
+    assert payload["mode"] == "DETERMINISTIC_TEST_FIXTURE"
+    assert len(payload["tasks"]) == 6
+    assert all(item["runtime_start_proven"] is False for item in payload["tasks"])
 
 
 def test_full_investigation_requires_approval_then_resolves(tmp_path, monkeypatch):

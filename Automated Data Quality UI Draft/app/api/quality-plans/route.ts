@@ -1,4 +1,4 @@
-import { currentWorkspaceState, hasCurrentWorkspaceAnalysis, hasCurrentWorkspacePlan, markCurrentWorkspaceStage, recordMatchesCurrentTable, resolveWorkspace, workspaceQuery } from "../../../lib/server-workspace";
+import { currentWorkspaceState, hasCurrentWorkspaceAnalysis, hasCurrentWorkspacePlan, markCurrentWorkspaceStage, recordMatchesCurrentQualityScope, resolveWorkspace, workspaceQuery } from "../../../lib/server-workspace";
 import { isPhase4Fixture, phase4QualityWorkspace } from "../../../lib/server-test-fixture";
 
 export const dynamic = "force-dynamic";
@@ -17,49 +17,45 @@ export async function GET(request: Request) {
     if (isPhase4Fixture(request)) return Response.json(await phase4QualityWorkspace(), { headers: { "Cache-Control": "no-store", "X-ADQ-Test-Fixture": "phase4" } });
     const scope = await resolveWorkspace(request);
     const currentState = await currentWorkspaceState(scope);
-    if (!currentState.sourceTableScopeId) {
-      return Response.json({ plan: null, capabilities: { status: "NO_ACTIVE_SCOPE" }, runs: [], revisions: [], schedules: [], requests: [], automationCapabilities: { status: "NO_ACTIVE_SCOPE" }, workspace: scope }, { headers: { "Cache-Control": "no-store" } });
-    }
     const scopedQuery = new URLSearchParams(workspaceQuery(scope));
-    scopedQuery.set("source_table_scope_id", currentState.sourceTableScopeId);
+    if (currentState.sourceTableScopeId) scopedQuery.set("source_table_scope_id", currentState.sourceTableScopeId);
     const project = scopedQuery.toString();
     const incoming = new URL(request.url).searchParams;
     const runPage = Math.max(1, Number(incoming.get("run_page") ?? "1") || 1);
     const runPageSize = Math.max(1, Math.min(100, Number(incoming.get("run_page_size") ?? "10") || 10));
-    const [capabilities, automationCapabilities] = await Promise.all([
+    const [capabilities, automationCapabilities, history] = await Promise.all([
       backend("/api/v1/quality-plans/capabilities"),
       backend("/api/v1/quality-automation/capabilities"),
+      backend(`/api/v1/quality-runs?project_id=${encodeURIComponent(scope.projectId)}&environment=${encodeURIComponent(scope.environment)}&page=${runPage}&page_size=${runPageSize}`),
     ]);
+    const runs = Array.isArray(history.items) ? history.items : [];
+    const historyFields = { runPage: history.page ?? runPage, runPageSize: history.page_size ?? runPageSize, runTotal: history.total ?? runs.length, runHasNext: Boolean(history.has_next) };
     if (!(await hasCurrentWorkspacePlan(scope))) {
-      return Response.json({ plan: null, capabilities, runs: [], revisions: [], schedules: [], requests: [], automationCapabilities, workspace: scope }, { headers: { "Cache-Control": "no-store" } });
+      return Response.json({ plan: null, capabilities, runs, revisions: [], schedules: [], requests: [], automationCapabilities, workspace: scope, ...historyFields }, { headers: { "Cache-Control": "no-store" } });
     }
     let plan: Record<string, unknown> | null = null;
-    let runs: unknown[] = [];
     let revisions: unknown[] = [];
     let schedules: unknown[] = [];
     let requests: unknown[] = [];
     try {
       const candidate = await backend(`/api/v1/quality-plans/latest?${project}`);
-      if (!recordMatchesCurrentTable(candidate, currentState)) return Response.json({ plan: null, capabilities, runs: [], revisions: [], schedules: [], requests: [], automationCapabilities, workspace: scope }, { headers: { "Cache-Control": "no-store" } });
+      if (!recordMatchesCurrentQualityScope(candidate, scope, currentState)) return Response.json({ plan: null, capabilities, runs, revisions: [], schedules: [], requests: [], automationCapabilities, workspace: scope, ...historyFields }, { headers: { "Cache-Control": "no-store" } });
       plan = candidate;
       const planId = String(plan.plan_id);
-      const [history, revisionHistory, scheduleHistory, requestHistory] = await Promise.all([
-        backend(`/api/v1/quality-plans/${String(plan.plan_id)}/runs?page=${runPage}&page_size=${runPageSize}`),
+      const [revisionHistory, scheduleHistory, requestHistory] = await Promise.all([
         backend(`/api/v1/quality-plans/${String(plan.plan_id)}/revisions`),
         backend(`/api/v1/quality-automation/schedules?plan_id=${encodeURIComponent(planId)}`),
         backend(`/api/v1/quality-automation/requests?plan_id=${encodeURIComponent(planId)}`),
       ]);
-      runs = Array.isArray(history.items) ? history.items : [];
       revisions = Array.isArray(revisionHistory.items) ? revisionHistory.items : [];
       schedules = Array.isArray(scheduleHistory.items) ? scheduleHistory.items : [];
       requests = Array.isArray(requestHistory.items) ? requestHistory.items : [];
       return Response.json({
         plan, capabilities, runs, revisions, schedules, requests, automationCapabilities, workspace: scope,
-        runPage: history.page ?? runPage, runPageSize: history.page_size ?? runPageSize,
-        runTotal: history.total ?? runs.length, runHasNext: Boolean(history.has_next),
+        ...historyFields,
       }, { headers: { "Cache-Control": "no-store" } });
     } catch { /* A plan exists only after the operator generates it. */ }
-    return Response.json({ plan, capabilities, runs, revisions, schedules, requests, automationCapabilities, workspace: scope, runPage, runPageSize, runTotal: 0, runHasNext: false }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ plan, capabilities, runs, revisions, schedules, requests, automationCapabilities, workspace: scope, ...historyFields }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Unable to load quality plans" }, { status: 502 });
   }

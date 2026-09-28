@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import os
 from pathlib import Path
@@ -12,7 +13,10 @@ from pydantic import BaseModel, Field
 
 from agentic_data_platform.agents.planner import PlannerAgent
 from agentic_data_platform.errors import safe_error
-from agentic_data_platform.agents import InvestigationStore, SupervisorAgent
+from agentic_data_platform.agents import IncidentState, InvestigationStore, SupervisorAgent, get_scenario
+from agentic_data_platform.airflow_compat import availability as airflow_availability
+from agentic_data_platform.airflow_compat import collection as airflow_collection
+from agentic_data_platform.airflow_compat import normalize_task_instance
 from agentic_data_platform.models import ActorMode, ApprovalRecord, Environment, ProjectRecord, RunRecord, ToolRequest
 from agentic_data_platform.persistence.sqlite import SQLiteControlPlaneRepository
 from agentic_data_platform.sql.parser import parse_sql
@@ -72,6 +76,10 @@ class ReconcileRowCountInput(BaseModel):
 
 
 class AgentQueryInput(BaseModel):
+    question: str = Field(min_length=1, max_length=1000)
+
+
+class InvestigationQuestionInput(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
 
 
@@ -190,6 +198,7 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     registry = build_tool_registry()
     investigation_store = InvestigationStore(_investigation_database())
     supervisor = SupervisorAgent(registry, investigation_store, _project_root())
+    investigation_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ade-investigation")
     app = FastAPI(title="Agentic Data Engineering OS", version="0.5.0")
     app.add_middleware(
         CORSMiddleware,
@@ -372,6 +381,36 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
         items = investigation_store.list_incidents(limit)
         return {"status": "PASS", "count": len(items), "incidents": items}
 
+    def run_prepared_investigation(scenario_id: str, incident_id: str, question: str) -> None:
+        try:
+            supervisor.investigate(scenario_id, incident_id=incident_id, question=question)
+        except Exception as exc:  # background failures must become persisted, inspectable state
+            try:
+                investigation_store.transition(
+                    incident_id,
+                    IncidentState.FAILED,
+                    f"Investigation failed safely: {safe_error(exc)}",
+                )
+            except (KeyError, ValueError):
+                pass
+
+    @app.post("/api/v1/investigations", status_code=202)
+    def investigation_from_question(payload: InvestigationQuestionInput) -> dict[str, Any]:
+        question = payload.question.strip()
+        try:
+            scenario_id = supervisor.scenario_for_question(question)
+            incident_id = supervisor.prepare_investigation(scenario_id, question=question)
+        except KeyError as exc:
+            raise HTTPException(422, safe_error(exc)) from exc
+        investigation_executor.submit(run_prepared_investigation, scenario_id, incident_id, question)
+        return {
+            "status": "ACCEPTED",
+            "incident_id": incident_id,
+            "scenario_id": scenario_id,
+            "state": "DETECTED",
+            "detail_url": f"/api/v1/investigations/{incident_id}",
+        }
+
     @app.post("/api/v1/investigations/{scenario_id}/start")
     def investigation_start(scenario_id: str) -> dict[str, Any]:
         try:
@@ -386,6 +425,53 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
             return supervisor.public_report(incident_id)
         except KeyError as exc:
             raise HTTPException(404, safe_error(exc)) from exc
+
+    @app.get("/api/v1/investigations/{incident_id}/airflow")
+    def investigation_airflow(incident_id: str) -> dict[str, Any]:
+        try:
+            report = supervisor.public_report(incident_id)
+            scenario = get_scenario(report["scenario_id"])
+        except KeyError as exc:
+            raise HTTPException(404, safe_error(exc)) from exc
+        lifecycles = list(report.get("execution_lifecycles") or [])
+        if not lifecycles:
+            return {
+                "status": "UNAVAILABLE",
+                "mode": "NO_RUNTIME_EVIDENCE",
+                "reason": "This investigation has no normalized Airflow task lifecycle evidence.",
+                "dag_id": None,
+                "run_id": None,
+                "tasks": [],
+            }
+        primary = dict(lifecycles[0])
+        dag_id = primary.get("dag_id") or scenario.signals.get("dag_id")
+        run_id = primary.get("run_id") or scenario.signals.get("run_id")
+        live = invoke_read(
+            "airflow_runtime_task_instances",
+            {**demo_project_args(), "dag_id": dag_id, "run_id": run_id},
+        )
+        live_status = str(live.get("status") or "").upper()
+        if live_status not in {"SKIP_EXTERNAL", "ERROR", "UNAVAILABLE"}:
+            return {
+                "status": "AVAILABLE",
+                "mode": "LIVE_AIRFLOW_API",
+                "dag_id": dag_id,
+                "run_id": run_id,
+                "raw": live,
+                "tasks": live.get("task_instances") or live.get("taskInstances") or [],
+            }
+        siblings = scenario.signals.get("failed_sibling_tasks") or [primary.get("task_id")]
+        tasks = [{**primary, "task_id": task_id} for task_id in siblings if task_id]
+        return {
+            "status": "UNAVAILABLE",
+            "mode": "DETERMINISTIC_TEST_FIXTURE",
+            "reason": live.get("reason") or live.get("error") or "Airflow runtime API is unavailable.",
+            "dag_id": dag_id,
+            "run_id": run_id,
+            "executor": scenario.signals.get("executor"),
+            "parallelism": scenario.signals.get("parallelism"),
+            "tasks": tasks,
+        }
 
     @app.post("/api/v1/investigations/{incident_id}/approve")
     def investigation_approve(incident_id: str, payload: InvestigationApprovalInput) -> dict[str, Any]:
@@ -464,6 +550,33 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     def airflow_dags() -> dict[str, Any]:
         return invoke_read("airflow_inventory", demo_project_args())
 
+    @app.get("/api/v1/airflow/runtime/overview")
+    def airflow_runtime_overview(limit: int = 100) -> dict[str, Any]:
+        version = invoke_read("airflow_runtime_version", demo_project_args())
+        health = invoke_read("airflow_runtime_health", demo_project_args())
+        dags = invoke_read("airflow_runtime_dags", {**demo_project_args(), "limit": limit})
+        status = airflow_availability(dags)
+        if status["status"] == "AVAILABLE":
+            return {
+                **status,
+                "mode": "LIVE_AIRFLOW_API",
+                "version": version,
+                "health": health,
+                "dags": airflow_collection(dags, "dags"),
+                "last_updated": datetime.now(timezone.utc).isoformat(),
+            }
+        static = invoke_read("airflow_inventory", demo_project_args())
+        return {
+            **status,
+            "mode": "STATIC_REPOSITORY_FALLBACK",
+            "version": version,
+            "health": health,
+            "dags": static.get("details") or [
+                {"dag_id": name, "source": "repository"} for name in static.get("dags", [])
+            ],
+            "last_updated": datetime.now(timezone.utc).isoformat(),
+        }
+
     @app.get("/api/v1/airflow/dags/{dag_id}")
     def airflow_dag(dag_id: str) -> dict[str, Any]:
         return invoke_read("airflow_dag_details", {**demo_project_args(), "dag_id": dag_id})
@@ -475,6 +588,43 @@ def create_app(repository: SQLiteControlPlaneRepository | None = None) -> FastAP
     @app.get("/api/v1/airflow/dags/{dag_id}/runs")
     def airflow_dag_runs(dag_id: str, limit: int = 100) -> dict[str, Any]:
         return invoke_read("airflow_runtime_dag_runs", {**demo_project_args(), "dag_id": dag_id, "limit": limit})
+
+    @app.get("/api/v1/airflow/dags/{dag_id}/runs/{run_id}")
+    def airflow_dag_run_detail(dag_id: str, run_id: str) -> dict[str, Any]:
+        args = {**demo_project_args(), "dag_id": dag_id, "run_id": run_id}
+        run = invoke_read("airflow_runtime_dag_run", args)
+        raw_tasks = invoke_read("airflow_runtime_task_instances", args)
+        status = airflow_availability(raw_tasks)
+        tasks = airflow_collection(raw_tasks, "task_instances", "taskInstances")
+        return {
+            **status,
+            "mode": "LIVE_AIRFLOW_API" if status["status"] == "AVAILABLE" else "LIVE_RUNTIME_UNAVAILABLE",
+            "dag_id": dag_id,
+            "run_id": run_id,
+            "run": run if airflow_availability(run)["status"] == "AVAILABLE" else None,
+            "tasks": [normalize_task_instance(item, dag_id=dag_id, run_id=run_id).public() for item in tasks],
+            "last_updated": datetime.now(timezone.utc).isoformat(),
+        }
+
+    @app.get("/api/v1/airflow/dags/{dag_id}/runs/{run_id}/tasks/{task_id:path}")
+    def airflow_task_instance_detail(dag_id: str, run_id: str, task_id: str, try_number: int = 1) -> dict[str, Any]:
+        args = {**demo_project_args(), "dag_id": dag_id, "run_id": run_id, "task_id": task_id}
+        task = invoke_read("airflow_runtime_task_instance", args)
+        status = airflow_availability(task)
+        logs = invoke_read("airflow_runtime_logs", {**args, "try_number": try_number})
+        normalized = (
+            normalize_task_instance(task, dag_id=dag_id, run_id=run_id).public()
+            if status["status"] == "AVAILABLE" else None
+        )
+        return {
+            **status,
+            "mode": "LIVE_AIRFLOW_API" if status["status"] == "AVAILABLE" else "LIVE_RUNTIME_UNAVAILABLE",
+            "task": normalized,
+            "raw": task if status["status"] == "AVAILABLE" else None,
+            "logs": logs if airflow_availability(logs)["status"] == "AVAILABLE" else None,
+            "log_availability": airflow_availability(logs),
+            "last_updated": datetime.now(timezone.utc).isoformat(),
+        }
 
     @app.get("/api/v1/airflow/tasks/{task_id}")
     def airflow_task(task_id: str) -> dict[str, Any]:

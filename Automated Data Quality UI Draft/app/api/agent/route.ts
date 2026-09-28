@@ -1,6 +1,8 @@
 export const dynamic = "force-dynamic";
 
 import { currentWorkspaceState, resolveWorkspace } from "../../../lib/server-workspace";
+import { askAITransportFailure } from "../../../lib/ask-ai-transport";
+import { isPhase4Fixture } from "../../../lib/server-test-fixture";
 
 const API_BASE = process.env.ADE_API_BASE_URL ?? "http://127.0.0.1:8011";
 
@@ -18,6 +20,7 @@ function backendHeaders(request: Request, projectId: string, contentType = false
 export async function GET(request: Request) {
   try {
     const workspace = await resolveWorkspace(request);
+    if (isPhase4Fixture(request)) return Response.json({ status: "READY", workspace, agent_history: [], specialists: [], source_table_scope_id: "fixture_orders", scope_mode: "OPTIONAL_TABLE_CONTEXT", fixture_response: { status: "ANSWERED", answer: "Fixture response: orders is represented by the selected PostgreSQL source, the dbt staging model, and the Snowflake raw target. This is test content, not live evidence.", result: { status: "TEST_ONLY_FIXTURE" }, agent: { status: "EVIDENCE_ONLY" }, evidence: { mode: "test_fixture", timestamp: "2026-01-01T00:00:00.000Z" } } }, { headers: { "Cache-Control": "no-store", "X-ADQ-Test-Fixture": "phase4" } });
     const currentState = await currentWorkspaceState(workspace);
     const requestUrl = new URL(request.url);
     const historyLimit = Math.min(50, Math.max(1, Number(requestUrl.searchParams.get("history_limit") || 20)));
@@ -42,7 +45,8 @@ export async function GET(request: Request) {
     }) : [];
     return Response.json({ ...status, workspace, source_table_scope_id: currentState.sourceTableScopeId || null, specialists, agent_activity: activity, agent_history: Array.isArray(history.items) ? history.items : [], agent_history_limit: history.limit ?? historyLimit, agent_history_offset: history.offset ?? historyOffset, agent_history_has_more: history.has_more === true, roster_status: roster.status ?? "UNAVAILABLE", scope_mode: currentState.sourceTableScopeId ? "OPTIONAL_TABLE_CONTEXT" : "PROJECT_ONLY" }, { status: statusResponse.status });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Unable to load agent status" }, { status: 502 });
+    const failure = askAITransportFailure(error);
+    return Response.json({ code: failure.code, error: failure.message }, { status: failure.status });
   }
 }
 
@@ -50,6 +54,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json() as { question?: string; selected_asset?: string; run_id?: string; context?: Record<string, unknown> };
     const workspace = await resolveWorkspace(request);
+    if (isPhase4Fixture(request)) return Response.json({ status: "ANSWERED", answer: "Fixture response: orders is represented by the selected PostgreSQL source, the dbt staging model, and the Snowflake raw target. This is test content, not live evidence.", response: "Fixture response: orders is represented by the selected PostgreSQL source, the dbt staging model, and the Snowflake raw target. This is test content, not live evidence.", evidence: [], workspace }, { headers: { "Cache-Control": "no-store", "X-ADQ-Test-Fixture": "phase4" } });
     const response = await fetch(`${API_BASE}/api/v1/agent/query`, {
       method: "POST", headers: backendHeaders(request, workspace.projectId, true),
       body: JSON.stringify({
@@ -65,6 +70,7 @@ export async function POST(request: Request) {
     const value = await response.json().catch(() => ({}));
     return Response.json(value, { status: response.status });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Agent query failed" }, { status: 502 });
+    const failure = askAITransportFailure(error);
+    return Response.json({ code: failure.code, error: failure.message }, { status: failure.status });
   }
 }

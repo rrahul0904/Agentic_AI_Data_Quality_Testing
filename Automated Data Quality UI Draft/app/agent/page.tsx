@@ -86,8 +86,10 @@ function formatDuration(start?: string | null, end?: string | null): string {
 function humanStatus(value?: string | null): string {
   const status = String(value ?? "").toUpperCase();
   if (status === "VERIFIED_TOOL_RESPONSE" || status === "TOOL_EVIDENCE_ONLY") return "Evidence collected";
-  if (status === "LIVE_RESPONSE") return "AI explanation completed";
+  if (status === "LIVE_RESPONSE") return "Answered by AI";
   if (status === "LIVE_PROVIDER_TIMEOUT") return "AI provider timed out";
+  if (status === "LIVE_PROVIDER_HTTP_400") return "Provider rejected request (HTTP 400)";
+  if (status === "LIVE_PROVIDER_HTTP_429") return "Provider rate limit (HTTP 429)";
   if (status === "LIVE_QUERY_LIMIT_REACHED") return "Evidence-query limit reached";
   if (status === "LIVE_CONNECTOR_FAILED") return "Evidence connector failed";
   if (status === "LIVE_INVALID_ANSWER") return "AI returned no usable answer";
@@ -129,6 +131,16 @@ function agentFailure(agent?: AgentResponse["agent"]): { heading: string; detail
     detail: "The provider did not finish within the bounded request deadline. Collected evidence is still available.",
     nextAction: "Retry the same scoped question. If it repeats, inspect provider latency and timeout settings.",
   };
+  if (kind === "PROVIDER_HTTP_400") return {
+    heading: "AI provider rejected the request (HTTP 400)",
+    detail: "The evidence was collected, but the provider did not accept the configured request. No AI answer was accepted.",
+    nextAction: "Check the active project's model and endpoint settings, then retry the same scoped question.",
+  };
+  if (kind === "PROVIDER_HTTP_429") return {
+    heading: "AI provider rate limit reached (HTTP 429)",
+    detail: "The evidence was collected, but the provider did not complete the answer. No AI answer was accepted.",
+    nextAction: "Wait for the provider limit to reset, then retry the same scoped question.",
+  };
   if (kind === "CONNECTOR_FAILED") return {
     heading: "Evidence connector failed",
     detail: "The AI could not complete its answer because one or more requested evidence queries failed.",
@@ -147,14 +159,63 @@ function agentFailure(agent?: AgentResponse["agent"]): { heading: string; detail
   return null;
 }
 
-function compactNarrative(value: string | undefined, fallback: string): string {
-  if (!value || /evidence collection completed with status/i.test(value)) return fallback;
-  const sentence = value.trim().split(/(?<=[.!?])\s+/).slice(0, 2).join(" ");
-  return sentence.length > 360 ? `${sentence.slice(0, 357).trimEnd()}…` : sentence;
-}
-
 function isGenericEvidenceAnswer(value?: string): boolean {
   return !value || /evidence collection completed with status|review the supporting facts/i.test(value);
+}
+
+function cleanAnswerText(value: string): string {
+  return value
+    .replace(/\\([`*_.])/g, "$1")
+    .replace(/`([^`\n]+)`/g, "$1")
+    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/([.!?])\s+-\s+(?=[A-Z])/g, "$1\n• ")
+    .replace(/^\s*[-*]\s+/gm, "• ")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
+}
+
+function FormattedAnswer({ text }: { text: string }) {
+  const lines = cleanAnswerText(text).split("\n");
+  const blocks: Array<{ kind: "paragraph" | "list"; lines: string[] }> = [];
+  let paragraph: string[] = [];
+  let list: string[] = [];
+  const flushParagraph = () => {
+    if (paragraph.length) blocks.push({ kind: "paragraph", lines: [paragraph.join(" ")] });
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (list.length) blocks.push({ kind: "list", lines: list });
+    list = [];
+  };
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      flushParagraph();
+      flushList();
+    } else if (line.startsWith("• ")) {
+      flushParagraph();
+      list.push(line.slice(2));
+    } else {
+      flushList();
+      paragraph.push(line);
+    }
+  }
+  flushParagraph();
+  flushList();
+  return <div className={local.formattedAnswer}>{blocks.map((block, index) => block.kind === "list"
+    ? <ul key={`list-${index}`}>{block.lines.map((item, itemIndex) => <li key={`${itemIndex}-${item}`}>{item}</li>)}</ul>
+    : <p key={`paragraph-${index}`}>{block.lines[0]}</p>)}</div>;
+}
+
+function splitLiveAnswer(value: string): { headline: string; detail: string } {
+  const answer = cleanAnswerText(value);
+  const firstLine = answer.split("\n", 1)[0];
+  const firstSentence = firstLine.match(/^(.+?[.!?])(?:\s+|$)/)?.[1];
+  const headline = firstSentence && firstSentence.length <= 170
+    ? firstSentence
+    : firstLine.length <= 170 ? firstLine : "What the evidence shows";
+  return { headline, detail: answer.slice(headline.length).trim() };
 }
 
 function looksLikeExecutionRequest(value: string): boolean {
@@ -189,9 +250,16 @@ function AskHistory({
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = items.find((item, index) => (item.invocation_id ?? `${item.question}-${index}`) === selectedId);
-  const completeItems = items.filter((item) => Boolean(item.answer) || Boolean(item.error) || typeof item.latency_ms === "number");
+  const savedResults = items.filter((item) => Boolean(item.answer) || Boolean(item.error));
+  useEffect(() => {
+    if (!selectedId || !window.matchMedia("(max-width: 980px)").matches) return;
+    document.getElementById("ask-ai-history-detail-heading")?.scrollIntoView({
+      block: "start",
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    });
+  }, [selectedId]);
   return <section className={styles.panel} aria-labelledby="ask-ai-history-heading">
-    <header className={styles.panelHead}><div><h2 id="ask-ai-history-heading">Ask AI history</h2><p>Select a question to inspect its complete response and supporting details.</p></div><span>{completeItems.length} complete</span></header>
+    <header className={styles.panelHead}><div><h2 id="ask-ai-history-heading">Ask AI history</h2><p>Select a question to inspect its saved response and supporting details.</p></div><span>{items.length} shown · {savedResults.length} with results</span></header>
     {items.length ? <>
       <div className={local.historyLayout}>
         <div className={local.historyList}>{items.map((item, index) => {
@@ -223,8 +291,9 @@ function HistoryViewer({ item }: { item: AgentHistoryItem }) {
   return <section className={local.historyViewer} aria-labelledby="ask-ai-history-detail-heading">
     <header className={local.historyViewerHeader}><div><span className={styles.eyebrow}>SELECTED RESPONSE</span><h2 id="ask-ai-history-detail-heading">{item.question || "Question not retained"}</h2><small>{formatDateTime(item.created_at)}</small></div><span className={failed ? styles.answerWarn : styles.answerGood}>{humanStatus(item.status)}</span></header>
     <div className={local.historyViewerMeta}><span><strong>Provider</strong>{item.provider ?? "Evidence only"}{item.model ? ` · ${item.model}` : ""}</span><span><strong>Latency</strong>{typeof item.latency_ms === "number" ? `${Math.round(item.latency_ms).toLocaleString()} ms` : "Not recorded"}</span><span><strong>Usage</strong>{usageLabel(item.usage)}</span></div>
-    <section className={local.historyResponse}><h3>{failed ? "Result" : "Response"}</h3><p>{item.answer || (failed ? "No final AI answer was recorded." : "This older entry did not retain a complete answer and cannot be reconstructed.")}</p>{item.error ? <p className={styles.warningText}>{agentErrorMessage(item.error)}</p> : null}</section>
-    <div className={local.historyViewerGrid}><section><h3>Scope</h3><div className={styles.summaryList}><div className={styles.summaryRow}><span>Project / environment<small>{scope.project_id ?? "Not recorded"} · {scope.environment ?? "Not recorded"}</small></span><strong>Scoped</strong></div>{scope.selected_asset ? <div className={styles.summaryRow}><span>Asset<small>{scope.selected_asset}</small></span><strong>Selected</strong></div> : null}{scope.run_id ? <div className={styles.summaryRow}><span>Run<small>{scope.run_id}</small></span><strong>Selected</strong></div> : null}</div></section><section><h3>Evidence and tools</h3><div className={styles.summaryList}>{item.evidence_references?.length ? item.evidence_references.map((reference) => <div className={styles.summaryRow} key={reference}><span>Evidence<small>{reference}</small></span><strong>Linked</strong></div>) : <div className={styles.summaryRow}><span>No evidence references retained</span><strong>Not available</strong></div>}</div><div className={styles.capabilityList}>{item.tools_used?.length ? item.tools_used.map((tool) => <span className={styles.capability} key={tool}>{tool}</span>) : <span className={styles.muted}>No AI tool calls recorded</span>}</div></section></div>
+    <section className={local.historyResponse}><h3>{failed ? "Result" : "Response"}</h3><FormattedAnswer text={item.answer || (failed ? "No final AI answer was recorded." : "This older entry did not retain a complete answer and cannot be reconstructed.")} />{item.error ? <p className={styles.warningText}>{agentErrorMessage(item.error)}</p> : null}</section>
+    <p className={local.historySnapshotNote}>Saved at {formatDateTime(item.created_at)}. This is the original response, not a fresh check.</p>
+    <div className={local.historyViewerGrid}><section><h3>Scope</h3><div className={styles.summaryList}><div className={styles.summaryRow}><span>Project / environment<small>{scope.project_id ?? "Not recorded"} · {scope.environment ?? "Not recorded"}</small></span><strong>Scoped</strong></div>{scope.selected_asset ? <div className={styles.summaryRow}><span>Asset<small>{scope.selected_asset}</small></span><strong>Selected</strong></div> : null}{scope.run_id ? <div className={styles.summaryRow}><span>Run<small>{scope.run_id}</small></span><strong>Selected</strong></div> : null}</div></section><details className={local.historyEvidenceDetails}><summary>Evidence and tools <span>{item.evidence_references?.length ?? 0} records</span></summary><div className={styles.summaryList}>{item.evidence_references?.length ? item.evidence_references.map((reference) => <div className={styles.summaryRow} key={reference}><span>Evidence<small>{reference}</small></span><strong>Linked</strong></div>) : <div className={styles.summaryRow}><span>No evidence references retained</span><strong>Not available</strong></div>}</div><div className={styles.capabilityList}>{item.tools_used?.length ? item.tools_used.map((tool) => <span className={styles.capability} key={tool}>{tool}</span>) : <span className={styles.muted}>No AI tool calls recorded</span>}</div></details></div>
   </section>;
 }
 
@@ -241,9 +310,10 @@ function readableResult(response: AgentResponse): { headline: string; detail: st
   const status = latestRun?.status ?? result.status;
   const freshness = result.freshness ?? "";
   const targetName = dag?.dag_id ?? "the requested workflow";
-  const modelAnswer = isGenericEvidenceAnswer(response.answer) ? "" : response.answer;
+  const modelAnswer = isGenericEvidenceAnswer(response.answer) ? "" : response.answer ?? "";
   const agentOutcome = String(response.agent?.status ?? "").toUpperCase();
   const liveExplanation = agentOutcome === "LIVE_RESPONSE" && Boolean(modelAnswer);
+  const liveAnswerParts = liveExplanation ? splitLiveAnswer(modelAnswer) : null;
   const directAnswer = liveExplanation ? "" : modelAnswer;
   const failure = agentFailure(response.agent);
   const evidenceOnly = ["VERIFIED_TOOL_RESPONSE", "TOOL_EVIDENCE_ONLY"].includes(agentOutcome)
@@ -252,27 +322,27 @@ function readableResult(response: AgentResponse): { headline: string; detail: st
     || /^(can you\s+)?(run|execute|start|trigger|refresh|load|rerun|retry)\b/i.test(normalizedQuestion);
   const headline = executionRequest
     ? "This is an execution request, not an explanation request."
-    : dag
-    ? `${targetName} is ${dag.is_paused ? "paused" : "active"}.`
+    : failure
+      ? failure.heading
     : liveExplanation
-      ? "AI explanation completed."
+      ? liveAnswerParts!.headline
+    : dag
+      ? `${targetName} is ${dag.is_paused ? "paused" : "enabled"}.`
       : directAnswer
         ? "Evidence collected."
-      : failure
-        ? failure.heading
       : evidenceOnly
         ? "Evidence was collected; AI review was not run."
         : `Evidence collection is ${humanStatus(result.status)}.`;
   const detail = executionRequest
     ? "Ask AI does not submit jobs. Open Run jobs to select the exact scope, preview it, and approve it before execution."
-    : dag && latestRun
-    ? `Its latest recorded run is ${humanStatus(status).toLowerCase()}${latestRun.started_at ? `, starting ${formatDateTime(latestRun.started_at)}` : ""} (${formatDuration(latestRun.started_at, latestRun.ended_at)}).`
+    : failure
+      ? failure.detail
     : liveExplanation
-      ? compactNarrative(modelAnswer, "The available connector evidence is summarized below.")
+      ? liveAnswerParts!.detail
+    : dag && latestRun
+      ? `Its latest recorded run is ${humanStatus(status).toLowerCase()}${latestRun.started_at ? `, starting ${formatDateTime(latestRun.started_at)}` : ""} (${formatDuration(latestRun.started_at, latestRun.ended_at)}).`
       : directAnswer
         ? directAnswer
-      : failure
-        ? failure.detail
       : evidenceOnly
         ? "The selected connectors returned scoped evidence. No model-generated explanation was produced for this request."
         : "No model-generated explanation was returned. The available scoped evidence is summarized below.";
@@ -293,6 +363,8 @@ function readableResult(response: AgentResponse): { headline: string; detail: st
     ? "Open Run jobs, select one exact operation, then preview and approve the resulting plan."
     : failure
       ? failure.nextAction
+    : liveExplanation
+      ? response.next_action ?? "Review the cited evidence before taking action."
     : directAnswer
       ? response.next_action ?? "Use the exact operation name in Run jobs if you want to prepare an execution request."
     : evidenceOnly
@@ -319,7 +391,13 @@ export default function AgentPage() {
 
   const loadAgentStatus = (offset = historyOffset) => fetch(scopedApiUrl(`/api/agent?history_limit=20&history_offset=${offset}`), { cache: "no-store" })
     .then((item) => item.json())
-    .then(setAgentStatus)
+    .then((value) => {
+      setAgentStatus(value);
+      if (new URLSearchParams(window.location.search).get("fixture") === "phase4" && value.fixture_response) {
+        setQuestion("Summarize the fixture orders workflow");
+        setResponse(value.fixture_response as AgentResponse);
+      }
+    })
     .catch(() => setAgentStatus({ status: "ERROR" }));
   useEffect(() => {
     const workspace = currentWorkspaceParams();
@@ -411,18 +489,17 @@ export default function AgentPage() {
         {response && !response.error && readable && <div className={styles.sectionStack} aria-live="polite">
           <h3>Answer</h3>
           <section className={styles.answerCard}>
-            <div className={styles.answerHeader}><span className={styles.answerEyebrow}>CURRENT STATUS</span><span className={styles.answerStatus}>{humanStatus(requiresQualityScope ? responseResult.status : response.agent?.status ?? responseResult.status)}</span></div>
+            <div className={styles.answerHeader}><span className={styles.answerEyebrow}>ANSWER</span><span className={styles.answerStatus}>{humanStatus(requiresQualityScope ? responseResult.status : response.agent?.status ?? responseResult.status)}</span></div>
             <h2>{readable.headline}</h2>
-            <p>{readable.detail}</p>
+              {readable.detail ? <div className={local.answerNarrative}><FormattedAnswer text={readable.detail} /></div> : null}
             <div className={styles.answerFacts}>{readable.facts.map((item) => <div className={styles.answerFact} key={item.label}><small>{item.label}</small><strong className={item.tone === "warn" ? styles.answerWarn : item.tone === "good" ? styles.answerGood : ""}>{item.value}</strong></div>)}</div>
-            <div className={styles.answerMeta}>Based on exact connector evidence · updated {readable.updated}</div>
+            <div className={styles.answerMeta}>{String(response.agent?.status ?? "").toUpperCase() === "LIVE_RESPONSE" ? "Live AI answer using scoped evidence" : "Based on exact connector evidence"} · updated {readable.updated}</div>
           </section>
           <details className={local.answerDetails}><summary>Evidence and supporting records <span>{evidenceLinks.length} linked record{evidenceLinks.length === 1 ? "" : "s"}</span></summary><div className={local.detailContent}><div className={styles.summaryList}>{[...(readable.facts.map((item) => ({ fact: `${item.label}: ${item.value}`, status: item.tone === "warn" ? "Attention" : "Observed" }))), ...supportingFacts.map((item) => ({ fact: typeof item.fact === "string" ? item.fact : "Observed evidence", status: typeof item.status === "string" ? humanStatus(item.status) : "Observed" }))].map((item, index) => <div className={styles.summaryRow} key={`${item.fact}-${index}`}><span>{item.fact}</span><strong>{item.status}</strong></div>)}</div><div className={styles.summaryList}>{evidenceLinks.length ? evidenceLinks.map((item, index) => <div className={styles.summaryRow} key={`${typeof item.reference === "string" ? item.reference : item.type ?? "evidence"}-${index}`}><span>{typeof item.label === "string" ? item.label : "Evidence record"}<small>{typeof item.type === "string" ? item.type : "evidence"} · {typeof item.reference === "string" ? item.reference : "No reference"}</small></span><span className={styles.evidenceActions}><strong>{humanStatus(item.status)}</strong>{evidenceHref(item.href) ? <a href={evidenceHref(item.href)!}>Open record</a> : null}</span></div>) : <div className={styles.summaryRow}><span>No evidence links returned</span><strong>Not available</strong></div>}</div></div></details>
-          <section><h3>Uncertainty</h3><div className={styles.infoStrip}><span>i</span><div>{(readable.unknowns.length ? readable.unknowns : ["No additional uncertainty was returned."]).map((item, index) => <p key={`${item}-${index}`}>{item}</p>)}</div></div></section>
-          <section><h3>Next action</h3><div className={styles.callout}><strong>{readable.nextAction}</strong></div></section>
+          {readable.unknowns.length ? <section><h3>What’s still unknown</h3><div className={styles.infoStrip}><span>i</span><div>{readable.unknowns.map((item, index) => <p key={`${item}-${index}`}>{item}</p>)}</div></div></section> : null}
+          <section><h3>What to check next</h3><div className={styles.callout}><strong>{readable.nextAction}</strong></div></section>
           <details className={local.answerDetails}><summary>Technical details</summary><div className={local.detailContent}>
           <section><h3>Interpretation mode</h3><div className={styles.summaryRow}><span>{readable.mode}</span><strong>{readable.updated}</strong></div></section>
-          {String(response.agent?.status ?? "").toUpperCase() === "LIVE_RESPONSE" && response.answer && !isGenericEvidenceAnswer(response.answer) && <section><h3>Full AI answer</h3><p className={styles.rawNarrative}>{response.answer}</p></section>}
           <section>
             <h3>Tools used</h3>
             <div className={styles.capabilityList}>{toolsUsed.length ? toolsUsed.map((item, index) =>

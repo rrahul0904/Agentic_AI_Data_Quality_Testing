@@ -1,4 +1,5 @@
-import { currentWorkspaceState, recordMatchesCurrentTable, resolveWorkspace, workspaceQuery } from "../../../lib/server-workspace";
+import { currentWorkspaceState, recordMatchesCurrentActionScope, resolveWorkspace, workspaceQuery } from "../../../lib/server-workspace";
+import { isPhase4Fixture, phase3ActionWorkspace, phase3Preview } from "../../../lib/server-test-fixture";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,7 @@ function backendHeaders(request: Request | undefined, init: RequestInit | undefi
   // Forward only the explicit ADE headers. The browser never receives a
   // backend secret; deployments may instead inject ADE_UI_API_KEY server-side.
   const incoming = request?.headers;
-  for (const name of ["x-ade-api-key", "x-ade-identity", "x-ade-project-id", "x-ade-environment"]) {
+  for (const name of ["x-ade-api-key", "x-ade-identity", "x-ade-project-id", "x-ade-environment", "x-request-id"]) {
     const value = incoming?.get(name) ?? (name === "x-ade-api-key" ? process.env.ADE_UI_API_KEY : undefined);
     if (value) headers.set(name, value);
   }
@@ -27,6 +28,7 @@ async function backend(endpoint: string, projectId: string, init?: RequestInit, 
 
 export async function GET(request: Request) {
   try {
+    if (isPhase4Fixture(request)) return Response.json(phase3ActionWorkspace(), { headers: { "Cache-Control": "no-store", "X-ADQ-Test-Fixture": "phase4" } });
     const scope = await resolveWorkspace(request);
     const currentState = await currentWorkspaceState(scope);
     const query = workspaceQuery(scope);
@@ -48,12 +50,10 @@ export async function GET(request: Request) {
       return Response.json({ capabilities, plans: { ...plans, items: [] }, runs, workspace: scope, source_table_scope_id: currentState.sourceTableScopeId || null }, { headers: { "Cache-Control": "no-store" } });
     }
     const items = Array.isArray(plans.items)
-      ? (currentState.selectedAssetIdentity ? plans.items.filter((item) => recordMatchesCurrentTable(item, currentState)) : plans.items)
+      ? plans.items.filter((item) => recordMatchesCurrentActionScope(item, scope, currentState))
       : [];
     const runItems = Array.isArray(runs.items)
-      ? (currentState.selectedAssetIdentity
-        ? runs.items.filter((item) => item && typeof item === "object" && recordMatchesCurrentTable((item as Record<string, unknown>).plan ?? item, currentState))
-        : runs.items)
+      ? runs.items.filter((item) => item && typeof item === "object" && recordMatchesCurrentActionScope((item as Record<string, unknown>).plan ?? item, scope, currentState))
       : [];
     return Response.json({ capabilities, plans: { ...plans, items, count: items.length }, runs: { ...runs, items: runItems, count: runItems.length }, workspace: scope, source_table_scope_id: currentState.sourceTableScopeId || null }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
@@ -63,6 +63,11 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    if (isPhase4Fixture(request)) {
+      const body = await request.json() as Record<string, unknown>;
+      if (body.action === "plan") return Response.json(phase3Preview(String(body.intent ?? "Fixture preview")), { headers: { "Cache-Control": "no-store", "X-ADQ-Test-Fixture": "phase4" } });
+      return Response.json({ error: "Fixture mode blocks dry-run, approval, execution, rejection, and status mutations." }, { status: 403, headers: { "X-ADQ-Test-Fixture": "phase4" } });
+    }
     const scope = await resolveWorkspace(request);
     const currentState = await currentWorkspaceState(scope);
     const body = await request.json() as Record<string, unknown>;
@@ -71,7 +76,7 @@ export async function POST(request: Request) {
       if (body.operationKind === "quality_checks" && !currentState.selectedAssetIdentity) {
         throw new Error("Quality checks require a selected source table. Independent Airflow, dbt, COPY, and Snowpipe jobs do not.");
       }
-      return Response.json(await backend("/api/v1/actions/plan-from-intent", scope.projectId, {
+      const planned = await backend("/api/v1/actions/plan-from-intent", scope.projectId, {
         method: "POST",
         body: JSON.stringify({
           project_id: scope.projectId,
@@ -82,7 +87,11 @@ export async function POST(request: Request) {
           operation_kind: body.operationKind || null,
           selected_asset_id: currentState.sourceTableScopeId || null,
         }),
-      }, 120000, request));
+      }, 120000, request);
+      if (planned.plan && !recordMatchesCurrentActionScope(planned.plan, scope, currentState)) {
+        return Response.json({ error: "The previewed plan does not match the current project, environment, and selected source-table scope." }, { status: 409 });
+      }
+      return Response.json(planned);
     }
     if (action === "status") {
       const runId = encodeURIComponent(String(body.runId ?? ""));
@@ -94,7 +103,7 @@ export async function POST(request: Request) {
     const currentPlans = await backend(`/api/v1/actions/plans?${workspaceQuery(scope)}`, scope.projectId, undefined, 120000, request);
     const belongsToCurrentWorkflow = Array.isArray(currentPlans.items)
       && currentPlans.items.some((item) => item && typeof item === "object" && (item as Record<string, unknown>).plan_id === body.planId
-        && (!currentState.selectedAssetIdentity || recordMatchesCurrentTable(item, currentState)));
+        && recordMatchesCurrentActionScope(item, scope, currentState));
     if (!belongsToCurrentWorkflow) return Response.json({ error: "This action plan belongs to a different workflow or source-table scope." }, { status: 404 });
     if (action === "dry-run") {
       return Response.json(await backend(`/api/v1/actions/plans/${planId}/dry-run`, scope.projectId, {

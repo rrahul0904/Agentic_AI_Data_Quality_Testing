@@ -86,7 +86,8 @@ class AirflowAdapter:
         return self._request("GET", "/version")
 
     def health(self) -> dict[str, Any]:
-        return self._request("GET", "/health")
+        path = "/monitor/health" if self.api_prefix == "/api/v2" else "/health"
+        return self._request("GET", path)
 
     def dags(self, *, limit: int = 100) -> dict[str, Any]:
         return self._request("GET", f"/dags?limit={max(1, min(limit, 1000))}")

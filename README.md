@@ -532,8 +532,8 @@ The API is exposed under:
 When running locally:
 
 ```text
-FastAPI:  http://127.0.0.1:8001
-API docs: http://127.0.0.1:8001/docs
+FastAPI:  http://127.0.0.1:8011
+API docs: http://127.0.0.1:8011/docs
 ```
 
 ---
@@ -562,18 +562,23 @@ python -m pip install -e '.[dev,warehouses]'
 ## Run the operator console
 
 ```bash
+cd "Automated Data Quality Testing"
 ./scripts/setup-demo.sh
-source .venv/bin/activate
-make demo-ui
+ADE_SEED_DEMO_DATA=false ./scripts/demo-ui.sh
 ```
 
 Open:
 
 ```text
-Operator console: http://127.0.0.1:3000
-FastAPI:          http://127.0.0.1:8001
-API docs:         http://127.0.0.1:8001/docs
+Operator console: http://127.0.0.1:3020
+FastAPI:          http://127.0.0.1:8011
+API docs:         http://127.0.0.1:8011/docs
 ```
+
+The canonical operator console is `Automated Data Quality UI Draft`. For
+development with reload watchers, run `./scripts/dev-ui.sh` from
+`Automated Data Quality Testing`. The root `scripts/demo-ui.sh` is deprecated
+and redirects to the canonical launcher.
 
 The local demo does not require Snowflake, Oracle, Docker, cloud Airflow, or cloud LLM credentials.
 

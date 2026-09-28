@@ -4,19 +4,24 @@ import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } f
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import type { ConnectionKind, ConnectionProfile, ConnectionTestResult, DiscoveredAsset, DiscoveryResult, OnboardingBootstrap, PipelineLayer, SelectedSourceTable } from "../../lib/onboarding";
-import { connectionLabels, newConnection } from "../../lib/onboarding";
+import { connectionLabels, dbtDiscoveryNeedsRefresh, newConnection } from "../../lib/onboarding";
 import DraftShell from "../DraftShell";
 import styles from "../workflow.module.css";
 import local from "./onboarding.module.css";
 import { scopedApiUrl } from "../../lib/client-workspace";
 import { Drawer, ProjectSelector } from "../components/ui";
 import { assetsForSourceTable, discoveriesForSourceTable, selectedAssetsForScope } from "../../lib/discovery-scope";
+import { catalogAvailability, uniqueSourceTables, type CatalogIdentity } from "../../lib/catalog-coverage";
 
 type Phase = "overview" | "definition" | "connections" | "discovery" | "onboarding";
 type ProjectDefinition = { name: string; domain: string; owner: string; environment: string; criticality: string; description: string; tags: string };
 type SavedProject = ProjectDefinition & { id: string; savedAt?: string };
 type FieldDefinition = { key: string; label: string; type?: "text" | "number" | "select"; options?: string[]; placeholder?: string; wide?: boolean };
 type Notice = { tone: "success" | "error"; text: string } | null;
+
+function notifyProjectScopeChanged() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("ade-workspace-scope-change"));
+}
 
 const lifecyclePhases = [
   { id: "definition" as const, title: "Define project", detail: "Business boundary" },
@@ -28,12 +33,13 @@ const lifecyclePhases = [
 ];
 const DEFAULT_PROJECT_NAME = "Data Quality Testing - Beta";
 const EMPTY_PROJECT: ProjectDefinition = { name: DEFAULT_PROJECT_NAME, domain: "", owner: "", environment: "Development", criticality: "Tier 2 — Important", description: "", tags: "" };
-const layerOrder: PipelineLayer[] = ["Sources", "Ingestion", "Transformation", "Targets"];
+const layerOrder: PipelineLayer[] = ["Sources", "Ingestion", "Transformation", "Targets", "Quality / other"];
 const layerDescriptions: Record<PipelineLayer, string> = {
   Sources: "Origin systems and source files",
   Ingestion: "Movement, loading and orchestration",
   Transformation: "dbt resources and transformation artifacts",
   Targets: "Warehouse tables and views",
+  "Quality / other": "Defined checks and supporting assets",
 };
 
 function projectId(name: string): string {
@@ -146,9 +152,11 @@ function AssetInspector({ asset, profile, test, selected, onSelect, onClose }: {
 
 type SourceTableOption = SelectedSourceTable;
 
-function PostgresSourceTableDrilldown({ sourceTables, sourceStatus, assets, connections, tests, selectedSourceTable, selectedSourceTables, sourceTableScopeId, discoveryResultsByTable, onAddSourceTable, onAddAllSourceTables, onSelectSourceTable, onRemoveSourceTable, onDiscoverAssets, discoveryBusy }: {
+function PostgresSourceTableDrilldown({ sourceTables, sourceStatus, targetTables, targetStatus, assets, connections, tests, selectedSourceTable, selectedSourceTables, sourceTableScopeId, discoveryResultsByTable, onAddSourceTable, onAddAllSourceTables, onSelectSourceTable, onRemoveSourceTable, onDiscoverAssets, discoveryBusy }: {
   sourceTables: SourceTableOption[];
   sourceStatus: string;
+  targetTables: CatalogIdentity[];
+  targetStatus: string;
   assets: DiscoveredAsset[];
   connections: ConnectionProfile[];
   tests: Record<string, ConnectionTestResult>;
@@ -169,19 +177,30 @@ function PostgresSourceTableDrilldown({ sourceTables, sourceStatus, assets, conn
   const scopeAdded = Boolean(chosen && selectedSourceTables.some((table) => table.id === chosen.id));
   const activeDiscoveries = selectedSourceTable ? (discoveryResultsByTable[selectedSourceTable.id] ?? {}) : {};
   const activeAssets = Object.values(activeDiscoveries).flatMap((item) => item.assets);
+  const sourceCatalog = catalogAvailability(sourceTables, sourceStatus);
+  const targetCatalog = catalogAvailability(targetTables, targetStatus);
+  const savedTables = uniqueSourceTables(selectedSourceTables);
+  const activeDiscoveryAssetCount = Object.keys(activeDiscoveries).length ? activeAssets.length : assets.length;
   const discoveredFor = (kind: ConnectionProfile["kind"]) => (Object.keys(activeDiscoveries).length ? activeAssets : assets).filter((asset) => connections.find((profile) => profile.id === asset.connectionId)?.kind === kind);
   const scopes: Array<{ kind: ConnectionProfile["kind"]; label: string; description: string }> = [
     { kind: "postgres", label: "Source", description: "Selected PostgreSQL table" },
     { kind: "snowflake", label: "Target", description: "Matching Snowflake table" },
     { kind: "airflow", label: "Airflow", description: "Matching ingestion workflow" },
-    { kind: "dbt", label: "dbt", description: "Matching transformation models" },
+    { kind: "dbt", label: "dbt", description: "Related models and defined quality checks" },
   ];
   return <section className={styles.panel}><header className={styles.panelHead}><div><span className={styles.eyebrow}>DATA ONBOARDING</span><h2>Add source tables from PostgreSQL</h2><p>Add one, several, or all source tables. Each table keeps its own discovery evidence and can be run independently.</p></div><span>{sourceStatus}</span></header>
-    <div className={local.sourceSectionLabel}><span>LIVE SOURCE CATALOG</span><strong>Available PostgreSQL metadata</strong><small>Availability can change when the connector is offline; it does not remove saved tables.</small></div>{!sourceTables.length ? <div className={local.empty}><strong>{selectedSourceTables.length ? "Live PostgreSQL metadata unavailable" : "No PostgreSQL tables available"}</strong><p>{selectedSourceTables.length ? `${selectedSourceTables.length} saved source table${selectedSourceTables.length === 1 ? " remains" : "s remain"} available below. Reconnect or refresh PostgreSQL metadata before adding another table.` : "The PostgreSQL metadata catalog could not be loaded. Check the saved PostgreSQL connection before adding a source table."}</p></div> : <div className={local.sourceTableChooser}><label className={styles.field}>PostgreSQL source table<select aria-label="Choose PostgreSQL source table" value={tableId} onChange={(event) => setTableId(event.target.value)}><option value="">Choose a table from the source database</option>{sourceTables.map((table) => <option value={table.id} key={table.id}>{table.database}.{table.schema}.{table.table}</option>)}</select></label><button className={styles.primary} disabled={!chosen || scopeAdded} onClick={() => chosen && onAddSourceTable(chosen)}>{scopeAdded ? "Table already added" : "Add source table"}</button><button className={styles.secondary} disabled={!sourceTables.some((table) => !selectedSourceTables.some((selected) => selected.id === table.id))} onClick={() => onAddAllSourceTables(sourceTables)}>Add all tables</button></div>}
-    <div className={local.sourceSectionLabel}><span>SAVED PROJECT SCOPE</span><strong>{selectedSourceTables.length} source table{selectedSourceTables.length === 1 ? "" : "s"} saved in this project</strong><small>Saved selections and their discovery evidence remain visible even when live catalog metadata is unavailable.</small></div>
-    {selectedSourceTables.length > 0 && <div className={local.selectedTablesList}>{selectedSourceTables.map((table) => <article className={table.id === selectedSourceTable?.id ? local.selectedTableActive : ""} key={table.id}><button onClick={() => onSelectSourceTable(table)}><strong>{table.schema}.{table.table}</strong><small>{table.columns.length} columns · {Object.keys(discoveryResultsByTable[table.id] ?? {}).length} connector result{Object.keys(discoveryResultsByTable[table.id] ?? {}).length === 1 ? "" : "s"}</small></button><button className={styles.quiet} aria-label={`Remove ${table.table} from selected source tables`} onClick={() => onRemoveSourceTable(table.id)}>Remove</button></article>)}</div>}
+    <div className={local.sourceSectionLabel}><span>LIVE SOURCE CATALOG</span><strong>PostgreSQL catalog availability</strong><small>A live count is shown only after a passing metadata response. Saved tables remain visible when the connector is offline.</small></div>
+    <div className={local.discoverySummary} aria-label="Project inventory counts">
+      <article><span>Available PostgreSQL tables</span><strong>{sourceCatalog.availableCount ?? (sourceCatalog.cachedCount ? "Unavailable" : sourceCatalog.state === "LOADING" ? "Loading" : "Unavailable")}</strong><small>{sourceCatalog.availableCount === null ? `${sourceCatalog.cachedCount ? `${sourceCatalog.cachedCount} cached entries · ` : ""}${sourceCatalog.state.toLowerCase()}; not a live count` : "Live connector metadata"}</small></article>
+      <article><span>Snowflake target catalog entries</span><strong>{targetCatalog.availableCount ?? (targetCatalog.cachedCount ? "Unavailable" : targetCatalog.state === "LOADING" ? "Loading" : "Unavailable")}</strong><small>{targetCatalog.availableCount === null ? `${targetCatalog.cachedCount ? `${targetCatalog.cachedCount} cached entries · ` : ""}${targetCatalog.state.toLowerCase()}; not a live count` : "Live connector metadata; object type not supplied"}</small></article>
+      <article><span>Selected / onboarded source tables</span><strong>{savedTables.length}</strong><small>Saved project scope; not the entire live catalog</small></article>
+      <article><span>Assets in active table discovery</span><strong>{selectedSourceTable ? activeDiscoveryAssetCount : "—"}</strong><small>{selectedSourceTable ? "Saved discovery entries for this table; not the accepted analysis catalog" : "Select a saved source table"}</small></article>
+    </div>
+    {!sourceTables.length ? <div className={local.empty}><strong>{savedTables.length ? "Live PostgreSQL metadata unavailable" : sourceCatalog.state === "LOADING" ? "Loading PostgreSQL metadata" : sourceCatalog.availableCount === 0 ? "No PostgreSQL tables available" : "PostgreSQL catalog unavailable"}</strong><p>{savedTables.length ? `${savedTables.length} saved source table${savedTables.length === 1 ? " remains" : "s remain"} available below. Reconnect or refresh PostgreSQL metadata before adding another table.` : sourceCatalog.state === "LOADING" ? "Checking the live source catalog. Saved tables will remain available below if the connector is offline." : "The PostgreSQL metadata catalog could not be loaded. Check the saved PostgreSQL connection before adding a source table."}</p></div> : <div className={local.sourceTableChooser}><label className={styles.field}>PostgreSQL source table<select aria-label="Choose PostgreSQL source table" value={tableId} onChange={(event) => setTableId(event.target.value)}><option value="">Choose a table from the source database</option>{sourceTables.map((table) => <option value={table.id} key={table.id}>{table.database}.{table.schema}.{table.table}</option>)}</select></label><button className={styles.primary} disabled={!chosen || scopeAdded} onClick={() => chosen && onAddSourceTable(chosen)}>{scopeAdded ? "Table already added" : "Add source table"}</button><button className={styles.secondary} disabled={!sourceTables.some((table) => !selectedSourceTables.some((selected) => selected.id === table.id))} onClick={() => onAddAllSourceTables(sourceTables)}>Add all tables</button></div>}
+    <div className={local.sourceSectionLabel}><span>SAVED PROJECT SCOPE</span><strong>{savedTables.length} source table{savedTables.length === 1 ? "" : "s"} saved in this project</strong><small>Saved selections and their discovery evidence remain visible even when live catalog metadata is unavailable.</small></div>
+    {savedTables.length > 0 && <div className={local.selectedTablesList}>{savedTables.map((table) => <article className={table.id === selectedSourceTable?.id ? local.selectedTableActive : ""} key={table.id}><button onClick={() => onSelectSourceTable(table)}><strong>{table.schema}.{table.table}</strong><small>{table.columns.length} columns · {Object.keys(discoveryResultsByTable[table.id] ?? {}).length} connector result{Object.keys(discoveryResultsByTable[table.id] ?? {}).length === 1 ? "" : "s"}</small></button><button className={styles.quiet} aria-label={`Remove ${table.table} from selected source tables`} onClick={() => onRemoveSourceTable(table.id)}>Remove</button></article>)}</div>}
     {chosen && <div className={local.addedSourceTable}><header><div><span className={styles.eyebrow}>ACTIVE SOURCE TABLE</span><h3>{chosen.database}.{chosen.schema}.{chosen.table}</h3><p>{chosen.columns.length} columns loaded from PostgreSQL metadata.</p></div><span className={local.proposedBadge}>{scopeAdded ? "ADDED TABLE" : "NOT ADDED"}</span></header><details><summary>View source table columns</summary><div className={local.onboardingColumns}>{chosen.columns.map((column) => <span key={column.name}>{column.name}<small>{column.type || "Column"}{column.nullable === false ? " · NOT NULL" : ""}</small></span>)}</div></details></div>}
-    {selectedSourceTable && <section className={local.assetDiscoveryStep}><header><div><span className={styles.eyebrow}>TABLE WORKFLOW</span><h3>Discover assets for {selectedSourceTable.schema}.{selectedSourceTable.table}</h3><p>Results are scoped to this active source table. Select another table above to work on it next.</p></div><button className={styles.primary} disabled={discoveryBusy} onClick={onDiscoverAssets}>{discoveryBusy ? "Running table workflow…" : "Run workflow for this table"}</button></header><div className={local.discoveryScopeGrid}>{scopes.map((scope) => { const found = discoveredFor(scope.kind); const sourceSelected = scope.kind === "postgres" && Boolean(selectedSourceTable); return <article key={scope.kind}><div className={local.typeIcon}>{scope.label.slice(0, 2).toUpperCase()}</div><div><strong>{scope.label}</strong><small>{scope.description}</small></div><b>{found.length ? `${found.length} found` : sourceSelected ? "Selected · discovery pending" : "Awaiting discovery"}</b>{found.length > 0 && <div className={local.scopeResults}>{found.slice(0, 5).map((asset) => <span key={asset.id}>{[asset.catalog, asset.schema, asset.name].filter(Boolean).join(".")}</span>)}</div>}</article>; })}</div></section>}
+    {selectedSourceTable && <section className={local.assetDiscoveryStep}><header><div><span className={styles.eyebrow}>TABLE WORKFLOW</span><h3>Discover assets for {selectedSourceTable.schema}.{selectedSourceTable.table}</h3><p>Results are scoped to this active source table. Select another table above to work on it next.</p></div><button className={styles.primary} disabled={discoveryBusy} onClick={onDiscoverAssets}>{discoveryBusy ? "Running table workflow…" : "Run workflow for this table"}</button></header><div className={local.discoveryScopeGrid}>{scopes.map((scope) => { const found = discoveredFor(scope.kind); const sourceSelected = scope.kind === "postgres" && Boolean(selectedSourceTable); const isDbt = scope.kind === "dbt"; const dbtDiscovery = isDbt ? Object.entries(activeDiscoveries).find(([connectionId]) => connections.find((profile) => profile.id === connectionId)?.kind === "dbt")?.[1] : undefined; const models = isDbt ? found.filter((asset) => asset.type.toLowerCase() === "model") : found; const qualityTests = isDbt ? found.filter((asset) => asset.type.toLowerCase() === "test") : []; const staleDbtInventory = isDbt && dbtDiscoveryNeedsRefresh(dbtDiscovery); const preview = isDbt ? [...models.slice(0, 5), ...qualityTests.slice(0, 5)] : found.slice(0, 5); const dbtStatus = !dbtDiscovery ? sourceSelected ? "Selected · discovery pending" : "Awaiting discovery" : dbtDiscovery.status === "FAIL" ? "Discovery failed" : dbtDiscovery.status === "UNVERIFIED" ? "Not verified" : staleDbtInventory ? "Refresh required · saved test inventory is outdated" : `${models.length} models · ${qualityTests.length} related tests`; return <article key={scope.kind}><div className={local.typeIcon}>{scope.label.slice(0, 2).toUpperCase()}</div><div><strong>{scope.label}</strong><small>{scope.description}</small></div><b>{isDbt ? dbtStatus : found.length ? `${found.length} found` : sourceSelected ? "Selected · discovery pending" : "Awaiting discovery"}</b>{isDbt && staleDbtInventory && <small>Saved result predates separate test discovery. Run this table workflow, then automated analysis; no dbt job will be executed.</small>}{isDbt && dbtDiscovery && dbtDiscovery.status !== "PASS" && <small>{dbtDiscovery.detail}</small>}{isDbt && !staleDbtInventory && dbtDiscovery?.status === "PASS" && qualityTests.length > 0 && <small>Includes downstream impact checks; definitions only, not execution results.</small>}{preview.length > 0 && <div className={local.scopeResults}>{preview.map((asset) => <span key={asset.id}>{asset.type.toLowerCase() === "test" ? `Quality check · ${asset.name}` : [asset.catalog, asset.schema, asset.name].filter(Boolean).join(".")}</span>)}{isDbt && (models.length > 5 || qualityTests.length > 5) && <span>Showing up to 5 models and 5 checks; {Math.max(0, models.length - 5) + Math.max(0, qualityTests.length - 5)} more in the saved discovery.</span>}</div>}</article>; })}</div></section>}
   </section>;
 }
 
@@ -228,6 +247,7 @@ function ProjectOnboardingPage() {
   const [selectedAssets, setSelectedAssets] = useState<string[]>([]);
   const [sourceTables, setSourceTables] = useState<SelectedSourceTable[]>([]);
   const [sourceStatus, setSourceStatus] = useState("LOADING");
+  const [targetCatalog, setTargetCatalog] = useState<{ items: CatalogIdentity[]; status: string }>({ items: [], status: "LOADING" });
   const [selectedSourceTable, setSelectedSourceTable] = useState<SelectedSourceTable | undefined>();
   const [selectedSourceTables, setSelectedSourceTables] = useState<SelectedSourceTable[]>([]);
   const [catalogAsset, setCatalogAsset] = useState<DiscoveredAsset | null>(null);
@@ -261,11 +281,12 @@ function ProjectOnboardingPage() {
 
   const loadProject = useCallback(async (id?: string, successMessage?: string) => {
     const query = id ? `?project_id=${encodeURIComponent(id)}` : "";
-    const response = await fetch(`/api/onboarding${query}`, { cache: "no-store" });
+    const response = await fetch(scopedApiUrl(`/api/onboarding${query}`), { cache: "no-store" });
     const result = await response.json() as OnboardingBootstrap & { error?: string };
     if (!response.ok) throw new Error(result.error || "Unable to load onboarding workspace");
     applyBootstrap(result);
     setPhase("overview");
+    notifyProjectScopeChanged();
     if (successMessage) setNotice({ tone: "success", text: successMessage });
   }, [applyBootstrap]);
 
@@ -306,6 +327,17 @@ function ProjectOnboardingPage() {
       if (!response.ok) throw new Error(value.error || "PostgreSQL catalog unavailable");
       if (mounted) { setSourceTables(value.tables ?? []); setSourceStatus(value.status || "READY"); }
     }).catch(() => { if (mounted) { setSourceTables([]); setSourceStatus("UNAVAILABLE"); } });
+    return () => { mounted = false; };
+  }, []);
+  useEffect(() => {
+    let mounted = true;
+    void fetch(scopedApiUrl("/api/reconciliation"), { cache: "no-store", signal: AbortSignal.timeout(20000) })
+      .then(async (response) => {
+        const value = await response.json() as { catalogs?: { target?: CatalogIdentity[] }; connectionStatus?: { target?: string } };
+        if (!response.ok) throw new Error("Target catalog unavailable");
+        if (mounted) setTargetCatalog({ items: value.catalogs?.target ?? [], status: value.connectionStatus?.target ?? "UNVERIFIED" });
+      })
+      .catch(() => { if (mounted) setTargetCatalog({ items: [], status: "UNAVAILABLE" }); });
     return () => { mounted = false; };
   }, []);
   useEffect(() => {
@@ -441,6 +473,7 @@ function ProjectOnboardingPage() {
       if (changed) await postOnboarding({ action: "save-selection", selectedAssets: [] });
       setSelectedSourceTables((current) => [...current.filter((item) => item.id !== table.id), table]);
       setBootstrap((current) => current ? { ...current, sourceTableScopeId: table.id, selectedSourceTable: table, selectedSourceTables: [...(current.selectedSourceTables ?? []).filter((item) => item.id !== table.id), table], analysisScopeId: undefined, qualityPlanScopeId: undefined, ...(changed ? { selectedAssets: [] } : {}) } : current);
+      notifyProjectScopeChanged();
       setNotice({ tone: "success", text: `${table.schema}.${table.table} was added. Existing table evidence was preserved.` });
     } catch (error) { setNotice({ tone: "error", text: error instanceof Error ? error.message : "Source table could not be added" }); }
   };
@@ -452,6 +485,7 @@ function ProjectOnboardingPage() {
     void postOnboarding({ action: "save-source-table", selectedSourceTable: table }).then(async () => {
       if (changed) await postOnboarding({ action: "save-selection", selectedAssets: [] });
       setBootstrap((current) => current ? { ...current, selectedSourceTable: table, selectedSourceTables: [...(current.selectedSourceTables ?? []).filter((item) => item.id !== table.id), table], sourceTableScopeId: table.id, analysisScopeId: undefined, qualityPlanScopeId: undefined, selectedAssets: changed ? [] : current.selectedAssets } : current);
+      notifyProjectScopeChanged();
     }).catch((error: Error) => setNotice({ tone: "error", text: error.message }));
   };
   const removeSourceTable = (tableId: string) => {
@@ -462,6 +496,7 @@ function ProjectOnboardingPage() {
       if (activeScopeChanged) await postOnboarding({ action: "save-selection", selectedAssets: [] });
       setSelectedSourceTables(remaining); setSelectedSourceTable(next); if (activeScopeChanged) setSelectedAssets([]);
       setBootstrap((current) => current ? { ...current, selectedSourceTable: next, selectedSourceTables: remaining, ...(activeScopeChanged ? { sourceTableScopeId: next?.id, analysisScopeId: undefined, qualityPlanScopeId: undefined, selectedAssets: [] } : {}) } : current);
+      notifyProjectScopeChanged();
       setNotice({ tone: "success", text: remaining.length ? "Table removed from the active scope. Stored discovery evidence was retained." : "No source table is selected. Stored discovery evidence was retained." });
     }).catch((error: Error) => setNotice({ tone: "error", text: error.message }));
   };
@@ -498,6 +533,7 @@ function ProjectOnboardingPage() {
       if (!planResponse.ok) throw new Error(planBody.error || "Quality plan generation failed");
       setPlanStatus(typeof planBody.plan?.status === "string" ? planBody.plan.status : "GENERATED");
       setBootstrap((state) => state ? { ...state, analysisScopeId: selectedSourceTable.id, qualityPlanScopeId: selectedSourceTable.id } : state);
+      notifyProjectScopeChanged();
       setNotice({ tone: "success", text: `One-table workflow ready: metadata, discovery, lineage analysis, mapping, and quality plan completed for ${selectedSourceTable.database}.${selectedSourceTable.schema}.${selectedSourceTable.table}.` });
     } catch (error) {
       setNotice({ tone: "error", text: error instanceof Error ? error.message : "One-table workflow failed" });
@@ -562,7 +598,7 @@ function ProjectOnboardingPage() {
     <section className={`${styles.panel} ${local.catalogPanel}`}><header className={`${styles.panelHead} ${local.catalogHead}`}><div><span className={styles.eyebrow}>CURRENT DISCOVERY INVENTORY</span><h2>Discovered assets</h2><p>Only evidence for the active source table is shown here. Historical discovery remains stored with its original scope.</p></div><div className={local.catalogToolbar}><div className={local.catalogSearch}><input className={local.search} aria-label="Search discovered assets" placeholder="Search table, DAG, model or file" value={query} onChange={(event) => setQuery(event.target.value)} /></div><label className={local.catalogFilter}>Environment<select aria-label="Filter by environment" value={filterEnvironment} onChange={(event) => setFilterEnvironment(event.target.value)}><option value="all">All environments</option>{availableEnvironments.map((value) => <option value={value} key={value}>{value}</option>)}</select></label><label className={local.catalogFilter}>Layer<select aria-label="Filter by pipeline layer" value={filterLayer} onChange={(event) => setFilterLayer(event.target.value)}><option value="all">All layers</option>{availableLayers.map((layer) => <option value={layer} key={layer}>{layer}</option>)}</select></label><label className={local.catalogFilter}>Connector<select aria-label="Filter by connector" value={filterConnection} onChange={(event) => setFilterConnection(event.target.value)}><option value="all">All connectors</option>{availableConnections.map(({ id, profile }) => <option value={id} key={id}>{profile?.name || id}</option>)}</select></label><label className={local.catalogFilter}>Asset type<select aria-label="Filter by asset type" value={filterType} onChange={(event) => setFilterType(event.target.value)}><option value="all">All asset types</option>{availableTypes.map((value) => <option value={value} key={value}>{value}</option>)}</select></label><button className={styles.quiet} onClick={() => { setQuery(""); setFilterEnvironment("all"); setFilterLayer("all"); setFilterConnection("all"); setFilterType("all"); }}>Reset</button><span className={local.catalogCount}>{assets.length} of {discoveredAssets.length} shown</span></div></header>{!selectedSourceTable ? <div className={local.empty}><strong>No active source table</strong><p>Select a saved source table before viewing current discovery evidence.</p></div> : !discoveredAssets.length ? <div className={local.empty}><strong>No current discovery for {selectedSourceTable.schema}.{selectedSourceTable.table}</strong><p>Run the workflow for this table. Other tables and historical runs are not substituted.</p></div> : <><AssetResultsTable assets={assets} connections={connections} selectedAssets={selectedAssets} onSelect={updateSelection} onOpenDetails={setCatalogAsset} /><details className={local.groupedCatalog}><summary>Browse current grouped evidence</summary><OrganizedAssetCatalog project={project} assets={assets} connections={connections} tests={tests} selectedAssets={selectedAssets} onSelect={updateSelection} /></details></>}</section>
   </div>;
   else content = <div className={styles.sectionStack}>
-    <PostgresSourceTableDrilldown sourceTables={sourceTables} sourceStatus={sourceStatus} assets={discoveredAssets} connections={connections} tests={tests} selectedSourceTable={selectedSourceTable} selectedSourceTables={selectedSourceTables} sourceTableScopeId={bootstrap?.sourceTableScopeId} discoveryResultsByTable={discoveriesByTable} onAddSourceTable={addSourceTable} onAddAllSourceTables={addAllSourceTables} onSelectSourceTable={selectSourceTable} onRemoveSourceTable={removeSourceTable} onDiscoverAssets={() => void discoverSelectedAssets()} discoveryBusy={busy === "workflow-onboarding"} />
+    <PostgresSourceTableDrilldown sourceTables={sourceTables} sourceStatus={sourceStatus} targetTables={targetCatalog.items} targetStatus={targetCatalog.status} assets={discoveredAssets} connections={connections} tests={tests} selectedSourceTable={selectedSourceTable} selectedSourceTables={selectedSourceTables} sourceTableScopeId={bootstrap?.sourceTableScopeId} discoveryResultsByTable={discoveriesByTable} onAddSourceTable={addSourceTable} onAddAllSourceTables={addAllSourceTables} onSelectSourceTable={selectSourceTable} onRemoveSourceTable={removeSourceTable} onDiscoverAssets={() => void discoverSelectedAssets()} discoveryBusy={busy === "workflow-onboarding"} />
   </div>;
 
   const previousPhase = phase === "connections" ? "definition" : phase === "discovery" ? "connections" : phase === "onboarding" ? "discovery" : "overview";

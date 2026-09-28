@@ -5,6 +5,8 @@ import DraftShell from "../DraftShell";
 import styles from "../workflow.module.css";
 import local from "./actions.module.css";
 import { scopedApiUrl } from "../../lib/client-workspace";
+import { isIncompleteEndToEnd } from "../../lib/action-plan-validity";
+import { actionMonitorDisplayStatus } from "../../lib/action-monitor-status";
 import { PageHeader, StatusBadge } from "../components/ui";
 
 type Capability = { available: boolean; asset_count?: number; targets?: number; stages?: number; file_formats?: number };
@@ -37,7 +39,7 @@ type Run = {
   error?: unknown;
 };
 type Approval = { approval_id: string; approved_by: string; expires_at: string; plan_hash: string };
-type ReadinessItem = { name: string; status: string; reason?: string; details?: Record<string, unknown> };
+type ReadinessItem = { name: string; status: string; reason?: string; provider?: string; model?: string; configured?: boolean; credential_present?: boolean; verification_status?: string; details?: Record<string, unknown> };
 type DemoReadiness = { readiness?: ReadinessItem[]; execution_boundary?: Record<string, unknown>; generated_at?: string };
 type AIReview = {
   review_id: string;
@@ -61,7 +63,8 @@ type AIReview = {
 };
 
 async function call(body?: Record<string, unknown>, path = "/api/actions") {
-  const response = await fetch(scopedApiUrl(path), body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : { cache: "no-store" });
+  const headers = { "x-request-id": `ui_${crypto.randomUUID()}` };
+  const response = await fetch(scopedApiUrl(path), body ? { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body) } : { cache: "no-store", headers });
   const value = await response.json();
   if (!response.ok) throw new Error(value.error || "Action Center request failed");
   return value;
@@ -98,10 +101,10 @@ const DEFAULT_INTENT = "";
 const operationPresets: Array<{ value: OperationKind; label: string; prefix: string }> = [
   { value: "custom", label: "Describe a job or sequence", prefix: "" },
   { value: "airflow_trigger", label: "Airflow DAG", prefix: "Run only this Airflow DAG: " },
-  { value: "dbt_execute", label: "dbt model or test", prefix: "Run only this dbt selector: " },
+  { value: "dbt_execute", label: "dbt model", prefix: "Run only this dbt model: " },
   { value: "snowflake_copy_into", label: "COPY command", prefix: "Run only this COPY command: " },
   { value: "snowpipe_refresh", label: "Snowpipe refresh", prefix: "Refresh only this Snowpipe: " },
-  { value: "quality_checks", label: "Quality checks", prefix: "Run only these quality checks: " },
+  { value: "quality_checks", label: "Quality checks / dbt tests", prefix: "Run only these quality checks: " },
 ];
 function inferExecutionMode(value: string): ExecutionMode {
   const normalized = value.toLowerCase();
@@ -149,6 +152,9 @@ export default function ActionsPage() {
       const requestedRunId = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("run_id") : null;
       const value = await call(undefined, requestedRunId ? `/api/actions?run_id=${encodeURIComponent(requestedRunId)}` : "/api/actions");
       setCapabilities(value.capabilities);
+      if (new URLSearchParams(window.location.search).get("fixture") === "phase4" && value.fixture_preview) {
+        setPlanned(value.fixture_preview as Planned);
+      }
       setHasActiveScope(typeof value.source_table_scope_id === "string" && value.source_table_scope_id.length > 0);
       if (value.workspace && typeof value.workspace === "object") {
         const workspace = value.workspace as { projectId?: unknown; environment?: unknown };
@@ -177,7 +183,7 @@ export default function ActionsPage() {
     setReadinessBusy(true);
     try {
       const query = new URLSearchParams();
-      if (checkConnectivity) query.set("check_connectivity", "true");
+      if (checkConnectivity) { query.set("check_connectivity", "true"); query.set("timeout_seconds", "10"); }
       if (verifyModel) query.set("verify_model", "true");
       const suffix = query.toString() ? `?${query.toString()}` : "";
       const response = await fetch(scopedApiUrl(`/api/demo/readiness${suffix}`), { cache: "no-store" });
@@ -210,10 +216,21 @@ export default function ActionsPage() {
       if (action === "reject") { setPlanned((current) => current ? { ...current, plan: value } : current); setApproval(null); }
       if (action === "execute" || action === "resume" || action === "reconcile" || action === "verify") setRun(value);
       const planStatus = action === "plan" ? String(value.status ?? "") : "";
-      const planBlocked = action === "plan" && ["BLOCKED", "CAPABILITY_UNAVAILABLE", "NEEDS_CLARIFICATION"].includes(planStatus);
-      setNotice({ tone: planBlocked ? "error" : "success", text: action === "plan" ? (planBlocked ? `${planStatus}: no executable plan was created.` : "Evidence-backed plan created. Nothing has executed.") : `${action} completed.` });
+      const planBlocked = action === "plan" && ["BLOCKED", "CAPABILITY_UNAVAILABLE", "NEEDS_CLARIFICATION", "NO_EXECUTABLE_ACTIONS"].includes(planStatus);
+      setNotice({ tone: planBlocked ? "error" : "success", text: action === "plan" ? (planBlocked ? (value.reason || `${planStatus}: no executable plan was created.`) : "Evidence-backed plan created. Nothing has executed.") : `${action} completed.` });
       await load();
-    } catch (error) { setNotice({ tone: "error", text: error instanceof Error ? error.message : "Action failed" }); }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Action failed";
+      if (message.includes("This action plan belongs to a different workflow or source-table scope")) {
+        setPlanned(null);
+        setDryRun(null);
+        setApproval(null);
+        setConfirmed(false);
+        setNotice({ tone: "error", text: "This preview was created for a different or unbound source-table workflow. No job ran. Preview the exact plan again for the current scope." });
+      } else {
+        setNotice({ tone: "error", text: message });
+      }
+    }
     finally { setBusy(null); }
   };
 
@@ -235,10 +252,12 @@ export default function ActionsPage() {
   };
 
   const plan = planned?.plan;
+  const incompleteEndToEnd = isIncompleteEndToEnd(plan);
   const activePlan = plan ?? run?.plan;
   const monitoredStep = run ? (run.steps.find((item) => item.step.sequence === run.pending_step_sequence) ?? run.steps[run.steps.length - 1]) : undefined;
   const monitoredExecution = monitoredStep?.execution ?? {};
-  const runtimeState = String(monitoredExecution.state ?? monitoredStep?.verification.runtime_state ?? "WAITING").toUpperCase();
+  const runtimeState = String(monitoredStep?.verification.runtime_state ?? monitoredExecution.state ?? "WAITING").toUpperCase();
+  const monitorStatus = actionMonitorDisplayStatus(run?.state, runtimeState);
   const capabilityRows = useMemo(() => capabilities ? Object.entries(capabilities.capabilities).filter(([, value]) => typeof value === "object" && value !== null && !Array.isArray(value) && "available" in value) as Array<[string, Capability]> : [], [capabilities]);
   const selectedOperation = operationPresets.find((item) => item.value === operationKind) ?? operationPresets[0];
   const resetPlanDraft = () => {
@@ -271,24 +290,24 @@ export default function ActionsPage() {
     {notice && <div className={notice.tone === "error" ? styles.dangerStrip : styles.successStrip}>{notice.text}</div>}
     <nav className={local.executionFlow} aria-label="Job execution flow"><a className={local.executionFlowActive} href="#plan-workspace"><b>1</b><span>Choose</span><small>Operation and scope</small></a><a href="#preview-plan"><b>2</b><span>Preview</span><small>Exact steps</small></a><a href="#approval-control"><b>3</b><span>Approve</span><small>Human approval</small></a><a href="#execution-monitor"><b>4</b><span>Track results</span><small>Run and quality outcome</small></a></nav>
     {demoReadiness && <section className={`${styles.panel} ${local.readiness}`} aria-label="Controlled live-demo readiness">
-      <header className={styles.panelHead}><div><span className={styles.eyebrow}>CONTROLLED DEMO BASELINE</span><h2>Demo readiness</h2><p>Configuration and read-only checks for the selected project. This panel never runs or resets a pipeline.</p></div><div className={local.readinessActions}><button className={styles.secondary} disabled={readinessBusy} onClick={() => void loadDemoReadiness(true)}>{readinessBusy ? "Checking…" : "Check connectivity"}</button><button className={styles.secondary} disabled={readinessBusy} onClick={() => void loadDemoReadiness(false, true)}>{readinessBusy ? "Verifying…" : "Verify model"}</button></div></header>
-      <div className={local.readinessGrid}>{(demoReadiness.readiness ?? []).map((item) => <article key={item.name}><span className={`${local.readinessStatus} ${item.status === "READY" ? local.readinessReady : item.status === "NOT_CHECKED" ? local.readinessNotChecked : local.readinessUnavailable}`}>{item.status.replaceAll("_", " ")}</span><strong>{item.name.replaceAll("_", " ")}</strong>{item.reason && <small>{item.reason}</small>}</article>)}</div>
+      <header className={styles.panelHead}><div><span className={styles.eyebrow}>CONTROLLED DEMO BASELINE</span><h2>Demo readiness</h2><p>Read-only probes for this project. A timeout is inconclusive, and dbt artifact readiness does not prove a dbt run or warehouse connection.</p></div><div className={local.readinessActions}><button className={styles.secondary} disabled={readinessBusy} onClick={() => void loadDemoReadiness(true)}>{readinessBusy ? "Checking…" : "Check read-only readiness"}</button><button className={styles.secondary} disabled={readinessBusy} onClick={() => void loadDemoReadiness(false, true)}>{readinessBusy ? "Verifying…" : "Verify model"}</button></div></header>
+      <div className={local.readinessGrid}>{(demoReadiness.readiness ?? []).map((item) => <article key={item.name}><span className={`${local.readinessStatus} ${item.status === "READY" ? local.readinessReady : item.status === "NOT_CHECKED" ? local.readinessNotChecked : local.readinessUnavailable}`}>{item.status === "UNAVAILABLE" && item.reason?.includes("exceeded") ? "TIMED OUT — UNVERIFIED" : item.status.replaceAll("_", " ")}</span><strong>{item.name === "dbt" ? "dbt local artifacts" : item.name === "model_provider" ? "Model provider" : item.name.replaceAll("_", " ")}</strong>{item.name === "model_provider" && <><small>{item.provider ?? "Provider not configured"} · {item.model ?? "Model not configured"}</small><small>Configuration: {item.configured ? "ready" : "incomplete"} · Key: {item.credential_present ? "available" : "not available"} · Provider verification: {(item.verification_status ?? "NOT_CHECKED").replaceAll("_", " ")}</small><small>Provider verification is separate from receiving an Ask AI answer.</small></>}{item.reason && <small>{item.reason}</small>}</article>)}</div>
       <small className={local.readinessFootnote}>Generated {demoReadiness.generated_at ? new Date(demoReadiness.generated_at).toLocaleTimeString() : "just now"}. Static artifacts are not execution evidence; certification remains a human decision.</small>
     </section>}
     <nav className={local.viewTabs} aria-label="Action Center views">
       <a href="#plan-workspace">Plan workspace</a>
-      <a className={run ? local.viewTabActive : ""} href="#execution-monitor">Execution monitor {run ? <StatusBadge value={run.state} label={statusLabel(run.state)} /> : <small>No active run</small>}</a>
+      <a className={run ? local.viewTabActive : ""} href="#execution-monitor">Execution monitor {run ? <StatusBadge value={monitorStatus} label={statusLabel(monitorStatus)} /> : <small>No active run</small>}</a>
     </nav>
 
     {run && !run.dry_run && <section id="execution-monitor" className={`${styles.panel} ${local.monitor}`} aria-live="polite">
-      <header className={styles.panelHead}><div><span className={styles.eyebrow}>LIVE EXECUTION</span><h2>Execution monitor</h2><p>This is the persisted run for the approved workflow. Refreshing this page will not create another run.</p></div><StatusBadge value={run.state} label={statusLabel(run.state)} /></header>
+      <header className={styles.panelHead}><div><span className={styles.eyebrow}>LIVE EXECUTION</span><h2>Execution monitor</h2><p>This is the persisted run for the approved workflow. Refreshing this page will not create another run.</p></div><StatusBadge value={monitorStatus} label={statusLabel(monitorStatus)} /></header>
       <div className={local.monitorGrid}>
         <div><small>Workflow</small><strong>{activePlan?.intent ?? "Approved workflow"}</strong></div>
         <div><small>Current step</small><strong>{monitoredStep ? `${monitoredStep.step.sequence} of ${run.steps.length} · ${monitoredStep.step.asset}` : "No pending step"}</strong></div>
         <div><small>Runtime state</small><strong>{runtimeState}</strong></div>
         <div><small>External run</small><code>{String(monitoredExecution.external_run_id ?? monitoredExecution.dag_run_id ?? "Not assigned")}</code></div>
       </div>
-      {run.state === "MONITORING" && <div className={local.monitorMessage}><strong>Waiting for the external job to finish.</strong><span>The approved run is still active; downstream steps remain paused until external verification passes.</span></div>}
+      {run.state === "MONITORING" && <div className={local.monitorMessage}><strong>{runtimeState === "RUNNING" ? "External job is running." : runtimeState === "QUEUED" ? "External job is queued." : "Waiting for the external job to finish."}</strong><span>The approved run is still active; downstream steps remain paused until external verification passes.</span></div>}
       {run.state === "AWAITING_CONTINUATION" && <div className={local.monitorMessage}><strong>Verification passed; continuation is waiting.</strong><span>The current step is preserved. Continue only the approved downstream steps when you are ready.</span></div>}
       {(run.state === "OUTCOME_UNKNOWN" || run.state === "UNCERTAIN") && <div className={local.monitorMessage}><strong>External outcome is unknown.</strong><span>The system will reconcile the external operation before any retry. No duplicate submission is attempted.</span></div>}
       <div className={local.runActions}>{["MONITORING", "AWAITING_CONTINUATION"].includes(run.state) && <button className={styles.primary} disabled={busy !== null} onClick={() => void act("resume", { planId: activePlan?.plan_id ?? run.plan_id, runId: run.run_id })}>{busy === "resume" ? "Queuing…" : run.state === "AWAITING_CONTINUATION" ? "Continue approved sequence" : "Check completion and continue"}</button>}{["OUTCOME_UNKNOWN", "UNCERTAIN"].includes(run.state) && <button className={styles.primary} disabled={busy !== null} onClick={() => void act("reconcile", { planId: activePlan?.plan_id ?? run.plan_id, runId: run.run_id })}>{busy === "reconcile" ? "Queuing…" : "Reconcile outcome"}</button>}{["COMPLETED", "FAILED"].includes(run.state) && <button className={styles.secondary} disabled={busy !== null} onClick={() => void act("verify", { planId: activePlan?.plan_id ?? run.plan_id, runId: run.run_id })}>{busy === "verify" ? "Verifying…" : "Verify now without rerunning"}</button>}<button className={styles.secondary} disabled={aiReviewBusy} onClick={() => void invokeAiReview(run.state === "COMPLETED" ? "success" : run.state === "FAILED" ? "failed" : "incomplete_evidence")}>{aiReviewBusy ? "Reviewing…" : "Run bounded AI review"}</button></div>
@@ -306,16 +325,16 @@ export default function ActionsPage() {
     <div className={local.layout}><div className={local.main}>
       <section id="plan-workspace" className={styles.panel}><header className={styles.panelHead}><div><h2>1. Choose the operation</h2><p>Select the smallest requested scope. Dependencies may be discovered for explanation, but are never added silently.</p></div><span>REQUEST SCOPE</span></header><div className={local.operationBar}><label>Operation<select aria-label="Requested operation" value={operationKind} onChange={(event) => updateOperation(event.target.value as OperationKind)}>{operationPresets.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><label>Job, model, table, pipe or sequence<input aria-label="Requested job target" value={operationTarget} onChange={(event) => updateOperationTarget(event.target.value)} placeholder={operationKind === "custom" ? "e.g. COPY, then dbt model" : "Enter the exact name or qualified target"} /></label><small>{operationKind === "custom" ? "Use plain language for a selected sequence or end-to-end request." : `Planner request: ${selectedOperation.prefix || selectedOperation.label}`}</small></div><div className={local.scopeRow}><label>Execution mode<select value={mode} onChange={(event) => { resetPlanDraft(); setMode(event.target.value as ExecutionMode); setModeExplicit(true); }}><option value="single_job">Single job — exactly one requested job</option><option value="selected_sequence">Selected sequence — only named jobs, in order</option><option value="end_to_end">End-to-end — explicit dependency chain</option></select></label><small>{modeExplicit ? `Explicit mode: ${mode.replaceAll("_", " ")}. The planner will not widen this request.` : `Suggested mode: ${mode.replaceAll("_", " ")}, inferred from the request. Editing the request will update this suggestion until you choose a mode.`}</small></div><textarea aria-label="Execution request" className={local.intent} value={intent} onChange={(event) => { const next = event.target.value; resetPlanDraft(); setIntent(next); if (!modeExplicit) setMode(inferExecutionMode(next)); }} /><div className={local.promptFooter}><small>No command text or approval is accepted from the AI.</small><button className={styles.primary} disabled={busy !== null || intent.trim().length < 3} onClick={() => void act("plan", { intent, mode, operationKind, requestedTarget: operationTarget })}>{busy === "plan" ? "Analyzing scope…" : "Preview exact plan"}</button></div></section>
 
-      {planned && !plan && <section className={styles.panel}><div className={styles.dangerStrip}><strong>{statusLabel(planned.status)}</strong><br />{planned.reason}{planned.next_step && <p className={local.nextStep}>{planned.next_step}</p>}</div>{planned.candidates?.length ? <div className={local.candidates}>{planned.candidates.map((item) => <button key={item.asset_id} onClick={() => { const nextIntent = operationKind === "custom" ? intent : `${selectedOperation.prefix}${item.name}`; setOperationTarget(item.name); setIntent(nextIntent); void act("plan", { intent: nextIntent, targetAsset: item.name, requestedTarget: item.name, mode, operationKind }); }}><strong>{item.name}</strong><small>{item.kind}</small></button>)}</div> : null}</section>}
+      {planned && !plan && <section className={styles.panel}><div className={styles.dangerStrip}><strong>{statusLabel(planned.status)}</strong><br />{planned.reason}{planned.next_step && <p className={local.nextStep}>{planned.next_step}</p>}</div>{planned.topology?.quality_checks?.length ? <p>{planned.topology.quality_checks.length} related dbt test definitions were discovered. They are not executable steps in this preview.</p> : null}{planned.candidates?.length ? <div className={local.candidates}>{planned.candidates.map((item) => <button key={item.asset_id} onClick={() => { const nextIntent = operationKind === "custom" ? intent : `${selectedOperation.prefix}${item.name}`; setOperationTarget(item.name); setIntent(nextIntent); void act("plan", { intent: nextIntent, targetAsset: item.name, requestedTarget: item.name, mode, operationKind }); }}><strong>{item.name}</strong><small>{item.kind}</small></button>)}</div> : null}</section>}
 
       {plan && <>
         <span id="preview-plan" className={local.flowAnchor} aria-hidden="true" />
-        <section className={styles.panel}><header className={styles.panelHead}><div><h2>2. Evidence-backed topology</h2><p>Arranged by pipeline layer; empty technologies are not fabricated.</p></div><span>{planned?.resolution?.agent_used ? "AI RESOLVED" : "DETERMINISTIC"}</span></header><div className={local.topology}>{Object.entries(planned?.topology ?? {}).map(([layer, assets]) => <div key={layer} className={local.lane}><header><strong>{layer}</strong><span>{assets.length}</span></header><div>{assets.length ? assets.slice(0, 14).map((asset) => <article key={asset.asset_id}><small>{asset.kind}</small><strong>{asset.name}</strong></article>) : <p>No related assets</p>}</div>{assets.length > 14 && <footer>+ {assets.length - 14} more in this lineage scope</footer>}</div>)}</div></section>
+        <section className={styles.panel}><header className={styles.panelHead}><div><h2>2. Evidence-backed topology</h2><p>Discovered relationships and dbt test definitions for context. These are not execution steps; only the numbered steps below can run after approval.</p></div><span>{planned?.resolution?.agent_used ? "AI RESOLVED" : "DETERMINISTIC"}</span></header><div className={local.topology}>{Object.entries(planned?.topology ?? {}).map(([layer, assets]) => <div key={layer} className={local.lane}><header><strong>{layer === "quality_checks" ? "Defined quality checks" : layer.replaceAll("_", " ")}</strong><span>{assets.length}</span></header><div>{assets.length ? assets.slice(0, 14).map((asset) => <article key={asset.asset_id}><small>{asset.kind}</small><strong>{asset.name}</strong></article>) : <p>No related assets</p>}</div>{assets.length > 14 && <footer>+ {assets.length - 14} more in this lineage scope</footer>}</div>)}</div></section>
 
-      <section className={styles.panel}><header className={styles.panelHead}><div><h2>3. Exact execution plan</h2><p>Every step is typed, evidence-bound and covered by the same immutable plan hash. Click a step to inspect its full scope.</p></div><StatusBadge value={plan.state} label={statusLabel(plan.state)} /></header><div className={local.planMeta}><span>Mode <strong>{(plan.mode ?? "single_job").replaceAll("_", " ")}</strong></span><span>Plan <code>{plan.plan_id}</code></span><span>Hash <code>{plan.plan_hash.slice(0, 16)}…</code></span></div><div className={local.steps}>{plan.steps.map((step) => { const selector = typeof step.parameters.selector === "string" ? step.parameters.selector : null; const isExpanded = expandedStep === step.sequence; const transformation = planned?.topology?.transformation ?? []; return <article key={step.sequence}><b>{step.sequence}</b><button className={local.stepButton} onClick={() => setExpandedStep(isExpanded ? null : step.sequence)} aria-expanded={isExpanded}><small>{step.kind.replaceAll("_", " ")}</small><strong>{step.asset}</strong>{selector && <em className={local.selector}>dbt selector: {selector}</em>}<code>{JSON.stringify(step.parameters)}</code></button><span>{step.evidence_ids.length} evidence</span>{isExpanded && <div className={local.stepDetails}>{step.kind === "airflow_trigger" ? <><strong>Airflow job</strong><p>DAG <code>{String(step.parameters.dag_id ?? step.asset)}</code> will be triggered with the approved configuration.</p><small>Runtime definition and task graph remain read-only; execution evidence will include the returned DAG run ID.</small></> : selector ? <><strong>dbt scope preserved</strong><p>Command: <code>{String(step.parameters.verb ?? "run")}</code> · selector: <code>{selector}</code></p><ul>{transformation.map((asset) => <li key={asset.asset_id}><span>{asset.kind}</span>{asset.name}</li>)}</ul><small>Upstream/downstream expansion is shown only when requested by the selected execution mode.</small></> : <><strong>Full step parameters</strong><pre>{JSON.stringify(step.parameters, null, 2)}</pre></>}</div>}</article>; })}</div></section>
+      <section className={styles.panel}><header className={styles.panelHead}><div><h2>3. Exact execution plan</h2><p>Every step is typed, evidence-bound and covered by the same immutable plan hash. Click a step to inspect its full scope.</p></div><StatusBadge value={plan.state} label={statusLabel(plan.state)} /></header>{incompleteEndToEnd && <div className={styles.dangerStrip}>This saved preview has only one Airflow step and is not an end-to-end workflow. It cannot be approved or executed. Choose Single job for the DAG alone, or preview an explicit multi-step sequence.</div>}<div className={local.planMeta}><span>Mode <strong>{(plan.mode ?? "single_job").replaceAll("_", " ")}</strong></span><span>Plan <code>{plan.plan_id}</code></span><span>Hash <code>{plan.plan_hash.slice(0, 16)}…</code></span></div><div className={local.steps}>{plan.steps.map((step) => { const selector = typeof step.parameters.selector === "string" ? step.parameters.selector : null; const isExpanded = expandedStep === step.sequence; const transformation = planned?.topology?.transformation ?? []; return <article key={step.sequence}><b>{step.sequence}</b><button className={local.stepButton} onClick={() => setExpandedStep(isExpanded ? null : step.sequence)} aria-expanded={isExpanded}><small>{step.kind.replaceAll("_", " ")}</small><strong>{step.asset}</strong>{selector && <em className={local.selector}>dbt selector: {selector}</em>}<code>{JSON.stringify(step.parameters)}</code></button><span>{step.evidence_ids.length} evidence</span>{isExpanded && <div className={local.stepDetails}>{step.kind === "airflow_trigger" ? <><strong>Airflow job</strong><p>DAG <code>{String(step.parameters.dag_id ?? step.asset)}</code> will be triggered with the approved configuration.</p><small>Runtime definition and task graph remain read-only; execution evidence will include the returned DAG run ID.</small></> : selector ? <><strong>dbt scope preserved</strong><p>Command: <code>{String(step.parameters.verb ?? "run")}</code> · selector: <code>{selector}</code></p><ul>{transformation.map((asset) => <li key={asset.asset_id}><span>{asset.kind}</span>{asset.name}</li>)}</ul><small>Upstream/downstream expansion is shown only when requested by the selected execution mode.</small></> : <><strong>Full step parameters</strong><pre>{JSON.stringify(step.parameters, null, 2)}</pre></>}</div>}</article>; })}</div></section>
 
         <span id="approval-control" className={local.flowAnchor} aria-hidden="true" />
-        <section className={local.control}><div><strong>3. Approve the preview</strong><p>Dry-run first. Approval is single-use, expires in 15 minutes and is invalidated by any plan change.</p></div><div className={local.controlActions}><button className={styles.secondary} disabled={busy !== null || plan.state === "REJECTED"} onClick={() => void act("dry-run", { planId: plan.plan_id })}>{busy === "dry-run" ? "Preparing…" : "Run safe dry-run"}</button><label><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /> I reviewed the exact steps and impact</label><button className={styles.secondary} disabled={!dryRun || !confirmed || busy !== null || Boolean(approval) || plan.state === "REJECTED"} onClick={() => void act("approve", { planId: plan.plan_id })}>{approval ? "Approved" : "Approve once"}</button><button className={styles.dangerButton} disabled={!confirmed || !rejectionReason.trim() || busy !== null || plan.state === "REJECTED"} onClick={() => void act("reject", { planId: plan.plan_id, reason: rejectionReason })}>{busy === "reject" ? "Rejecting…" : "Reject plan"}</button><button className={styles.primary} disabled={!approval || busy !== null || Boolean(run)} onClick={() => void act("execute", { planId: plan.plan_id, approvalId: approval?.approval_id })}>{busy === "execute" ? "Executing…" : "Execute approved plan"}</button><input className={local.rejectReason} value={rejectionReason} onChange={(event) => setRejectionReason(event.target.value)} placeholder="Reason required to reject" aria-label="Rejection reason" /></div></section>
+        <section className={local.control}><div><strong>3. Approve the preview</strong><p>Dry-run first. Approval is single-use, expires in 15 minutes and is invalidated by any plan change.</p></div><div className={local.controlActions}><button className={styles.secondary} disabled={incompleteEndToEnd || busy !== null || plan.state === "REJECTED"} onClick={() => void act("dry-run", { planId: plan.plan_id })}>{busy === "dry-run" ? "Preparing…" : "Run safe dry-run"}</button><label><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /> I reviewed the exact steps and impact</label><button className={styles.secondary} disabled={incompleteEndToEnd || !dryRun || !confirmed || busy !== null || Boolean(approval) || plan.state === "REJECTED"} onClick={() => void act("approve", { planId: plan.plan_id })}>{approval ? "Approved" : "Approve once"}</button><button className={styles.dangerButton} disabled={!confirmed || !rejectionReason.trim() || busy !== null || plan.state === "REJECTED"} onClick={() => void act("reject", { planId: plan.plan_id, reason: rejectionReason })}>{busy === "reject" ? "Rejecting…" : "Reject plan"}</button><button className={styles.primary} disabled={incompleteEndToEnd || !approval || busy !== null || Boolean(run)} onClick={() => void act("execute", { planId: plan.plan_id, approvalId: approval?.approval_id })}>{busy === "execute" ? "Executing…" : "Execute approved plan"}</button><input className={local.rejectReason} value={rejectionReason} onChange={(event) => setRejectionReason(event.target.value)} placeholder="Reason required to reject" aria-label="Rejection reason" /></div></section>
       </>}
 
       {dryRun && <RunEvidence title="Dry-run evidence" run={dryRun} />}
@@ -324,7 +343,7 @@ export default function ActionsPage() {
 
     <aside className={local.side}>
       {planned?.status === "BLOCKED" && <section className={styles.panel}><h3>Permanent blocks</h3><div className={local.blocks}>{((capabilities?.capabilities.permanent_blocks as string[]) ?? []).map((item) => <p key={item}>× {item}</p>)}</div></section>}
-      <details className={`${styles.panel} ${local.collapsiblePanel}`} open><summary>Approval contract <span>Binding and expiry</span></summary><div className={local.collapsibleBody}><dl><div><dt>Binding</dt><dd>{capabilities?.approval.binding ?? "—"}</dd></div><div><dt>Single use</dt><dd>{capabilities?.approval.single_use ? "Yes" : "—"}</dd></div><div><dt>Maximum TTL</dt><dd>{capabilities?.approval.maximum_ttl_minutes ?? "—"} min</dd></div></dl></div></details>
+      <details className={`${styles.panel} ${local.collapsiblePanel}`}><summary>Approval details <span>Binding and expiry</span></summary><div className={local.collapsibleBody}><dl><div><dt>Binding</dt><dd>{capabilities?.approval.binding ?? "—"}</dd></div><div><dt>Single use</dt><dd>{capabilities?.approval.single_use ? "Yes" : "—"}</dd></div><div><dt>Approval expires after</dt><dd>{capabilities?.approval.maximum_ttl_minutes ?? "—"} min</dd></div></dl></div></details>
     </aside></div>
   </DraftShell>;
 }

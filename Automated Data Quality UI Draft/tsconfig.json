@@ -28,9 +28,13 @@
     "**/*.ts",
     "**/*.tsx",
     ".next-development/types/**/*.ts",
+    ".next-hardening/types/**/*.ts",
+    ".next-production/types/**/*.ts",
+    ".next-production/types/**/*.ts",
+    ".next-production/types/**/*.ts",
     ".next/types/**/*.ts",
     "next-env.d.ts",
-    ".next-production/types/**/*.ts"
+    ".next-phase3-fixture/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

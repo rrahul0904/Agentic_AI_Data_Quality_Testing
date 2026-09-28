@@ -1,4 +1,5 @@
 import { resolveWorkspace, workspaceQuery } from "../../../lib/server-workspace";
+import { isPhase4Fixture } from "../../../lib/server-test-fixture";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +31,7 @@ async function backend(endpoint: string, scope: Awaited<ReturnType<typeof resolv
 export async function GET(request: Request) {
   try {
     const scope = await resolveWorkspace(request);
+    if (isPhase4Fixture(request)) return Response.json({ items: [], count: 0, workspace: scope }, { headers: { "Cache-Control": "no-store", "X-ADQ-Test-Fixture": "phase4" } });
     const query = new URL(request.url).searchParams;
     const suffix = new URLSearchParams(workspaceQuery(scope));
     for (const name of ["selected_asset", "run_id", "limit"]) {
@@ -45,6 +47,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const scope = await resolveWorkspace(request);
+    if (isPhase4Fixture(request)) return Response.json({ error: "Fixture mode does not run AI reviews." }, { status: 403, headers: { "X-ADQ-Test-Fixture": "phase4" } });
     const body = await request.json() as Record<string, unknown>;
     return Response.json(await backend("/api/v1/ai/reviews", scope, request, {
       method: "POST",

@@ -27,6 +27,22 @@
 
 .drawerHeaderActions small { color: #6f7e76; font-size: 12px; }
 
+.runtimeEvidence { margin-bottom: 20px; }
+.runtimeSnapshot { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 14px; border: 1px solid #dce9e1; border-radius: 12px; background: #f8fbf9; }
+.runtimeSnapshot > div { display: grid; gap: 5px; }
+.runtimeSnapshot > div span, .runtimeSnapshot small { color: #65766d; font-size: 12px; }
+.runtimeSnapshot > p { grid-column: 1 / -1; margin: 0; color: #48584f; }
+.runtimeMatches { display: grid; gap: 10px; margin-top: 18px; }
+.runtimeMatch { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px; border: 1px solid #e1eae5; border-radius: 10px; }
+.runtimeMatch > div { display: grid; gap: 4px; min-width: 0; }
+.runtimeMatch small { color: #65766d; overflow-wrap: anywhere; }
+.runtimeEvidenceNote { color: #65766d; font-size: 12px; }
+
+@media (max-width: 720px) {
+  .runtimeSnapshot { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .runtimeMatch { align-items: flex-start; flex-direction: column; }
+}
+
 @media (max-width: 640px) {
   .runDrawer { width: 100%; max-width: none; padding: 18px 14px; }
   .drawerHeaderActions { justify-content: flex-start; }

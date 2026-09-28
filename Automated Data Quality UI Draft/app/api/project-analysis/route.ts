@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { currentWorkspaceState, hasCurrentWorkspaceAnalysis, markCurrentWorkspaceStage, projectSlug, resolveWorkspace, workspaceQuery, type WorkspaceScope } from "../../../lib/server-workspace";
+import { currentWorkspaceState, hasCurrentWorkspaceAnalysis, markCurrentWorkspaceStage, projectSlug, recordMatchesCurrentAnalysisScope, resolveWorkspace, workspaceQuery, type WorkspaceScope } from "../../../lib/server-workspace";
 import { isPhase4Fixture, phase4AnalysisWorkspace } from "../../../lib/server-test-fixture";
 
 export const dynamic = "force-dynamic";
@@ -110,9 +110,14 @@ export async function GET(request: Request) {
     const decisions = await backend(`/api/v1/project-analysis/reviews?${query}`);
     const aiReview = await backend(`/api/v1/project-analysis/ai-reviews/latest?${query}`).catch(() => ({ review: null }));
     let report: Record<string, unknown> | null = null;
+    let scope_warning: string | undefined;
     try { report = await backend(`/api/v1/project-analysis/latest?${query}&view=compact`); }
     catch { /* No run exists until the operator starts analysis. */ }
-      return Response.json({ report, capabilities, decisions, ai_review: aiReview.review ?? null, workspace: scope }, { headers: { "Cache-Control": "no-store" } });
+    if (report && !recordMatchesCurrentAnalysisScope(report, scope, currentState)) {
+      report = null;
+      scope_warning = "The saved analysis belongs to a different project, environment, or source-table scope. Run automated analysis for the current table to view its Catalog and Lineage.";
+    }
+    return Response.json({ report, capabilities, decisions, ai_review: aiReview.review ?? null, scope_warning, workspace: scope }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Unable to load project analysis" }, { status: 502 });
   }
@@ -130,8 +135,12 @@ export async function POST(request: Request) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ project_id: scope.projectId, environment: scope.environment, source_table_scope_id: currentState.sourceTableScopeId || undefined, discovery_snapshot: discoverySnapshot }),
       }, 120000);
+      const candidate = report.report && typeof report.report === "object" ? report.report : report;
+      if (!recordMatchesCurrentAnalysisScope(candidate, scope, currentState)) {
+        throw new Error("The analysis service returned a result for a different project, environment, or source table. It was not marked current or shown as this table's analysis.");
+      }
       await markCurrentWorkspaceStage(scope, "analysisScopeId");
-      return Response.json({ report });
+      return Response.json({ report: candidate });
     }
     if (body.action === "refresh") {
       const discoverySnapshot = await acceptedDiscoverySnapshot(scope);
@@ -140,8 +149,12 @@ export async function POST(request: Request) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ project_id: scope.projectId, environment: scope.environment, source_table_scope_id: currentState.sourceTableScopeId || undefined, discovery_snapshot: discoverySnapshot }),
       }, 120000);
+      const candidate = value.report && typeof value.report === "object" ? value.report : value;
+      if (!recordMatchesCurrentAnalysisScope(candidate, scope, currentState)) {
+        throw new Error("The runtime refresh returned an analysis for a different project, environment, or source table. It was not shown as current.");
+      }
       await markCurrentWorkspaceStage(scope, "analysisScopeId");
-      return Response.json(value);
+      return Response.json({ ...value, report: candidate });
     }
     if (body.action === "ai-verify") {
       const scopeName = typeof body.scope === "string" ? body.scope : "proposed";

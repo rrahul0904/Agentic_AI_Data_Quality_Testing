@@ -102,6 +102,11 @@ async function currentWorkflow(scope: WorkspaceScope): Promise<Record<string, un
   catch { return null; }
 }
 
+/** Read-only persisted project workflow snapshot for cross-page scope reporting. */
+export async function projectWorkflowSnapshot(scope: WorkspaceScope): Promise<Record<string, unknown> | null> {
+  return currentWorkflow(scope);
+}
+
 export async function currentWorkspaceState(scope: WorkspaceScope): Promise<CurrentWorkspaceState> {
   const workflow = await currentWorkflow(scope);
   const selected = workflow?.selectedSourceTable && typeof workflow.selectedSourceTable === "object"
@@ -201,6 +206,49 @@ export function recordMatchesCurrentTable(value: unknown, state: CurrentWorkspac
     if (selected.assetId && candidate.assetId) return selected.assetId === candidate.assetId;
     return tupleMatches(selected, candidate);
   });
+}
+
+/**
+ * Quality plans are scoped to a project/environment/source-table workflow,
+ * which may intentionally contain mappings for several selected source
+ * tables. Validate that immutable scope instead of requiring one asset
+ * identity on the plan envelope.
+ */
+export function recordMatchesCurrentQualityScope(value: unknown, scope: WorkspaceScope, state: CurrentWorkspaceState): boolean {
+  const item = record(value);
+  if (!item || !state.sourceTableScopeId) return false;
+  const projectId = firstString(item.project_id, item.projectId);
+  const environment = firstString(item.environment);
+  const sourceTableScopeId = firstString(item.source_table_scope_id, item.sourceTableScopeId);
+  return projectId === normalizeIdentityPart(scope.projectId)
+    && environment === normalizeIdentityPart(scope.environment)
+    && sourceTableScopeId === normalizeIdentityPart(state.sourceTableScopeId);
+}
+
+/** Action-plan follow-up requests use the persisted workflow binding, not a
+ * coincidental asset name in a step or graph. Legacy unbound plans fail closed
+ * while a source table is selected. */
+export function recordMatchesCurrentActionScope(value: unknown, scope: WorkspaceScope, state: CurrentWorkspaceState): boolean {
+  const item = record(value);
+  if (!item) return false;
+  const projectId = firstString(item.project_id, item.projectId);
+  const environment = firstString(item.environment);
+  const planScope = firstString(item.source_table_scope_id, item.sourceTableScopeId);
+  const independentKinds = new Set(["airflow_trigger", "dbt_execute", "snowflake_copy_into", "snowpipe_refresh"]);
+  return projectId === normalizeIdentityPart(scope.projectId)
+    && environment === normalizeIdentityPart(scope.environment)
+    && (planScope
+      ? planScope === normalizeIdentityPart(state.sourceTableScopeId)
+      : !state.sourceTableScopeId || independentKinds.has(firstString(item.operation_kind)));
+}
+
+/** Reject a backend "latest" analysis response from another table or workspace. */
+export function recordMatchesCurrentAnalysisScope(value: unknown, scope: WorkspaceScope, state: CurrentWorkspaceState): boolean {
+  const item = record(value);
+  if (!item || !state.sourceTableScopeId) return false;
+  return firstString(item.project_id, item.projectId) === normalizeIdentityPart(scope.projectId)
+    && firstString(item.environment) === normalizeIdentityPart(scope.environment)
+    && firstString(item.source_table_scope_id, item.sourceTableScopeId) === normalizeIdentityPart(state.sourceTableScopeId);
 }
 
 export async function currentWorkspaceRunIds(scope: WorkspaceScope): Promise<Set<string>> {

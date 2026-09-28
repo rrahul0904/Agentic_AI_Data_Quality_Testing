@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import styles from "./workflow.module.css";
 import { scopedApiUrl, scopedLink } from "../lib/client-workspace";
 
@@ -14,6 +14,18 @@ type DraftShellProps = {
 type NavKey = DraftShellProps["active"];
 type NavItem = { label: string; icon: string; href: string; active: NavKey; planView?: DraftShellProps["planView"]; setting?: "project" | "connections" | "discovery" | "ai" };
 type NavGroup = { label: string; items: NavItem[]; collapsible?: boolean };
+type ScopeSummary = {
+  active_source_table?: { schema?: string; table?: string } | null;
+  available_source_tables?: number | null;
+  available_source_status?: string;
+  onboarded_source_tables?: number;
+  accepted_discovered_assets?: number | null;
+  analyzed_source_rooted_flows?: number | null;
+  runtime_verified_assets?: number | null;
+  runtime_verified_edges?: number | null;
+  runtime_refreshed_at?: string | null;
+  runtime_note?: string;
+};
 
 const navGroups: NavGroup[] = [
   { label: "OVERVIEW", items: [{ label: "Overview", icon: "⌂", href: "/", active: "operations" }] },
@@ -27,21 +39,32 @@ const navGroups: NavGroup[] = [
 
 export default function DraftShell({ active, planView, children }: DraftShellProps) {
   const [workspace, setWorkspace] = useState<{ name: string; environment: string } | null>(null);
+  const [scopeSummary, setScopeSummary] = useState<ScopeSummary | null>(null);
   const [mounted, setMounted] = useState(false);
   const [currentPath, setCurrentPath] = useState("");
+  const scopeRequest = useRef(0);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({ JOBS: true, "ASK AI": true });
   const activeGroups = useMemo(() => new Set(navGroups.filter((group) => group.items.some((item) => item.active === active)).map((group) => group.label)), [active]);
   useEffect(() => {
     let activeRequest = true;
+    const loadScope = () => {
+      const requestId = ++scopeRequest.current;
+      void fetch(scopedApiUrl("/api/project-scope"), { cache: "no-store", signal: AbortSignal.timeout(8000) })
+        .then((response) => response.ok ? response.json() as Promise<ScopeSummary> : Promise.reject(new Error("scope unavailable")))
+        .then((value) => { if (activeRequest && requestId === scopeRequest.current) setScopeSummary(value); })
+        .catch(() => { if (activeRequest && requestId === scopeRequest.current) setScopeSummary(null); });
+    };
     setMounted(true);
     setCurrentPath(`${window.location.pathname}${window.location.search}`);
-    const onScopeChange = () => setCurrentPath(`${window.location.pathname}${window.location.search}`);
+    const onScopeChange = () => { setCurrentPath(`${window.location.pathname}${window.location.search}`); loadScope(); };
     window.addEventListener("ade-workspace-scope-change", onScopeChange);
+    window.addEventListener("popstate", onScopeChange);
+    loadScope();
     void fetch(scopedApiUrl("/api/workspace"), { cache: "no-store" })
       .then((response) => response.ok ? response.json() : Promise.reject(new Error("workspace unavailable")))
       .then((value: { name: string; environment: string }) => { if (activeRequest) setWorkspace(value); })
       .catch(() => { /* The shell remains usable while project setup is incomplete. */ });
-    return () => { activeRequest = false; window.removeEventListener("ade-workspace-scope-change", onScopeChange); };
+    return () => { activeRequest = false; window.removeEventListener("ade-workspace-scope-change", onScopeChange); window.removeEventListener("popstate", onScopeChange); };
   }, []);
   return <main className={styles.shell} aria-label="Automated Data Quality control plane">
     <a className={styles.skipLink} href="#main-content">Skip to main content</a>
@@ -60,6 +83,16 @@ export default function DraftShell({ active, planView, children }: DraftShellPro
         })}</div></div>; })}
       </nav>
     </aside>
-    <section className={styles.content} id="main-content" tabIndex={-1}>{children}</section>
+    <section className={styles.content} id="main-content" tabIndex={-1}>
+      <section className={styles.projectScopeStrip} aria-label="Shared project scope and coverage">
+        <div className={styles.projectScopeHeading}><strong>Project scope</strong><span>{scopeSummary?.active_source_table?.schema && scopeSummary.active_source_table?.table ? `Active: ${scopeSummary.active_source_table.schema}.${scopeSummary.active_source_table.table}` : "No active source table"}</span><button type="button" className={styles.quiet} onClick={() => window.dispatchEvent(new Event("ade-workspace-scope-change"))}>Refresh counts</button></div>
+        <div><span>Live source tables</span><strong>{scopeSummary?.available_source_tables ?? "Unavailable"}</strong><small>{scopeSummary?.available_source_status ?? "Status unknown"}</small></div>
+        <div><span>Onboarded tables</span><strong>{scopeSummary?.onboarded_source_tables ?? "—"}</strong></div>
+        <div><span>Accepted assets</span><strong>{scopeSummary?.accepted_discovered_assets ?? "Not analyzed"}</strong></div>
+        <div><span>Source-rooted flows</span><strong>{scopeSummary?.analyzed_source_rooted_flows ?? "Not analyzed"}</strong></div>
+        <div><span>Runtime verified</span><strong>{scopeSummary?.runtime_verified_assets == null ? "Not checked" : `${scopeSummary.runtime_verified_assets} assets · ${scopeSummary.runtime_verified_edges ?? 0} edges`}</strong><small>{scopeSummary?.runtime_refreshed_at ? `Refreshed ${new Date(scopeSummary.runtime_refreshed_at).toLocaleString()}` : scopeSummary?.runtime_note}</small></div>
+      </section>
+      {children}
+    </section>
   </main>;
 }

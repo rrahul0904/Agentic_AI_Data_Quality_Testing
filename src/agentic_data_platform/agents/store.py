@@ -11,6 +11,9 @@ from agentic_data_platform.agents.contracts import (
     AgentHypothesis,
     AgentResult,
     EvidenceRecord,
+    ExecutionLifecycleEvidence,
+    Finding,
+    FirstDivergence,
     IncidentState,
     InvestigationTransition,
     RemediationPlan,
@@ -35,6 +38,9 @@ CREATE TABLE IF NOT EXISTS incidents (
   approved INTEGER NOT NULL DEFAULT 0,
   execution_result_json TEXT NOT NULL DEFAULT '{}',
   verification_result_json TEXT NOT NULL DEFAULT '{}',
+  question TEXT NOT NULL DEFAULT '',
+  first_divergence_json TEXT,
+  lifecycle_json TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -65,7 +71,24 @@ CREATE TABLE IF NOT EXISTS incident_hypotheses (
   status TEXT NOT NULL,
   confidence REAL NOT NULL,
   supporting_json TEXT NOT NULL,
-  contradictory_json TEXT NOT NULL
+  contradictory_json TEXT NOT NULL,
+  domain TEXT NOT NULL DEFAULT 'unknown',
+  prove_json TEXT NOT NULL DEFAULT '[]',
+  disprove_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS incident_findings (
+  finding_id TEXT PRIMARY KEY,
+  incident_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  classification TEXT NOT NULL,
+  domain TEXT NOT NULL,
+  confidence REAL NOT NULL,
+  evidence_ids_json TEXT NOT NULL,
+  relationship TEXT NOT NULL,
+  created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS incident_agent_runs (
   result_id TEXT PRIMARY KEY,
@@ -104,6 +127,7 @@ CREATE TABLE IF NOT EXISTS asset_certifications (
 CREATE INDEX IF NOT EXISTS idx_incident_transition_incident ON incident_transitions(incident_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_incident_evidence_incident ON incident_evidence(incident_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_incident_agent_run_incident ON incident_agent_runs(incident_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_incident_finding_incident ON incident_findings(incident_id, created_at);
 """
 
 
@@ -141,7 +165,20 @@ class InvestigationStore:
             self.connection.execute(
                 "ALTER TABLE incident_evidence ADD COLUMN correlation_json TEXT NOT NULL DEFAULT '{}'"
             )
+        self._ensure_column("incidents", "question", "TEXT NOT NULL DEFAULT ''")
+        self._ensure_column("incidents", "first_divergence_json", "TEXT")
+        self._ensure_column("incidents", "lifecycle_json", "TEXT NOT NULL DEFAULT '[]'")
+        self._ensure_column("incident_hypotheses", "domain", "TEXT NOT NULL DEFAULT 'unknown'")
+        self._ensure_column("incident_hypotheses", "prove_json", "TEXT NOT NULL DEFAULT '[]'")
+        self._ensure_column("incident_hypotheses", "disprove_json", "TEXT NOT NULL DEFAULT '[]'")
+        self._ensure_column("incident_hypotheses", "created_at", "TEXT NOT NULL DEFAULT ''")
+        self._ensure_column("incident_hypotheses", "updated_at", "TEXT NOT NULL DEFAULT ''")
         self.connection.commit()
+
+    def _ensure_column(self, table: str, column: str, declaration: str) -> None:
+        columns = {row["name"] for row in self.connection.execute(f"PRAGMA table_info({table})").fetchall()}
+        if column not in columns:
+            self.connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
 
     def create_incident(
         self,
@@ -151,19 +188,21 @@ class InvestigationStore:
         anomaly: dict[str, Any],
         *,
         mode: str = "LOCAL_PROVING_GROUND",
+        question: str = "",
     ) -> str:
         incident_id = new_id("incident")
         now = utc_now()
         with self.lock:
             self.connection.execute(
-                "INSERT INTO incidents (incident_id,scenario_id,title,affected_asset,state,mode,anomaly_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                (incident_id, scenario_id, title, affected_asset, IncidentState.DETECTED.value, mode, json.dumps(anomaly, sort_keys=True), now, now),
+                "INSERT INTO incidents (incident_id,scenario_id,title,affected_asset,state,mode,anomaly_json,question,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (incident_id, scenario_id, title, affected_asset, IncidentState.DETECTED.value, mode, json.dumps(anomaly, sort_keys=True), question, now, now),
             )
             self.connection.commit()
         return incident_id
 
     def incident(self, incident_id: str) -> dict[str, Any]:
-        row = self.connection.execute("SELECT * FROM incidents WHERE incident_id=?", (incident_id,)).fetchone()
+        with self.lock:
+            row = self.connection.execute("SELECT * FROM incidents WHERE incident_id=?", (incident_id,)).fetchone()
         if row is None:
             raise KeyError(f"incident not found: {incident_id}")
         result = dict(row)
@@ -171,6 +210,9 @@ class InvestigationStore:
         result["blast_radius"] = json.loads(result.pop("blast_radius_json"))
         result["execution_result"] = json.loads(result.pop("execution_result_json"))
         result["verification_result"] = json.loads(result.pop("verification_result_json"))
+        raw_divergence = result.pop("first_divergence_json", None)
+        result["structured_first_divergence"] = json.loads(raw_divergence) if raw_divergence else None
+        result["execution_lifecycles"] = json.loads(result.pop("lifecycle_json", "[]") or "[]")
         result["approved"] = bool(result["approved"])
         return result
 
@@ -340,13 +382,46 @@ class InvestigationStore:
     def save_hypothesis(self, incident_id: str, item: AgentHypothesis) -> None:
         with self.lock:
             self.connection.execute(
-                "INSERT OR REPLACE INTO incident_hypotheses VALUES (?,?,?,?,?,?,?,?)",
+                """INSERT OR REPLACE INTO incident_hypotheses
+                (hypothesis_id,incident_id,name,statement,status,confidence,supporting_json,contradictory_json,
+                 domain,prove_json,disprove_json,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     item.hypothesis_id, incident_id, item.name, item.statement, item.status.value, item.confidence,
                     json.dumps(list(item.supporting_evidence_ids)), json.dumps(list(item.contradictory_evidence_ids)),
+                    item.domain, json.dumps(list(item.prerequisites_to_prove)),
+                    json.dumps(list(item.prerequisites_to_disprove)), item.created_at, item.updated_at,
                 ),
             )
             self.connection.commit()
+
+    def save_finding(self, incident_id: str, item: Finding) -> None:
+        with self.lock:
+            self.connection.execute(
+                """INSERT OR REPLACE INTO incident_findings
+                (finding_id,incident_id,title,description,classification,domain,confidence,evidence_ids_json,relationship,created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    item.finding_id, incident_id, item.title, item.description, item.classification.value,
+                    item.domain, item.confidence, json.dumps(list(item.evidence_ids)), item.relationship, item.created_at,
+                ),
+            )
+            self.connection.commit()
+
+    def findings(self, incident_id: str) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "SELECT * FROM incident_findings WHERE incident_id=? ORDER BY confidence DESC,created_at,rowid",
+            (incident_id,),
+        ).fetchall()
+        return [
+            {
+                "finding_id": row["finding_id"], "title": row["title"], "description": row["description"],
+                "classification": row["classification"], "domain": row["domain"],
+                "confidence": row["confidence"], "evidence_ids": json.loads(row["evidence_ids_json"]),
+                "relationship": row["relationship"], "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
 
     def save_remediation(self, incident_id: str, plan: RemediationPlan) -> None:
         with self.lock:
@@ -390,6 +465,8 @@ class InvestigationStore:
         certification: str | None = None,
         execution_result: dict[str, Any] | None = None,
         verification_result: dict[str, Any] | None = None,
+        structured_first_divergence: FirstDivergence | None = None,
+        execution_lifecycles: list[ExecutionLifecycleEvidence] | tuple[ExecutionLifecycleEvidence, ...] | None = None,
     ) -> None:
         current = self.incident(incident_id)
         values = {
@@ -400,17 +477,29 @@ class InvestigationStore:
             "certification": certification if certification is not None else current["certification"],
             "execution_result": execution_result if execution_result is not None else current["execution_result"],
             "verification_result": verification_result if verification_result is not None else current["verification_result"],
+            "structured_first_divergence": (
+                structured_first_divergence.public() if structured_first_divergence is not None
+                else current["structured_first_divergence"]
+            ),
+            "execution_lifecycles": (
+                [item.public() for item in execution_lifecycles] if execution_lifecycles is not None
+                else current["execution_lifecycles"]
+            ),
         }
         with self.lock:
             self.connection.execute(
                 """UPDATE incidents SET first_divergence=?,root_cause=?,root_cause_confidence=?,
-                blast_radius_json=?,certification=?,execution_result_json=?,verification_result_json=?,updated_at=?
+                blast_radius_json=?,certification=?,execution_result_json=?,verification_result_json=?,
+                first_divergence_json=?,lifecycle_json=?,updated_at=?
                 WHERE incident_id=?""",
                 (
                     values["first_divergence"], values["root_cause"], values["root_cause_confidence"],
                     json.dumps(values["blast_radius"]), values["certification"],
                     json.dumps(values["execution_result"], default=str, sort_keys=True),
                     json.dumps(values["verification_result"], default=str, sort_keys=True),
+                    json.dumps(values["structured_first_divergence"], default=str, sort_keys=True)
+                    if values["structured_first_divergence"] is not None else None,
+                    json.dumps(values["execution_lifecycles"], default=str, sort_keys=True),
                     utc_now(), incident_id,
                 ),
             )
@@ -453,6 +542,11 @@ class InvestigationStore:
                 "status": row["status"], "confidence": row["confidence"],
                 "supporting_evidence_ids": json.loads(row["supporting_json"]),
                 "contradictory_evidence_ids": json.loads(row["contradictory_json"]),
+                "domain": row["domain"],
+                "prerequisites_to_prove": json.loads(row["prove_json"]),
+                "prerequisites_to_disprove": json.loads(row["disprove_json"]),
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
             }
             for row in rows
         ]

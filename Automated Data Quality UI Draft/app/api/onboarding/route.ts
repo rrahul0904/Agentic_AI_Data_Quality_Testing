@@ -3,8 +3,8 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { ConnectionProfile, ConnectionTestResult, DiscoveredAsset, DiscoveryCategory, DiscoveryResult, OnboardingBootstrap, PipelineLayer, SelectedSourceTable } from "../../../lib/onboarding";
-import { validateConnectionProfile, validateDiscoveryEvidence } from "../../../lib/onboarding";
+import type { ConnectionProfile, ConnectionTestResult, DiscoveredAsset, DiscoveryCategory, DiscoveryResult, DbtLineageResource, OnboardingBootstrap, PipelineLayer, SelectedSourceTable } from "../../../lib/onboarding";
+import { airflowDagLoadsSourceTable, DBT_DISCOVERY_VERSION, dbtResourceIdsForSourceTable, isPostgresSourceTableAsset, isSnowflakeRawTargetForSourceTable, validateConnectionProfile, validateDiscoveryEvidence } from "../../../lib/onboarding";
 import { nextWorkflowGeneration, projectSlug, resolveWorkspace, workspaceCookieHeaders, workspaceRevision, type WorkspaceScope } from "../../../lib/server-workspace";
 import { isPhase4Fixture, phase4OnboardingWorkspace } from "../../../lib/server-test-fixture";
 import { assetsForSourceTable, selectedAssetsForScope } from "../../../lib/discovery-scope";
@@ -514,7 +514,7 @@ function category(id: string, label: string, count: number, detail: string, unav
 function proposedLayer(profile: ConnectionProfile, asset: DiscoveredAsset): PipelineLayer {
   if (profile.kind === "postgres" || profile.kind === "files") return "Sources";
   if (profile.kind === "airflow") return "Ingestion";
-  if (profile.kind === "dbt") return "Transformation";
+  if (profile.kind === "dbt") return asset.type.toLowerCase() === "test" ? "Quality / other" : "Transformation";
   const type = asset.type.toLowerCase();
   if (["stage", "file format", "snowpipe", "copy load", "stream", "task"].some((token) => type.includes(token))) return "Ingestion";
   return "Targets";
@@ -552,58 +552,27 @@ function withEvidence(
   };
 }
 
-function compact(valueToNormalize: string): string {
-  return valueToNormalize.toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
-function sourceTableAliases(sourceTable: SelectedSourceTable): Set<string> {
-  const name = value(sourceTable.table).toLowerCase();
-  const singular = name.endsWith("s") ? name.slice(0, -1) : name;
-  return new Set([name, singular].filter(Boolean).map(compact));
-}
-
-function scopedAsset(profile: ConnectionProfile, asset: DiscoveredAsset, sourceTable: SelectedSourceTable): boolean {
-  const aliases = sourceTableAliases(sourceTable);
+function scopedAsset(profile: ConnectionProfile, asset: DiscoveredAsset, sourceTable: SelectedSourceTable, dbtRelatedIds?: Set<string>): boolean {
   const name = value(asset.name);
-  const normalizedName = compact(name);
   if (profile.kind === "postgres") {
-    return normalizedName === compact(sourceTable.table)
-      && (!sourceTable.schema || !asset.schema || value(asset.schema).toLowerCase() === value(sourceTable.schema).toLowerCase());
+    return isPostgresSourceTableAsset(asset, sourceTable);
   }
   if (profile.kind === "snowflake") {
-    // The warehouse target intentionally lives in a different database/schema;
-    // correlate by the selected source table name, then show the target namespace.
-    return normalizedName === compact(sourceTable.table);
+    return isSnowflakeRawTargetForSourceTable(asset, sourceTable.table, value(profile.config.database));
   }
   if (profile.kind === "airflow") {
-    const airflowAliases: Record<string, string[]> = {
-      booking_channels: ["ingest_reference_data"],
-      room_inventory: ["ingest_inventory"],
-      stays: ["ingest_stays"],
-      reservation_guests: ["ingest_reservation_guests"],
-      reservations: ["ingest_reservations"],
-      guests: ["ingest_guests"],
-      loyalty_accounts: ["ingest_loyalty_accounts"],
-      payments: ["ingest_payments"],
-      refunds: ["ingest_refunds"],
-      properties: ["ingest_reference_data"],
-      rate_plans: ["ingest_reference_data"],
-      room_types: ["ingest_reference_data"],
-      rooms: ["ingest_reference_data"],
-    };
-    const expected = airflowAliases[value(sourceTable.table).toLowerCase()] ?? [];
-    return expected.includes(name.toLowerCase()) || [...aliases].some((alias) => normalizedName.includes(alias));
+    return airflowDagLoadsSourceTable(asset.children?.map((task) => task.name) ?? [], sourceTable.table);
   }
   if (profile.kind === "dbt") {
-    return [...aliases].some((alias) => normalizedName.includes(alias));
+    return Boolean(dbtRelatedIds?.has(asset.id));
   }
   return false;
 }
 
-function scopeDiscoveryResult(profile: ConnectionProfile, result: DiscoveryResult, sourceTable?: SelectedSourceTable): DiscoveryResult {
+function scopeDiscoveryResult(profile: ConnectionProfile, result: DiscoveryResult, sourceTable?: SelectedSourceTable, dbtRelatedIds?: Set<string>): DiscoveryResult {
   if (!sourceTable) return result;
   const scopeLabel = `${sourceTable.database}.${sourceTable.schema}.${sourceTable.table}`;
-  const assets = result.assets.filter((asset) => scopedAsset(profile, asset, sourceTable)).map((asset) => ({
+  const assets = result.assets.filter((asset) => scopedAsset(profile, asset, sourceTable, dbtRelatedIds)).map((asset) => ({
     ...asset,
     detail: `${asset.detail || ""}${asset.detail ? " · " : ""}One-table scope: ${scopeLabel}`,
   }));
@@ -740,7 +709,7 @@ async function testProfile(profile: ConnectionProfile): Promise<ConnectionTestRe
   return { status: "PASS", detail: `${assets.length} supported files are readable`, source: root, testedAt };
 }
 
-async function discoverProfile(profile: ConnectionProfile, sourceTable?: SelectedSourceTable): Promise<DiscoveryResult> {
+async function discoverProfile(profile: ConnectionProfile, sourceTable?: SelectedSourceTable, targetDatabases: string[] = []): Promise<DiscoveryResult> {
   const discoveredAt = new Date().toISOString();
   if (profile.kind === "postgres" || profile.kind === "snowflake") {
     await upsertWarehouse(profile);
@@ -810,13 +779,19 @@ async function discoverProfile(profile: ConnectionProfile, sourceTable?: Selecte
     }
     const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as { nodes?: Record<string, Record<string, unknown>>; sources?: Record<string, Record<string, unknown>> };
     const resources = [...Object.values(manifest.sources ?? {}), ...Object.values(manifest.nodes ?? {})];
+    const dbtRelatedIds = sourceTable
+      ? dbtResourceIdsForSourceTable(resources as DbtLineageResource[], sourceTable.table, targetDatabases)
+      : undefined;
     const assets = resources.map((item, index) => {
       const id = value(item.unique_id) || `${profile.id}:${index}`;
       const definedColumns = item.columns && typeof item.columns === "object" ? Object.entries(item.columns as Record<string, Record<string, unknown>>) : [];
       const originalPath = value(item.original_file_path);
       return { id, connectionId: profile.id, schema: value(item.schema), name: value(item.name), type: value(item.resource_type) || "dbt resource", detail: originalPath ? path.join(projectDir, originalPath) : manifestPath, children: definedColumns.map(([name, column], columnIndex) => ({ id: `${id}:column:${name}`, name, type: "Column" as const, detail: value(column.data_type) || value(column.description) || `manifest column ${columnIndex + 1}` })) };
     });
-    return scopeDiscoveryResult(profile, withEvidence(profile, { status: "PASS", detail: `${assets.length} dbt resources parsed`, source: manifestPath, discoveredAt, assets }, "Parsed dbt manifest.json", "GENERATED_ARTIFACT"), sourceTable);
+    return {
+      ...scopeDiscoveryResult(profile, withEvidence(profile, { status: "PASS", detail: `${assets.length} dbt resources parsed`, source: manifestPath, discoveredAt, assets }, "Parsed dbt manifest.json", "GENERATED_ARTIFACT"), sourceTable, dbtRelatedIds),
+      discoveryVersion: DBT_DISCOVERY_VERSION,
+    };
   }
   if (value(profile.config.storageType) !== "local") return withEvidence(profile, { status: "UNVERIFIED", detail: "Object-storage discovery adapter is not implemented", source: "Adapter registry", discoveredAt, assets: [] }, "No compatible object-storage adapter", "FILESYSTEM");
   const root = safePath(profile.config.rootPath);
@@ -971,7 +946,14 @@ export async function POST(request: Request) {
       if (state.tests[body.profile.id]?.status !== "PASS" || testedFingerprint !== profileFingerprint(body.profile)) {
         result = { status: "FAIL", detail: "This exact saved connection configuration must pass Test connection before discovery", source: "Onboarding sequence guard", discoveredAt: new Date().toISOString(), assets: [] };
       } else {
-        try { result = { ...validateDiscoveryEvidence(await discoverProfile(body.profile, selectedTable), body.profile.id), sourceTableId: selectedTable.id }; }
+        try {
+          const projectProfiles = await readProjectConnections(scope.projectId);
+          const targetDatabases = projectProfiles
+            .filter((profile) => profile.kind === "snowflake" && profile.enabled && profile.environment.toLowerCase() === scope.environment.toLowerCase())
+            .map((profile) => value(profile.config.database))
+            .filter(Boolean);
+          result = { ...validateDiscoveryEvidence(await discoverProfile(body.profile, selectedTable, targetDatabases), body.profile.id), sourceTableId: selectedTable.id };
+        }
         catch (error) {
           result = { status: "FAIL", detail: error instanceof Error ? error.message : "Discovery failed", source: "Live discovery", discoveredAt: new Date().toISOString(), assets: [] };
         }

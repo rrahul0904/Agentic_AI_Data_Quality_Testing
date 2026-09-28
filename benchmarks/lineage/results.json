@@ -1,0 +1,61 @@
+{
+  "cases": [
+    {
+      "name": "simple_rename",
+      "true_positive": 1,
+      "false_positive": 0,
+      "false_negative": 0,
+      "status": "PASS"
+    },
+    {
+      "name": "join",
+      "true_positive": 2,
+      "false_positive": 0,
+      "false_negative": 0,
+      "status": "PASS"
+    },
+    {
+      "name": "nested_cte",
+      "true_positive": 2,
+      "false_positive": 0,
+      "false_negative": 0,
+      "status": "PASS"
+    },
+    {
+      "name": "case_coalesce",
+      "true_positive": 1,
+      "false_positive": 0,
+      "false_negative": 0,
+      "status": "PASS"
+    },
+    {
+      "name": "window",
+      "true_positive": 3,
+      "false_positive": 0,
+      "false_negative": 0,
+      "status": "PASS"
+    },
+    {
+      "name": "aggregate",
+      "true_positive": 2,
+      "false_positive": 0,
+      "false_negative": 0,
+      "status": "PASS"
+    },
+    {
+      "name": "union",
+      "true_positive": 2,
+      "false_positive": 0,
+      "false_negative": 0,
+      "status": "PASS"
+    }
+  ],
+  "summary": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "resolved_edges": 13,
+    "unresolved_references": 0,
+    "parse_failures": 0
+  }
+}

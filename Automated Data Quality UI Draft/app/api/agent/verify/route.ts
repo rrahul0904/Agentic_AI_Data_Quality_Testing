@@ -26,6 +26,13 @@ export async function POST(request: Request) {
     const value = await response.json().catch(() => ({}));
     return Response.json({ ...value, workspace }, { status: response.status, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return Response.json({ status: "FAILED", evidence_state: "failed", reason: error instanceof Error ? error.message : "Provider verification failed" }, { status: 502 });
+    const timedOut = error instanceof Error && error.name === "TimeoutError";
+    return Response.json({
+      status: "UNAVAILABLE",
+      evidence_state: "unavailable",
+      reason: timedOut
+        ? "Local backend did not respond before the provider-verification deadline. This does not prove the key is invalid."
+        : "Local backend is unreachable. Start the API service before verifying the OpenAI provider.",
+    }, { status: timedOut ? 504 : 502 });
   }
 }

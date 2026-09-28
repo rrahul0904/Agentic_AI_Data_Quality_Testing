@@ -110,6 +110,26 @@ export function phase4OnboardingWorkspace(): Record<string, unknown> {
   };
 }
 
+export function phase3ProjectScope(): Record<string, unknown> {
+  return { workspace: { projectId: "fixture-project", environment: "fixture" }, source_table_scope_id: "fixture_orders", active_source_table: { schema: "public", table: "orders" }, available_source_tables: 15, available_source_status: "CONNECTED", onboarded_source_tables: 1, accepted_discovered_assets: 3, analyzed_source_rooted_flows: 1, runtime_verified_assets: 0, runtime_verified_edges: 0, runtime_refreshed_at: null, runtime_note: "Fixture data only; runtime not checked.", unavailable_connectors: [] };
+}
+
+export function phase3Monitoring(): Record<string, unknown> {
+  return { status: "OK", items: [{ run_id: "fixture_action_completed", state: "COMPLETED", execution_status: "COMPLETED", verification_status: "VERIFIED", data_quality_status: "NOT_CHECKED", evidence_status: "AVAILABLE", plan: { project_id: "fixture-project", environment: "fixture", intent: "Fixture only" }, steps: [] }], count: 1, total: 1, workspace: { projectId: "fixture-project", environment: "fixture" } };
+}
+
+export function phase3Reconciliation(): Record<string, unknown> {
+  return { history: { items: [{ run_id: "fixture_reconciliation_baseline", status: "PASS", created_at: "2026-01-01T00:00:00.000Z", result: { project_id: "fixture-project", environment: "fixture", source: { table: "orders" }, target: { table: "ORDERS" }, source_rows: 12, target_rows: 12, difference: 0 } }], count: 1 }, qualityHistory: { items: [], count: 0 }, workspace: { projectId: "fixture-project", environment: "fixture" }, databases: { source: "fixture-postgres", target: "fixture-snowflake" }, schemas: { source: "public", target: "RAW" }, connectionOptions: { source: [], target: [] }, catalog_state: "SCOPED", connectionStatus: { source: "CONNECTED", target: "CONNECTED" }, catalogs: { source: [{ database: "fixture-postgres", schema: "public", table: "orders", label: "public.orders", columns: ["order_id"] }], target: [{ database: "fixture-snowflake", schema: "RAW", table: "ORDERS", label: "RAW.ORDERS", columns: ["ORDER_ID"] }] } };
+}
+
+export function phase3ActionWorkspace(): Record<string, unknown> {
+  return { capabilities: { status: "READY", analysis_run_id: "analysis_fixture_001", approval: { binding: "EXACT_PLAN_HASH", single_use: true, maximum_ttl_minutes: 15 }, capabilities: { airflow_trigger: { available: true, asset_count: 1 }, dbt_execute: { available: true, asset_count: 1 }, quality_checks: { available: true, asset_count: 1 } }, allowlists: {} }, plans: { items: [], count: 0 }, runs: { items: [], count: 0 }, fixture_preview: phase3Preview("Run only dbt model stg_orders"), workspace: { projectId: "fixture-project", environment: "fixture" }, source_table_scope_id: "fixture_orders" };
+}
+
+export function phase3Preview(intent: string): Record<string, unknown> {
+  return { status: "PLANNED", mode: "single_job", reason: "Fixture preview only; no execution has occurred.", topology: { sources: [{ asset_id: "asset_source_orders", name: "postgres.public.orders", kind: "source_table" }], ingestion: [{ asset_id: "asset_airflow_orders", name: "ingest_orders", kind: "airflow_dag" }], transformation: [{ asset_id: "asset_model_orders", name: "stg_orders", kind: "dbt_model" }], targets: [{ asset_id: "asset_target_orders", name: "ANALYTICS.RAW.ORDERS", kind: "warehouse_table" }], other: [{ asset_id: "asset_test_orders", name: "not_null_stg_orders_order_id", kind: "dbt_test" }] }, plan: { plan_id: "plan_fixture_preview", plan_hash: "fixture-preview-hash", state: "PREVIEW_ONLY", intent, mode: "single_job", requires_human_approval: true, steps: [{ sequence: 1, kind: "dbt_execute", asset: "stg_orders", parameters: { selector: "stg_orders" }, evidence_ids: ["evidence_fixture_2"] }] } };
+}
+
 export async function phase4QualityWorkspace(): Promise<Record<string, unknown>> {
   const fixture = await readFixture();
   const now = "2026-01-01T00:00:00.000Z";

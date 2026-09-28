@@ -20,7 +20,8 @@ export type QualityPlan = {
 };
 
 export type QualityPlanRun = {
-  run_id: string; plan_id: string; plan_revision: number; status: string; started_at: string; completed_at: string;
+  run_id: string; plan_id: string; plan_revision: number; status: string; started_at: string; completed_at: string | null;
+  source_table_scope_id?: string | null;
   summary: { executed: number; status_counts: Record<string, number> };
   results: Array<{ check_id: string; name: string; category: string; status: string; result: Record<string, unknown> }>;
 };

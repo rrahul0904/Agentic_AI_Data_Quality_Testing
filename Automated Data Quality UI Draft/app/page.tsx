@@ -17,7 +17,9 @@ type Operations = {
   integrations: Record<string, Payload>;
   analysis: Payload;
   plan: Payload;
+  plan_state?: string;
   runs: Payload;
+  history?: Payload;
   incidents: Payload;
   alerts: Payload;
   agent: Payload;
@@ -170,6 +172,20 @@ export default function HomePage() {
   const failedChecks = asNumber(runStatusCounts.FAIL ?? runStatusCounts.FAILED);
   const erroredChecks = asNumber(runStatusCounts.ERROR ?? runStatusCounts.ERRORED);
   const hasExecutionEvidence = Boolean(latestRun);
+  const historicalRunCount = asNumber(data?.history?.count);
+  const historyStatus = display(data?.history?.status, "UNAVAILABLE").toUpperCase();
+  const historyComplete = data?.history?.complete !== false;
+  const currentPlanRunStatus = display(data?.runs?.status, "UNAVAILABLE").toUpperCase();
+  const currentPlanRunUnavailable = currentPlanRunStatus === "UNAVAILABLE";
+  const historySummary = historyStatus === "UNAVAILABLE"
+    ? "Historical quality runs could not be loaded."
+    : historyStatus === "NO_ACTIVE_SCOPE"
+      ? "Select a source table to view scoped run history."
+      : historicalRunCount
+        ? `${historyComplete ? historicalRunCount : `At least ${historicalRunCount}`} saved ${historicalRunCount === 1 ? "run" : "runs"} across plan revisions for this table.`
+        : historyComplete
+          ? "No historical quality runs are recorded for this table."
+          : "Run history is incomplete; refresh to load more records.";
   const hasActiveScope = typeof data?.source_table_scope_id === "string" && data.source_table_scope_id.length > 0;
   const openIncidents = hasExecutionEvidence
     ? (Array.isArray(data?.incidents.open_items)
@@ -240,7 +256,7 @@ export default function HomePage() {
   useEffect(() => { setResultPage(1); }, [latestRun?.run_id]);
   useEffect(() => { if (resultPage > resultPageCount) setResultPage(resultPageCount); }, [resultPage, resultPageCount]);
   const topChecks = topResults.filter((item) => ["FAIL", "ERROR"].includes(display(item.status).toUpperCase())).slice(0, 3);
-  const planStatus = label(data?.plan.status ?? "NOT GENERATED");
+  const planStatus = label(data?.plan.status ?? data?.plan_state ?? "UNAVAILABLE");
 
   return <DraftShell active="operations">
     <PageHeader eyebrow="AUTOMATED DATA QUALITY / OVERVIEW" title="Overview" description="Current scoped state plus clearly labelled persisted history for the active project." status={<span className={styles.draftBadge}>{data ? `${data.workspace.name} · ${data.workspace.environment} · ${refreshState === "LIVE" ? "live checked" : refreshState === "REFRESHING" ? "refreshing live state" : refreshState === "ERROR" ? "live refresh failed" : "saved snapshot"} · ${new Date(data.generatedAt).toLocaleTimeString()}` : "LOADING"}</span>} actions={<button className={styles.secondary} disabled={busy} onClick={() => void loadLiveEvidence()}>{busy ? "Refreshing…" : "Refresh live evidence"}</button>} />
@@ -251,10 +267,10 @@ export default function HomePage() {
     {!data ? <><section className={styles.statusCardGrid} aria-label="Operations loading"><article className={styles.statusCard}><strong className={styles.loadingBar}>Loading</strong><small>Reading current run state</small></article><article className={styles.statusCard}><strong className={styles.loadingBar}>Loading</strong><small>Checking incidents</small></article><article className={styles.statusCard}><strong className={styles.loadingBar}>Loading</strong><small>Checking connections</small></article><article className={styles.statusCard}><strong className={styles.loadingBar}>Loading</strong><small>Calculating coverage</small></article></section><section className={styles.panel}><p>Runtime refresh is running in the background. The page will remain usable while evidence is collected.</p></section></> : <>
       <section className={styles.statusCardGrid} aria-label="Actionable status">
         <article className={styles.statusCard}>
-          <div className={styles.statusCardHeader}><span>Latest quality run</span><StatusBadge value={latestRun?.status ?? "NOT_RUN"} label={label(latestRun?.status ?? "NOT RUN")} /></div>
-          <strong>{latestRun ? plural(runExecuted, "check") : "No persisted run"}</strong>
-          <small>{latestRun ? `${failedChecks} failed · ${erroredChecks} errors · ${passedChecks} passed` : "Execution evidence will appear here after a run."}</small>
-          <div className={styles.statusCardFooter}><span>{latestRun ? `Recorded ${persistedRunTime(latestRun)}` : "No historical record"}</span><ScopedLink href="/test-plan?view=execution">View persisted run →</ScopedLink></div>
+          <div className={styles.statusCardHeader}><span>Current plan run</span><StatusBadge value={latestRun?.status ?? "NOT_RUN"} label={label(latestRun?.status ?? "NOT RUN")} /></div>
+          <strong>{latestRun ? plural(runExecuted, "check") : data.plan_state === "AVAILABLE" ? currentPlanRunUnavailable ? "Run status unavailable" : "No run on this plan revision" : label(data.plan_state ?? "UNAVAILABLE")}</strong>
+          <small>{latestRun ? `${failedChecks} failed · ${erroredChecks} errors · ${passedChecks} passed` : currentPlanRunUnavailable ? "Could not load executions for this plan revision." : historySummary}</small>
+          <div className={styles.statusCardFooter}><span>{latestRun ? `Recorded ${persistedRunTime(latestRun)}` : ["AVAILABLE", "PARTIAL"].includes(historyStatus) ? `${historyComplete ? "" : "At least "}${historicalRunCount} historical runs across revisions` : "History status unavailable"}</span><ScopedLink href="/test-plan?view=execution">View run history →</ScopedLink></div>
         </article>
         <article className={styles.statusCard}>
           <div className={styles.statusCardHeader}><span>Open incidents</span><StatusBadge value={!hasExecutionEvidence ? "NOT_CHECKED" : openIncidents.length ? "FAILED" : "COMPLETED"} label={!hasExecutionEvidence ? "NOT CHECKED" : openIncidents.length ? "ACTION" : "CLEAR"} /></div>
@@ -296,17 +312,17 @@ export default function HomePage() {
       <div className={styles.operationsGrid}>
         <div className={styles.sectionStack}>
           <section className={styles.panel}>
-            <header className={styles.panelHead}><div><h2>Latest quality run summary</h2><p>Execution evidence is separate from the plan: selected checks do not mean passed checks.</p></div><ScopedLink className={`${styles.secondary} ${styles.linkButton}`} href="/test-plan?view=execution">Open run history</ScopedLink></header>
-            <div className={styles.runSummaryHeader}><div><span className={styles.muted}>PERSISTED PLAN REVISION {display(data.plan.revision)}</span><strong>{latestRun ? label(latestRun.status) : "NO PERSISTED RUN"}</strong><small>{latestRun ? `Recorded ${persistedRunTime(latestRun)}` : "No persisted execution evidence for the current scope"}</small></div><StatusBadge value={latestRun?.status ?? "NOT_RUN"} label={latestRun ? label(latestRun.status) : "NO PERSISTED RUN"} /></div>
-            <div className={styles.runKpis}><div><span>Checks in plan</span><strong>{asNumber(planSummary.check_count)}</strong><small>{asNumber(planSummary.enabled_check_count)} enabled</small></div><div><span>Executed</span><strong>{runExecuted || "—"}</strong><small>{latestRun ? "Persisted result rows" : "Waiting for run"}</small></div><div><span>Trigger</span><strong>{label(latestRun?.trigger ?? "SCHEDULED")}</strong><small>{label(latestRun?.execution_mode ?? "DETERMINISTIC")}</small></div></div>
+            <header className={styles.panelHead}><div><h2>Current quality plan and run</h2><p>Current plan status and its executions are separate from saved runs on earlier revisions.</p></div><ScopedLink className={`${styles.secondary} ${styles.linkButton}`} href="/test-plan?view=execution">Open run history</ScopedLink></header>
+            <div className={styles.runSummaryHeader}><div><span className={styles.muted}>CURRENT PLAN · REVISION {display(data.plan.revision, "—")}</span><strong>{latestRun ? label(latestRun.status) : data.plan_state === "AVAILABLE" ? currentPlanRunUnavailable ? "CURRENT PLAN RUNS UNAVAILABLE" : "NO RUN ON CURRENT PLAN" : label(data.plan_state ?? "UNAVAILABLE")}</strong><small>{latestRun ? `Recorded ${persistedRunTime(latestRun)}` : currentPlanRunUnavailable ? "Executions for this revision could not be loaded." : historySummary}</small></div><StatusBadge value={latestRun?.status ?? (currentPlanRunUnavailable ? "NOT_CHECKED" : data.plan_state ?? "NOT_CHECKED")} label={latestRun ? label(latestRun.status) : data.plan_state === "AVAILABLE" ? currentPlanRunUnavailable ? "UNAVAILABLE" : "NO CURRENT RUN" : label(data.plan_state ?? "UNAVAILABLE")} /></div>
+            <div className={styles.runKpis}><div><span>Checks in plan</span><strong>{asNumber(planSummary.check_count)}</strong><small>{asNumber(planSummary.enabled_check_count)} enabled</small></div><div><span>Executed on current plan</span><strong>{latestRun ? runExecuted : "—"}</strong><small>{latestRun ? "Persisted result rows" : currentPlanRunUnavailable ? "Run records unavailable" : "No current-plan execution"}</small></div><div><span>Saved runs across revisions</span><strong>{["AVAILABLE", "PARTIAL"].includes(historyStatus) ? `${historyComplete ? "" : "≥"}${historicalRunCount}` : "—"}</strong><small>{historyStatus === "UNAVAILABLE" ? "History unavailable" : "Matching this source table"}</small></div></div>
             <div className={styles.runBreakdown}><div><span className={styles.breakdownPass}></span><strong>{passedChecks}</strong><small>Passed</small></div><div><span className={styles.breakdownFail}></span><strong>{failedChecks}</strong><small>Failed</small></div><div><span className={styles.breakdownError}></span><strong>{erroredChecks}</strong><small>Errors</small></div></div>
-            {topChecks.length ? <div className={styles.topChecks}><h3>Checks needing review</h3>{topChecks.map((item, index) => <div className={styles.topCheck} key={`${display(item.check_id)}-${index}`}><span>{label(item.status)}</span><strong>{display(item.name, "Unnamed check")}</strong><small>{display(item.category, "Quality check")} · deterministic evidence</small></div>)}</div> : latestRun ? <div className={styles.successStrip}>No failed or errored checks were reported in the latest persisted run.</div> : <div className={styles.infoStrip}><span>i</span><div><strong>NOT RUN — no execution evidence</strong><p>Incidents and investigations remain empty until an approved pipeline or quality run produces evidence.</p></div></div>}
+            {topChecks.length ? <div className={styles.topChecks}><h3>Checks needing review</h3>{topChecks.map((item, index) => <div className={styles.topCheck} key={`${display(item.check_id)}-${index}`}><span>{label(item.status)}</span><strong>{display(item.name, "Unnamed check")}</strong><small>{display(item.category, "Quality check")} · deterministic evidence</small></div>)}</div> : latestRun ? <div className={styles.successStrip}>No failed or errored checks were reported in the latest current-plan run.</div> : <div className={styles.infoStrip}><span>i</span><div><strong>{currentPlanRunUnavailable ? "Current plan executions are unavailable" : "No execution on the current plan revision"}</strong><p>{currentPlanRunUnavailable ? "Refresh the page or open run history to check this plan's executions." : `${historySummary} Earlier revisions remain available in run history.`}</p></div></div>}
             {latestRun && <section className={styles.resultTableSection} aria-label="Latest run results"><header><div><h3>Run results</h3><p>Paginated persisted results for this run.</p></div><span>{topResults.length} total</span></header><div className={styles.attentionTableWrap}><table className={styles.attentionTable}><thead><tr><th>Status</th><th>Check</th><th>Category</th><th>Evidence</th></tr></thead><tbody>{visibleResultRows.map((item, index) => <tr key={`${display(item.check_id)}-${index}`}><td><StatusBadge value={item.status} label={label(item.status) || "Not checked"} /></td><td><strong>{display(item.name, "Unnamed check")}</strong></td><td>{display(item.category, "Quality check")}</td><td>{display(asPayload(item.result).source ?? item.evidence_source, "Persisted result")}</td></tr>)}</tbody></table></div>{topResults.length > RESULT_PAGE_SIZE && <nav className={styles.tablePagination} aria-label="Run result pages"><span>Page {resultPage} of {resultPageCount}</span><div><button disabled={resultPage === 1} onClick={() => setResultPage((current) => Math.max(1, current - 1))}>Previous</button><button disabled={resultPage === resultPageCount} onClick={() => setResultPage((current) => Math.min(resultPageCount, current + 1))}>Next</button></div></nav>}</section>}
           </section>
 
           <section className={styles.panel}>
             <header className={styles.panelHead}><div><h2>Workflow lifecycle</h2><p>Each phase is a reviewable surface; the Operations page is the control-plane summary.</p></div></header>
-            <div className={styles.nodeFlow}><Link className={styles.graphNode} href="/register-project"><span>1–3</span><strong>Configure & discover</strong><small>Profiles, inventories, and connector-specific filters</small></Link><Link className={styles.graphNode} href="/map-flows"><span>4–5</span><strong>Analyze & map</strong><small>{asNumber(analysisSummary.exceptions)} unresolved exceptions</small></Link><Link className={styles.graphNode} href="/test-plan?view=contracts"><span>6</span><strong>Quality rules</strong><small>{planStatus} · {reviewRequired} need confirmation</small></Link><Link className={styles.graphNode} href="/reconciliation"><span>7</span><strong>Reconcile</strong><small>{hasExecutionEvidence ? "Compare post-run tables" : "Baseline available before a run"}</small></Link><Link className={styles.graphNode} href="/test-plan?view=execution"><span>8</span><strong>Execute & verify</strong><small>{latestRuns.length} persisted runs</small></Link><Link className={styles.graphNode} href="/incidents"><span>9</span><strong>Incidents</strong><small>{openIncidents.length} open incidents</small></Link></div>
+            <div className={styles.nodeFlow}><Link className={styles.graphNode} href="/register-project"><span>1–3</span><strong>Configure & discover</strong><small>Profiles, inventories, and connector-specific filters</small></Link><Link className={styles.graphNode} href="/map-flows"><span>4–5</span><strong>Analyze & map</strong><small>{asNumber(analysisSummary.exceptions)} unresolved exceptions</small></Link><Link className={styles.graphNode} href="/test-plan?view=contracts"><span>6</span><strong>Quality rules</strong><small>{planStatus} · {reviewRequired} need confirmation</small></Link><Link className={styles.graphNode} href="/reconciliation"><span>7</span><strong>Reconcile</strong><small>{hasExecutionEvidence ? "Compare post-run tables" : "Baseline available before a run"}</small></Link><Link className={styles.graphNode} href="/test-plan?view=execution"><span>8</span><strong>Execute & verify</strong><small>{historicalRunCount} saved runs across revisions</small></Link><Link className={styles.graphNode} href="/incidents"><span>9</span><strong>Incidents</strong><small>{openIncidents.length} open incidents</small></Link></div>
           </section>
         </div>
 

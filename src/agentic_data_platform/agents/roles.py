@@ -14,6 +14,7 @@ from agentic_data_platform.agents.contracts import (
     HypothesisStatus,
     RemediationPlan,
 )
+from agentic_data_platform.agents.rca_policy import divergence_from_comparisons, evaluate_runtime_rca
 from agentic_data_platform.agents.scenarios import InvestigationScenario
 from agentic_data_platform.agents.recovery import build_selective_recovery_plan
 from agentic_data_platform.quality.anomaly import detect_pipeline_anomalies
@@ -517,6 +518,8 @@ class RCAAgent(BaseSpecialistAgent):
     policy = AgentPolicy()
 
     _HYPOTHESES = (
+        ("AIRFLOW_TASK_LAUNCH_FAILURE", "Airflow did not launch queued task instances before the configured timeout."),
+        ("WATERMARK_INITIALIZATION_MISSING", "The ingestion control table has no initialized watermark for the source."),
         ("WATERMARK_ADVANCED_BEYOND_EXTRACT", "Persisted watermark advanced beyond the last successfully extracted record."),
         ("DBT_FILTER_EXCLUDES_VALID_STATUS", "A dbt filter excludes valid business-status rows."),
         ("DBT_JOIN_FANOUT", "A many-to-many join duplicates the business grain."),
@@ -605,25 +608,60 @@ class RCAAgent(BaseSpecialistAgent):
 
     def run(self, context: AgentContext) -> tuple[AgentResult, list[AgentHypothesis]]:
         signals, comparisons = self._evidence_inputs(context)
-        supported_name = self._supported_name(signals, comparisons)
         evidence_ids = tuple(item.evidence_id for item in context.evidence)
+        trust_evaluation = evaluate_runtime_rca(signals, evidence_ids)
+        supported_name = trust_evaluation.root_cause or self._supported_name(signals, comparisons)
+        structured_divergence = trust_evaluation.first_divergence or divergence_from_comparisons(
+            comparisons, evidence_ids
+        )
         hypotheses: list[AgentHypothesis] = []
         for name, statement in self._HYPOTHESES:
-            status = HypothesisStatus.SUPPORTED if name == supported_name else HypothesisStatus.REJECTED
+            if name == supported_name:
+                status = HypothesisStatus.PROBABLE if trust_evaluation.root_cause else HypothesisStatus.SUPPORTED
+                confidence = trust_evaluation.confidence if trust_evaluation.root_cause else 0.96
+                supporting = evidence_ids
+                contradicting: tuple[str, ...] = ()
+            elif name == "WATERMARK_INITIALIZATION_MISSING" and signals.get("watermark_missing"):
+                status = HypothesisStatus.WEAKENED
+                confidence = 0.28
+                supporting = evidence_ids[-1:]
+                contradicting = evidence_ids
+            else:
+                status = HypothesisStatus.OPEN
+                confidence = 0.03
+                supporting = ()
+                contradicting = evidence_ids[:1]
             hypotheses.append(AgentHypothesis(
                 name,
                 statement,
                 status,
-                0.96 if status is HypothesisStatus.SUPPORTED else 0.03,
-                evidence_ids if status is HypothesisStatus.SUPPORTED else (),
-                () if status is HypothesisStatus.SUPPORTED else evidence_ids[:1],
+                confidence,
+                supporting,
+                contradicting,
+                domain=name.split("_", 1)[0].casefold(),
+                prerequisites_to_prove=("direct evidence at the claimed diagnostic layer",),
+                prerequisites_to_disprove=("stronger contradictory execution evidence",),
             ))
         context.shared["root_cause"] = supported_name
-        context.shared["first_divergence"] = first_divergence(comparisons)
+        context.shared["first_divergence"] = (
+            "queued→running" if trust_evaluation.first_divergence else first_divergence(comparisons)
+        )
+        context.shared["structured_first_divergence"] = structured_divergence
+        context.shared["execution_lifecycles"] = (
+            [trust_evaluation.lifecycle] if trust_evaluation.lifecycle is not None else []
+        )
+        context.shared["findings"] = list(trust_evaluation.findings)
+        context.shared["execution_boundary"] = (
+            trust_evaluation.boundary.public() if trust_evaluation.boundary is not None else None
+        )
+        confidence = (
+            trust_evaluation.confidence if trust_evaluation.root_cause
+            else (0.96 if supported_name != "INSUFFICIENT_EVIDENCE" else 0.0)
+        )
         result = self.result(
             status="DIAGNOSED" if supported_name != "INSUFFICIENT_EVIDENCE" else "UNVERIFIED",
             claim=supported_name,
-            confidence=0.96 if supported_name != "INSUFFICIENT_EVIDENCE" else 0.0,
+            confidence=confidence,
             context=context,
             reasoning="Competing hypotheses are evaluated only from persisted reconciliation and runtime evidence; rejected candidates remain auditable.",
             next_action="Calculate downstream blast radius before proposing any mutation.",
@@ -633,6 +671,9 @@ class RCAAgent(BaseSpecialistAgent):
                 "supported_hypothesis": supported_name,
                 "hypothesis_count": len(hypotheses),
                 "evidence_input_count": len(context.evidence),
+                "execution_boundary": context.shared["execution_boundary"],
+                "structured_first_divergence": structured_divergence.public() if structured_divergence else None,
+                "finding_count": len(trust_evaluation.findings),
             },
         )
         return result, hypotheses
@@ -674,6 +715,7 @@ class ImpactAgent(BaseSpecialistAgent):
 
 
 _REMEDIATION_BY_ROOT_CAUSE = {
+    "AIRFLOW_TASK_LAUNCH_FAILURE": "INSPECT_EXECUTOR_CAPACITY_AND_RETRY_TASKS",
     "WATERMARK_ADVANCED_BEYOND_EXTRACT": "RESET_WATERMARK_AND_BOUNDED_BACKFILL",
     "DBT_FILTER_EXCLUDES_VALID_STATUS": "PATCH_DBT_FILTER_AND_SELECTIVE_BUILD",
     "DBT_JOIN_FANOUT": "PATCH_JOIN_CARDINALITY",

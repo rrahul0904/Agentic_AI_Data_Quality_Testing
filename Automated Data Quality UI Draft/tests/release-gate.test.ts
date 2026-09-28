@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { aiReviewStatusDescription, aiReviewStatusLabel, integrationConnectionState, monitoringStatusLabel, safeDisplayError } from "../lib/ui-contracts.ts";
+import { aiReviewNextAction, aiReviewStatusDescription, aiReviewStatusLabel, graphZoomToFit, integrationConnectionState, monitoringStatusLabel, safeAIProviderFailure, safeDisplayError } from "../lib/ui-contracts.ts";
 import { scopedLink } from "../lib/client-workspace.ts";
 
 test("Monitoring renders structured errors as text instead of React children", () => {
@@ -16,11 +16,37 @@ test("Monitoring status labels keep execution and evidence states truthful", () 
   assert.equal(monitoringStatusLabel("OUTCOME_UNKNOWN"), "Outcome unknown — reconcile");
 });
 
+test("lineage fit uses measured bounds and graph rendering deduplicates stable IDs", async () => {
+  assert.equal(graphZoomToFit(900, 500, 1200, 300), 0.75);
+  assert.equal(graphZoomToFit(900, 500, 600, 300), 1);
+  assert.equal(graphZoomToFit(0, 500, 600, 300), 1);
+  const page = await readFile(new URL("../app/project-design/page.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../app/project-design/project-design.module.css", import.meta.url), "utf8");
+  assert.match(page, /new Map\(nodes\.map\(\(node\) => \[node\.node_id, node\]\)\)/);
+  assert.match(page, /graphZoomToFit\(width, height, graphWidth, graphHeight\)/);
+  assert.match(page, /graphWidth \* zoom/);
+  assert.doesNotMatch(page, /setZoom\(\.85\)/);
+  assert.match(css, /\.graphHeader \{[^}]*min-width: 0;[^}]*flex-wrap: wrap;/);
+  assert.doesNotMatch(css, /\.graphHeader \{[^}]*min-width: 700px/);
+  assert.match(css, /\.mapToolbar > select \{[^}]*min-width: 0;[^}]*max-width: 100%;/);
+  assert.match(css, /\.mapToolbar > div, \.mapToolbar > select \{ width: 100%; max-width: 100%;/);
+  assert.match(page, /local\.toolbar\} \$\{local\.mapToolbar/);
+  assert.match(css, /\.graphViewport \{[^}]*width: 100%; min-width: 0; max-width: 100%;/);
+  assert.match(css, /\.pipelineCanvas, \.edgePanel, \.unresolved \{ min-width: 0;/);
+  assert.match(page, /useEffect\(\(\) => \{ fitContent\(\); \}, \[graphWidth, graphHeight\]\)/);
+});
+
 test("optional AI review is not presented as an outage before it is requested", () => {
   assert.equal(aiReviewStatusLabel(undefined, false, "READY"), "Not run");
   assert.equal(aiReviewStatusDescription(false, "READY"), "Optional review has not been requested.");
   assert.equal(aiReviewStatusLabel("COMPLETED", false, "READY"), "Completed");
   assert.equal(aiReviewStatusLabel("FAILED", false, "READY"), "Failed");
+  assert.equal(aiReviewStatusLabel("UNAVAILABLE", false, "READY"), "Unavailable");
+  const rateLimit = safeAIProviderFailure("Client error '429 Too Many Requests' for url 'https://api.openai.com/v1/responses'");
+  assert.match(rateLimit || "", /rate limit reached \(HTTP 429\)/);
+  assert.doesNotMatch(rateLimit || "", /api\.openai\.com/);
+  assert.match(aiReviewNextAction("429 Too Many Requests", "Retry now"), /Wait for the OpenAI rate limit to reset/);
+  assert.doesNotMatch(aiReviewNextAction("429 Too Many Requests", "Retry now"), /Retry now/);
 });
 
 test("Overview treats dbt execution evidence as a passing readiness signal", () => {

@@ -28,10 +28,21 @@
 .toolbar input, .toolbar select, .toolbar button, .assetCard select, .edgePanel select, .edgeForm select { min-height: 32px; padding: 6px 9px; border: 1px solid #d4ded8; border-radius: 7px; background: white; color: #31483d; font: inherit; font-size: 9px; }
 .toolbar input { min-width: 210px; }
 .toolbar button { cursor: pointer; font-weight: 800; }
+.mapToolbar { min-width: 0; }
+.mapToolbar > div { min-width: 0; max-width: 100%; flex: 1 1 240px; }
+.mapToolbar > select { width: auto; min-width: 0; max-width: 100%; flex: 1 1 150px; }
+.mapToolbar > button { max-width: 100%; flex: 0 1 auto; }
 .tableScopeBar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding: 9px 12px; border: 1px solid #dce6e0; border-radius: 10px; background: #f8fbf9; color: #53685d; font-size: 9px; }
 .tableScopeBar strong { color: #1e4935; font-size: 10px; }
 .tableScopeBar select { min-height: 30px; padding: 6px 9px; border: 1px solid #cfdcd4; border-radius: 7px; background: white; color: #29483a; font: inherit; font-weight: 750; }
 .tableScopeBar span { color: #77847d; }
+.catalogCoverage { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: -2px 0 12px; padding: 12px 14px; border: 1px solid #edd7a1; border-radius: 10px; background: #fffaf0; color: #624b1d; }
+.catalogCoverage strong { display: block; font-size: 13px; }
+.catalogCoverage p { margin: 4px 0 0; font-size: 12px; line-height: 1.45; }
+.catalogCoverage a { flex: 0 0 auto; padding: 8px 11px; border: 1px solid #d6b968; border-radius: 7px; color: #5b4519; font-size: 12px; font-weight: 750; text-decoration: none; }
+.catalogCoverage a:focus-visible { outline: 3px solid #217755; outline-offset: 2px; }
+.layerFilter { display: grid; gap: 2px; color: #586c61; font-size: 9px; font-weight: 700; }
+.layerFilter select { min-height: 32px; padding: 6px 9px; border: 1px solid #d4ded8; border-radius: 7px; background: white; color: #31483d; font: inherit; font-size: 9px; }
 .roleWorkspace { display: grid; gap: 13px; }
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 10px 12px; border: 1px solid #dce6e0; border-radius: 10px; background: white; color: #617168; font-size: 9px; }
 .pagination > div { display: flex; align-items: center; gap: 8px; }
@@ -73,7 +84,7 @@
 .children button { display: flex; justify-content: space-between; gap: 8px; padding: 6px 2px; border: 0; border-top: 1px solid #edf1ef; background: transparent; text-align: left; cursor: pointer; }
 .children strong, .children small { overflow: hidden; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
 .children small { color: #74817a; }
-.mapWorkspace { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 12px; align-items: start; }
+.mapWorkspace { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 12px; align-items: start; min-width: 0; }
 .contextFrame .managementMain { display: flex; flex-direction: column; }
 .contextFrame .managementMain > .toolbar { order: 1; }
 .contextFrame .managementMain > .mapSummary { order: 2; }
@@ -97,7 +108,7 @@
 .mappingTable table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: 8px; }
 .mappingTable th { padding: 8px 10px; background: #f4f7f5; color: #718078; text-align: left; font-size: 7px; text-transform: uppercase; letter-spacing: .06em; }
 .mappingTable td { padding: 9px 10px; border-top: 1px solid #e8eeeb; color: #40564a; }
-.pipelineCanvas, .edgePanel, .unresolved { border: 1px solid #dce5e0; border-radius: 12px; background: white; }
+.pipelineCanvas, .edgePanel, .unresolved { min-width: 0; border: 1px solid #dce5e0; border-radius: 12px; background: white; }
 .pipelineCanvas > header, .unresolved > header { padding: 14px; border-bottom: 1px solid #e2e9e5; }
 .pipelineCanvas h2, .unresolved h2 { margin: 6px 0 3px; color: #193d2d; font-size: 16px; }
 .pipelineCanvas p, .unresolved p { margin: 0; color: #728078; font-size: 8px; }
@@ -113,8 +124,8 @@
 .mappingTableDetails > summary span { color: #7b8881; font-size: 8px; font-weight: 500; }
 .mappingTableDetails[open] > summary { border-bottom: 1px solid #e2e9e5; background: #f8faf9; }
 .mappingTableDetails .mappingTable { margin: 0; border: 0; border-radius: 0; }
-.graphViewport { position: relative; overflow: auto; min-height: 300px; max-height: 720px; padding: 14px; background: linear-gradient(180deg, #f6faf7 0%, #eef5f0 100%); }
-.graphHeader { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-width: 700px; margin-bottom: 12px; padding: 10px 12px; border: 1px solid #d9e6de; border-radius: 10px; background: rgba(255,255,255,.92); }
+.graphViewport { position: relative; width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; overflow: auto; min-height: 300px; max-height: 720px; padding: 14px; background: linear-gradient(180deg, #f6faf7 0%, #eef5f0 100%); }
+.graphHeader { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-width: 0; flex-wrap: wrap; margin-bottom: 12px; padding: 10px 12px; border: 1px solid #d9e6de; border-radius: 10px; background: rgba(255,255,255,.92); }
 .graphTools { display: flex; align-items: center; justify-content: flex-end; gap: 7px; flex-wrap: wrap; }
 .graphTools > button { min-height: 30px; padding: 6px 9px; border: 1px solid #cddbd3; border-radius: 7px; background: white; color: #176f4e; font: inherit; font-size: 8px; font-weight: 850; cursor: pointer; }
 .zoomLabel { min-width: 34px; color: #50665a; font-size: 8px; font-weight: 850; text-align: center; }
@@ -126,7 +137,8 @@
 .graphLegend i { display: inline-block; width: 18px; height: 3px; border-radius: 3px; background: #16835a; }
 .graphLegend .legendPlanned { border-top: 2px dashed #a5b5ad; background: transparent; }
 .graphLegend .legendAi { background: #7c5ac7; }
-.graphCanvas { position: relative; min-width: 700px; min-height: 280px; cursor: grab; touch-action: none; }
+.graphStage { position: relative; min-width: 0; min-height: 0; }
+.graphCanvas { position: absolute; top: 0; left: 0; min-width: 0; min-height: 0; cursor: grab; touch-action: none; }
 .graphCanvas:active { cursor: grabbing; }
 .graphEdges { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
 .graphEdge { fill: none; stroke: #a5b5ad; stroke-width: 1.7; pointer-events: stroke; cursor: pointer; transition: stroke .15s, stroke-width .15s, opacity .15s; }
@@ -208,6 +220,7 @@
 .pagination button { min-height: 36px; padding: 8px 12px; font-size: 12px; }
 .emptyResult strong { font-size: 15px; }
 .emptyResult span { font-size: 13px; }
+.catalogCoverage { align-items: flex-start; flex-direction: column; }
 .layer > header span { font-size: 11px; }
 .layer > header h2 { font-size: 20px; }
 .technologyHead strong { font-size: 15px; }
@@ -286,6 +299,7 @@
 .aiResult article small { grid-column: 1 / -1; color: #65766d; line-height: 1.4; }
 .aiReviewMeta { display: flex; flex-wrap: wrap; gap: 6px; color: #64736b; }
 .aiReviewMeta span { padding: 4px 6px; border-radius: 5px; background: #edf3ef; font-size: 8px; font-weight: 800; }
+@media (max-width: 720px) { .graphHeader { align-items: flex-start; } .graphHeader > div:first-child, .graphTools { width: 100%; min-width: 0; } .graphTools { justify-content: flex-start; } }
 @media (max-width: 1100px) { .roleGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .analyzers { grid-template-columns: repeat(3, minmax(0, 1fr)); } .mapWorkspace { grid-template-columns: 1fr; } .contextFrame { grid-template-columns: 1fr; } }
-@media (max-width: 760px) { .metrics, .mapColumns, .unresolved > div { grid-template-columns: repeat(2, minmax(0, 1fr)); } .mapSummary, .runtimeGrid { grid-template-columns: 1fr; } .roleGrid, .evidenceGrid, .edgeForm, .objectSummary, .metadataList { grid-template-columns: 1fr; } .metadataList > div:nth-child(odd) { border-right: 0; } .toolbar { align-items: stretch; flex-direction: column; } .toolbar > div { margin: 0; } .pagination { align-items: stretch; flex-direction: column; } .pagination > div { justify-content: space-between; } .agentBoundary { grid-template-columns: 1fr; } .runtimePanel > header, .aiPanel > header { flex-direction: column; } .aiActions { justify-content: flex-start; } }
+@media (max-width: 760px) { .metrics, .mapColumns, .unresolved > div { grid-template-columns: repeat(2, minmax(0, 1fr)); } .mapSummary, .runtimeGrid { grid-template-columns: 1fr; } .roleGrid, .evidenceGrid, .edgeForm, .objectSummary, .metadataList { grid-template-columns: 1fr; } .metadataList > div:nth-child(odd) { border-right: 0; } .toolbar { align-items: stretch; flex-direction: column; } .toolbar > div { margin: 0; } .mapToolbar > div, .mapToolbar > select { width: 100%; max-width: 100%; flex: 0 1 auto; } .mapToolbar > button { width: fit-content; max-width: 100%; } .pagination { align-items: stretch; flex-direction: column; } .pagination > div { justify-content: space-between; } .agentBoundary { grid-template-columns: 1fr; } .runtimePanel > header, .aiPanel > header { flex-direction: column; } .aiActions { justify-content: flex-start; } }
 @media (max-width: 760px) { .analysisActions { width: 100%; flex-wrap: wrap; } .analysisActions button { flex: 1 1 220px; min-width: 0; } }

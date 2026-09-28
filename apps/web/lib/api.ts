@@ -1,4 +1,4 @@
-export const API = process.env.NEXT_PUBLIC_ADE_API_URL ?? "http://127.0.0.1:8001";
+export const API = process.env.NEXT_PUBLIC_ADE_API_URL ?? "/api/backend";
 
 async function decode<T>(response: Response): Promise<T> {
   if (!response.ok) {

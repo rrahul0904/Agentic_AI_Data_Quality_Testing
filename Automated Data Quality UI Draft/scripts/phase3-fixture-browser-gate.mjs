@@ -34,6 +34,7 @@ function startFixtureServer() {
     env: {
       ...process.env,
       ADQ_UI_TEST_FIXTURES: "1",
+      ADE_NEXT_DIST_DIR: ".next-phase3-fixture",
       NEXT_TELEMETRY_DISABLED: "1",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -216,6 +217,29 @@ let client;
 try {
   server = startFixtureServer();
   await waitForServer(server);
+  const apiChecks = [
+    ["Project scope", "/api/project-scope", (value) => value.available_source_tables === 15 && value.onboarded_source_tables === 1 && value.accepted_discovered_assets === 3 && value.analyzed_source_rooted_flows === 1],
+    ["Source onboarding", "/api/data-onboarding", (value) => value.status === "CONNECTED" && value.tables?.some((item) => item.table === "orders")],
+    ["Catalog discovery", "/api/project-analysis?view=compact", (value) => value.report?.summary?.assets === 3],
+    ["Lineage discovery", "/api/project-analysis?view=compact", (value) => value.report?.pipelines?.length === 1],
+    ["Quality plan state", "/api/quality-plans", (value) => value.plan?.status === "APPROVED" && Array.isArray(value.runs)],
+    ["Run Jobs workspace", "/api/actions", (value) => value.source_table_scope_id === "fixture_orders" && value.runs?.items?.length === 0],
+    ["Connection readiness", "/api/demo/readiness", (value) => value.readiness?.length >= 4 && value.readiness.every((item) => item.status === "READY")],
+    ["Monitoring history", "/api/monitoring", (value) => value.items?.[0]?.verification_status === "VERIFIED"],
+    ["Reconciliation history", "/api/reconciliation", (value) => value.history?.items?.length === 1 && value.catalogs?.source?.length === 1],
+    ["Ask AI scoped status", "/api/agent", (value) => value.workspace?.projectId === "fixture-project"],
+  ];
+  for (const [name, pathname, predicate] of apiChecks) {
+    const response = await fetch(fixtureUrl(pathname));
+    const value = await response.json().catch(() => ({}));
+    assert(`API contract: ${name}`, response.ok && response.headers.get("X-ADQ-Test-Fixture") === "phase4" && predicate(value), { status: response.status, fixture: response.headers.get("X-ADQ-Test-Fixture"), keys: Object.keys(value) }, report);
+  }
+  const planResponse = await fetch(fixtureUrl("/api/actions"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "plan", intent: "Run only dbt model stg_orders", mode: "single_job", operationKind: "dbt_execute", requestedTarget: "stg_orders" }) });
+  const planValue = await planResponse.json().catch(() => ({}));
+  assert("API contract: Run Jobs creates preview-only fixture plan", planResponse.ok && planValue.plan?.state === "PREVIEW_ONLY" && planValue.plan?.steps?.length === 1, { status: planResponse.status, state: planValue.plan?.state, steps: planValue.plan?.steps?.length }, report);
+  const askResponse = await fetch(fixtureUrl("/api/agent"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: "Summarize the fixture orders workflow" }) });
+  const askValue = await askResponse.json().catch(() => ({}));
+  assert("API contract: Ask AI fixture answer is human-readable and clearly test-only", askResponse.ok && String(askValue.answer ?? "").includes("This is test content, not live evidence"), { status: askResponse.status, answer: askValue.answer }, report);
   const profile = await mkdtemp(join(tmpdir(), "adq-phase3-chrome-"));
   chrome = spawn(chromePath, ["--headless=new", "--disable-gpu", "--no-first-run", "--disable-background-networking", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank"], { stdio: ["ignore", "pipe", "pipe"] });
   const devTools = await waitForDevTools(chrome);
@@ -228,9 +252,8 @@ try {
     report.requests.push(request);
   });
   await Promise.all([client.send("Page.enable"), client.send("Runtime.enable"), client.send("Network.enable"), client.send("Log.enable")]);
-  // DraftShell currently queries this unscoped endpoint on every route. Block
-  // it so the fixture gate cannot read the working project's browser state.
-  await client.send("Network.setBlockedURLs", { urls: [`${base}/api/workspace*`] });
+  // Every scoped page API is served from fixture-only branches. Any API
+  // request without the explicit fixture scope is rejected by the gate below.
 
   for (const viewport of viewports) {
     await setViewport(client, viewport);
@@ -261,26 +284,62 @@ try {
 
     const focus = await keyboardFacts(client);
     assert(`${viewport.name}: keyboard focus moves across fixture controls`, focus.moved && focus.visibleFocus, focus, report);
-  }
 
-  report.skipped.push({
-    name: "Connections populated/empty responsive verification",
-    reason: "The existing Phase 4 fixture has no connection-profile fixture and the Connections page issues an unscoped bootstrap request. This gate deliberately blocks that request instead of reading the working project. Add a test-only connection fixture before certifying connection-table wrapping.",
-  });
+    const history = await navigate(client, "/test-plan?view=execution&mode=manage&tab=history", "(document.body?.innerText || '').includes('Run history') && Boolean(document.querySelector('a[href*=\"run_id=\"]'))", `${viewport.name} run history`);
+    assert(`${viewport.name}: populated history lists persisted runs`, history.content.includes("run history") || history.content.includes("Run history"), history, report);
+    const clickedRunId = await client.eval(`(() => {
+      const link = document.querySelector('a[href*="run_id="]');
+      if (!link) return null;
+      const runId = new URL(link.href).searchParams.get('run_id');
+      link.click();
+      return runId;
+    })()`);
+    assert(`${viewport.name}: history row is clickable`, Boolean(clickedRunId), { clickedRunId }, report);
+    await waitFor(client, `Boolean(document.querySelector('#selected-run-title')) && (document.body?.innerText || '').includes(${JSON.stringify(clickedRunId)}) && (document.body?.innerText || '').includes('Check results')`, `${viewport.name} selected run details`);
+    const selectedRun = await pageFacts(client);
+    assert(`${viewport.name}: selected run shows exact result`, selectedRun.content.includes(clickedRunId) && selectedRun.content.includes("Evidence source"), selectedRun, report);
+    const direct = await navigate(client, `/test-plan?view=execution&mode=manage&tab=history&run_id=${encodeURIComponent(clickedRunId)}`, "Boolean(document.querySelector('#selected-run-title')) && (document.body?.innerText || '').includes('Check results')", `${viewport.name} direct run details`);
+    assert(`${viewport.name}: direct run link survives refresh`, direct.content.includes(clickedRunId) && direct.content.includes("Evidence source"), direct, report);
+
+    const onboarding = await navigate(client, "/register-project?phase=overview", "(document.body?.innerText || '').includes('orders')", `${viewport.name} onboarding`);
+    assert(`${viewport.name}: onboarding keeps fixture source selection visible`, onboarding.content.includes("public.orders"), onboarding, report);
+    assert(`${viewport.name}: onboarding responsive`, !onboarding.horizontalOverflow && onboarding.outsideViewport.length === 0, onboarding, report);
+    const monitoring = await navigate(client, "/monitoring", "(document.body?.innerText || '').includes('fixture_action_completed')", `${viewport.name} monitoring`);
+    assert(`${viewport.name}: monitoring page renders scoped fixture state`, monitoring.hasMain && !monitoring.horizontalOverflow, monitoring, report);
+    await client.send("Page.reload");
+    await waitFor(client, "document.readyState === 'complete' && document.body.innerText.includes('fixture_action_completed')", `${viewport.name} monitoring reload`);
+    const reloadedMonitoring = await pageFacts(client);
+    assert(`${viewport.name}: browser reload preserves rendered scoped page state`, reloadedMonitoring.hasMain && !reloadedMonitoring.horizontalOverflow, reloadedMonitoring, report);
+    const reconciliation = await navigate(client, "/reconciliation", "(document.body?.innerText || '').includes('1 OF 1 RESULTS')", `${viewport.name} reconciliation`);
+    assert(`${viewport.name}: reconciliation history renders without executing a comparison`, reconciliation.content.includes("1 OF 1 RESULTS") && !reconciliation.horizontalOverflow && reconciliation.outsideViewport.length === 0, reconciliation, report);
+    const askAi = await navigate(client, "/agent", "(document.body?.innerText || '').includes('Ask AI')", `${viewport.name} Ask AI`);
+    assert(`${viewport.name}: Ask AI page loads for fixture scope`, askAi.hasMain && !askAi.horizontalOverflow, askAi, report);
+    await waitFor(client, "document.body.innerText.includes('Fixture response: orders is represented')", `${viewport.name} rendered fixture Ask AI answer`);
+    const askAnswer = await pageFacts(client);
+    assert(`${viewport.name}: Ask AI renders a readable scoped answer`, askAnswer.content.includes("This is test content, not live evidence.") && !askAnswer.horizontalOverflow && askAnswer.outsideViewport.length === 0, askAnswer, report);
+    const actions = await navigate(client, "/actions", "(document.body?.innerText || '').toLowerCase().includes('preview only') && Boolean(document.querySelector('textarea[aria-label=\"Execution request\"]'))", `${viewport.name} Run Jobs`);
+    const previewed = actions.content.toLowerCase().includes("preview only") && actions.content.includes("stg_orders");
+    assert(`${viewport.name}: Run Jobs preview is visible and not executed`, previewed && actions.hasMain, { previewed }, report);
+    const approveEnabled = await client.eval(`![...document.querySelectorAll('button')].some(item => /Approve once|Execute approved plan/.test(item.textContent || '') && !item.disabled)`);
+    assert(`${viewport.name}: no enabled approval/execution control before human steps`, approveEnabled, { approveEnabled }, report);
+  }
 
   // Block only the fixture analysis endpoint; this triggers a genuine client
   // fetch failure without allowing a request to reach any provider.
-  await client.send("Network.setBlockedURLs", { urls: [`${base}/api/workspace*`, `${base}/api/project-analysis*`] });
+  await client.send("Network.setBlockedURLs", { urls: [`${base}/api/project-analysis*`] });
   await setViewport(client, viewports[0]);
   const error = await navigate(client, "/objects-flows", "(document.body?.innerText || '').includes('No catalog analysis yet')", "fixture analysis error");
   await waitFor(client, "(document.body?.innerText || '').includes('Failed to fetch')", "fixture analysis error message");
   assert("fixture analysis error remains distinguishable from populated data", (error.content || '').includes('No catalog analysis yet'), error, report);
-  await client.send("Network.setBlockedURLs", { urls: [`${base}/api/workspace*`] });
+  await client.send("Network.setBlockedURLs", { urls: [] });
 
   const unsafeRequests = report.requests.filter((request) => {
     const url = new URL(request.url);
-    if (url.origin !== base || ["POST", "PUT", "PATCH", "DELETE"].includes(request.method)) return true;
-    return url.pathname.startsWith("/api/") && url.pathname !== "/api/workspace" && url.searchParams.get("fixture") !== "phase4";
+    if (url.protocol === "data:") return false;
+    if (url.origin !== base) return true;
+    if (url.pathname.startsWith("/api/") && url.searchParams.get("fixture") !== "phase4") return true;
+    if (["PUT", "PATCH", "DELETE"].includes(request.method)) return true;
+    return request.method === "POST" && !["/api/actions", "/api/agent"].includes(url.pathname);
   });
   assert("fixture browser gate made no external network request or unexpected mutation", unsafeRequests.length === 0, { unsafeRequests }, report);
   assert("fixture browser gate observed no console errors", report.consoleErrors.length === 0, { consoleErrors: report.consoleErrors }, report);

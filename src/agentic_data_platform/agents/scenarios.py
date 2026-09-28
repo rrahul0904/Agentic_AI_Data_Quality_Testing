@@ -270,6 +270,59 @@ _add(FailureScenario(
     ("stg_payment", "fact_payment", "mart_payment_reconciliation"),
 ))
 
+_add(FailureScenario(
+    "airflow_queued_task_timeout",
+    "ingest_reference_data failed before task execution started",
+    "airflow.ingest_reference_data",
+    "reference data ingestion",
+    ("airflow", "postgres", "snowflake"),
+    (
+        _comparison("airflow_queue→runtime", "FAIL", expected_state="RUNNING", observed_state="FAILED"),
+        _comparison("source→raw", "FAIL", source_count=25_000, target_count=0, difference=25_000),
+    ),
+    {
+        "dag_id": "ingest_reference_data",
+        "run_id": "manual__2026-09-09T22:33:41+00:00",
+        "task_id": "load_properties.determine_window",
+        "task_state": "FAILED",
+        "metadata_state": "QUEUED",
+        "executor_state": "FAILED",
+        "queued_at": "2026-09-09T22:33:41+00:00",
+        "failed_at": "2026-09-09T22:43:51+00:00",
+        "queued_duration_seconds": 610,
+        "task_queued_timeout_seconds": 600,
+        "runtime_start_proven": False,
+        "operator_start_proven": False,
+        "task_log_exists": False,
+        "executor": "LocalExecutor",
+        "parallelism": 32,
+        "failed_sibling_count": 6,
+        "failed_sibling_tasks": [
+            "load_properties.determine_window",
+            "load_room_types.determine_window",
+            "load_rooms.determine_window",
+            "load_booking_channels.determine_window",
+            "load_promotions.determine_window",
+            "load_rate_plans.determine_window",
+        ],
+        "watermark_missing": True,
+        "missing_watermark_rows": 6,
+        "target_row_count": 0,
+    },
+    (
+        "airflow.ingest_reference_data",
+        "postgres.public.reference_data",
+        "snowflake.CONTROL.INGESTION_WATERMARKS",
+        "snowflake.RAW.REFERENCE_DATA",
+    ),
+    "AIRFLOW_TASK_LAUNCH_FAILURE",
+    "queued→running",
+    "INSPECT_EXECUTOR_CAPACITY_AND_RETRY_TASKS",
+    ("snowflake.RAW.REFERENCE_DATA", "dbt.stg_reference_data"),
+    "Six sibling tasks remained queued until the executor reported failure; no runtime or operator start was observed.",
+    {"runtime_start_proven": True, "target_row_count": 25_000, "business_metric_match": True},
+))
+
 
 def scenario_catalog() -> list[dict[str, Any]]:
     """Public scenario catalog. Benchmark ground truth is intentionally omitted."""

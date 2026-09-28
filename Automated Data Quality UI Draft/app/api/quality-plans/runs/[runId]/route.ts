@@ -14,10 +14,8 @@ export async function GET(request: Request, context: { params: Promise<{ runId: 
     }
     const scope = await resolveWorkspace(request);
     const runId = requestedRunId;
-    const planId = new URL(request.url).searchParams.get("plan_id");
-    if (!planId) return Response.json({ error: "plan_id is required" }, { status: 400 });
     const response = await fetch(
-      `${API_BASE}/api/v1/quality-plans/${encodeURIComponent(planId)}/runs/${encodeURIComponent(runId)}?${workspaceQuery(scope)}`,
+      `${API_BASE}/api/v1/quality-runs/${encodeURIComponent(runId)}?${workspaceQuery(scope)}`,
       { cache: "no-store", signal: AbortSignal.timeout(4000) },
     );
     const value = await response.json().catch(() => ({}));

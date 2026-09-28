@@ -47,7 +47,8 @@ export function aiReviewStatusLabel(status?: string, busy = false, availability?
   if (normalized === "COMPLETED") return "Completed";
   if (normalized === "NEEDS_HUMAN_APPROVAL") return "Needs approval";
   if (normalized === "ERROR" || normalized === "FAILED") return "Failed";
-  if (["DISABLED", "UNAVAILABLE", "NOT_CONFIGURED"].includes(normalized || "")) {
+  if (normalized === "UNAVAILABLE") return "Unavailable";
+  if (["DISABLED", "NOT_CONFIGURED"].includes(normalized || "")) {
     return ["READY", "CONFIGURED"].includes(String(availability || "").toUpperCase()) ? "Not run" : "Unavailable";
   }
   return "Not run";
@@ -58,4 +59,39 @@ export function aiReviewStatusDescription(hasReview: boolean, availability?: str
   return ["READY", "CONFIGURED"].includes(String(availability || "").toUpperCase())
     ? "Optional review has not been requested."
     : "AI review is unavailable; deterministic results remain available.";
+}
+
+export function safeAIProviderFailure(reason?: string): string | null {
+  if (!reason) return null;
+  if (/\b429\b|too many requests|rate limit/i.test(reason)) {
+    return "OpenAI rate limit reached (HTTP 429). No AI review was completed; the deterministic lineage is unchanged. Wait for the provider limit to reset or review provider usage before retrying.";
+  }
+  if (/timeout|timed out/i.test(reason)) {
+    return "The AI provider request timed out. No AI findings were accepted; deterministic lineage is unchanged.";
+  }
+  if (/api\.openai\.com|client error .* url/i.test(reason)) {
+    return "The AI provider request failed. No AI findings were accepted; deterministic lineage is unchanged. Check provider diagnostics for details.";
+  }
+  return null;
+}
+
+export function aiReviewNextAction(reason?: string, providerAction?: string): string {
+  if (/\b429\b|too many requests|rate limit/i.test(reason || "")) {
+    return "Wait for the OpenAI rate limit to reset before retrying the optional AI review. Deterministic lineage is available now.";
+  }
+  if (/timeout|timed out/i.test(reason || "")) {
+    return "Check provider diagnostics and retry the optional AI review when the provider is responding.";
+  }
+  if (safeAIProviderFailure(reason)) {
+    return "Check provider diagnostics before retrying the optional AI review. Deterministic lineage remains available.";
+  }
+  return providerAction || "Inspect the cited evidence and review the mapping.";
+}
+
+/** Calculate a real fit scale from the graph's measured viewport and bounds. */
+export function graphZoomToFit(viewportWidth: number, viewportHeight: number, contentWidth: number, contentHeight: number): number {
+  const values = [viewportWidth, viewportHeight, contentWidth, contentHeight];
+  if (values.some((value) => !Number.isFinite(value) || value <= 0)) return 1;
+  const scale = Math.min(1, viewportWidth / contentWidth, viewportHeight / contentHeight);
+  return Number(Math.max(0.15, scale).toFixed(2));
 }

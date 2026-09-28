@@ -19,7 +19,7 @@ export type ConnectionTestResult = {
   metadata?: Record<string, unknown>;
 };
 
-export type PipelineLayer = "Sources" | "Ingestion" | "Transformation" | "Targets";
+export type PipelineLayer = "Sources" | "Ingestion" | "Transformation" | "Targets" | "Quality / other";
 
 export type DiscoveredChildAsset = {
   id: string;
@@ -78,7 +78,16 @@ export type DiscoveryResult = {
   assets: DiscoveredAsset[];
   categories?: DiscoveryCategory[];
   sourceTableId?: string;
+  /** Version of the discovery contract used to produce this persisted result. */
+  discoveryVersion?: number;
 };
+
+/** Version 2 explicitly includes reachable dbt test resources in table scope. */
+export const DBT_DISCOVERY_VERSION = 2;
+
+export function dbtDiscoveryNeedsRefresh(result: Pick<DiscoveryResult, "status" | "discoveryVersion"> | undefined): boolean {
+  return result?.status === "PASS" && result.discoveryVersion !== DBT_DISCOVERY_VERSION;
+}
 
 export type SelectedSourceTable = {
   id: string;
@@ -87,6 +96,89 @@ export type SelectedSourceTable = {
   table: string;
   columns: Array<{ name: string; type?: string; nullable?: unknown }>;
 };
+
+export type DbtLineageResource = {
+  unique_id?: string;
+  name?: string;
+  resource_type?: string;
+  database?: string;
+  schema?: string;
+  depends_on?: { nodes?: unknown[] };
+};
+
+export function isPostgresSourceTableAsset(
+  asset: { catalog?: string; schema?: string; name?: string },
+  sourceTable: Pick<SelectedSourceTable, "database" | "schema" | "table">,
+): boolean {
+  return (asset.catalog ?? "") === sourceTable.database
+    && (asset.schema ?? "") === sourceTable.schema
+    && (asset.name ?? "") === sourceTable.table;
+}
+
+/** Match the actual task-group identity in a discovered DAG; never fuzzy-match its DAG name. */
+export function airflowDagLoadsSourceTable(taskNames: string[], tableName: string): boolean {
+  const taskGroupPrefix = `load_${tableName.trim().toLowerCase()}.`;
+  return Boolean(tableName.trim()) && taskNames.some((taskName) => taskName.trim().toLowerCase().startsWith(taskGroupPrefix));
+}
+
+/** An ingestion target must be the exact configured database's raw base table. */
+export function isSnowflakeRawTargetForSourceTable(
+  asset: { catalog?: string; schema?: string; name?: string; type?: string },
+  tableName: string,
+  configuredDatabase: string,
+): boolean {
+  return Boolean(tableName.trim() && configuredDatabase.trim())
+    && (asset.name ?? "").trim().toLowerCase() === tableName.trim().toLowerCase()
+    && (asset.catalog ?? "").trim().toLowerCase() === configuredDatabase.trim().toLowerCase()
+    && (asset.schema ?? "").trim().toLowerCase() === "raw"
+    && ["base table", "table"].includes((asset.type ?? "").trim().toLowerCase());
+}
+
+/**
+ * Return dbt models and tests reachable from the exact source node for a
+ * selected PostgreSQL table. The manifest dependency graph is authoritative;
+ * substring/name similarity is intentionally not used, so `guests` cannot
+ * select `reservation_guests` by name alone. Tests stay definitions here,
+ * not execution results.
+ */
+export function dbtResourceIdsForSourceTable(resources: DbtLineageResource[], tableName: string, targetDatabases: string[]): Set<string> {
+  const exactName = tableName.trim().toLowerCase();
+  const expectedDatabases = new Set(targetDatabases.map((database) => database.trim().toLowerCase()).filter(Boolean));
+  if (!exactName || !expectedDatabases.size) return new Set();
+
+  const sourceIds = resources.flatMap((resource) =>
+    resource.resource_type === "source"
+      && resource.name?.trim().toLowerCase() === exactName
+      && resource.schema?.trim().toLowerCase() === "raw"
+      && expectedDatabases.has(resource.database?.trim().toLowerCase() ?? "")
+      && resource.unique_id
+      ? [resource.unique_id]
+      : [],
+  );
+  // Duplicate source declarations with the same relation name are ambiguous:
+  // return no matches rather than combining their lineages.
+  if (sourceIds.length !== 1) return new Set();
+  const related = new Set(sourceIds);
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const resource of resources) {
+      const id = resource.unique_id;
+      if (!id || related.has(id)) continue;
+      const dependencies = Array.isArray(resource.depends_on?.nodes) ? resource.depends_on.nodes : [];
+      if (dependencies.some((dependency) => typeof dependency === "string" && related.has(dependency))) {
+        related.add(id);
+        changed = true;
+      }
+    }
+  }
+  return new Set(resources.flatMap((resource) =>
+    ["model", "test"].includes(resource.resource_type ?? "") && resource.unique_id && related.has(resource.unique_id)
+      ? [resource.unique_id]
+      : [],
+  ));
+}
 
 export type OnboardingBootstrap = {
   project: { name: string; domain: string; environment: string; root: string };

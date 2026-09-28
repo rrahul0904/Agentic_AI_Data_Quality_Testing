@@ -15,8 +15,11 @@ import type {
   RelationshipClassification,
 } from "../../lib/project-analysis";
 import type { OnboardingBootstrap, SelectedSourceTable } from "../../lib/onboarding";
+import { acceptedAssetCount, analyzedFlowCount, catalogAvailability, runtimeEvidenceCounts, sourceTableDiscoveryCoverage, uniqueSourceTables, type CatalogIdentity } from "../../lib/catalog-coverage";
+import { nodeBelongsToSourceTable } from "../../lib/lineage-scope";
 import { scopedApiUrl } from "../../lib/client-workspace";
-import { aiReviewStatusDescription, aiReviewStatusLabel } from "../../lib/ui-contracts";
+import { aiReviewNextAction, aiReviewStatusDescription, aiReviewStatusLabel, graphZoomToFit, safeAIProviderFailure } from "../../lib/ui-contracts";
+import ScopedLink from "../components/ScopedLink";
 import { useDrawerFocus } from "../components/ui";
 
 type View = "roles" | "map";
@@ -30,6 +33,11 @@ type AssetSource = {
   language: string;
   content?: string;
   content_scope?: "OBJECT_DEFINITION" | "FULL_FILE" | "NOT_AVAILABLE";
+  definition_kind?: string;
+  definition_source?: string | null;
+  captured_at?: string | null;
+  provider_status?: string | null;
+  provider_reason?: string | null;
   full_content?: string;
   full_content_available?: boolean;
   reason?: string;
@@ -49,6 +57,14 @@ async function requestAnalysis(init?: RequestInit): Promise<Record<string, unkno
   return value;
 }
 
+function analysisRequestError(error: unknown, operation: string): string {
+  const message = error instanceof Error ? error.message : "Analysis request failed";
+  if (/failed to fetch|fetch failed|networkerror/i.test(message)) {
+    return `Could not reach the analysis service while ${operation}. The last saved catalog remains on screen; no new analysis result was saved. Check the app/API connection and retry.`;
+  }
+  return message;
+}
+
 function technology(node: AnalysisNode): string {
   const value = String(node.properties.connection_kind || "repository");
   return value === "dbt" ? "dbt" : value === "files" ? "Files" : value.charAt(0).toUpperCase() + value.slice(1);
@@ -59,11 +75,60 @@ function isTopLevel(node: AnalysisNode): boolean {
 }
 
 function normalizeProjectAnalysis(report: ProjectAnalysisReport): ProjectAnalysisReport {
-  const topLevelIds = new Set(report.graph.nodes.filter(isTopLevel).map((node) => node.node_id));
-  const uniqueTopLevelCount = new Set(report.asset_classifications
-    .filter((item) => topLevelIds.has(item.asset_id))
-    .map((item) => item.asset_id)).size;
-  return { ...report, summary: { ...report.summary, top_level_assets: uniqueTopLevelCount } };
+  const nodesById = new Map<string, AnalysisNode>();
+  for (const node of report.graph.nodes) {
+    const current = nodesById.get(node.node_id);
+    if (!current) {
+      nodesById.set(node.node_id, node);
+      continue;
+    }
+    const sourceTableIds = [...new Set([
+      ...(Array.isArray(current.properties.source_table_ids) ? current.properties.source_table_ids.map(String) : []),
+      ...(Array.isArray(node.properties.source_table_ids) ? node.properties.source_table_ids.map(String) : []),
+      String(current.properties.source_table_id || current.properties.sourceTableId || ""),
+      String(node.properties.source_table_id || node.properties.sourceTableId || ""),
+    ].filter(Boolean))].sort();
+    nodesById.set(node.node_id, { ...current, properties: { ...current.properties, ...node.properties, ...(sourceTableIds.length ? { source_table_ids: sourceTableIds } : {}) } });
+  }
+  const edgesById = new Map<string, ProjectAnalysisReport["graph"]["edges"][number]>();
+  for (const edge of report.graph.edges) {
+    const current = edgesById.get(edge.edge_id);
+    if (!current) edgesById.set(edge.edge_id, edge);
+    else {
+      const sourceTableIds = [...new Set([
+        ...(Array.isArray(current.properties.source_table_ids) ? current.properties.source_table_ids.map(String) : []),
+        ...(Array.isArray(edge.properties.source_table_ids) ? edge.properties.source_table_ids.map(String) : []),
+        String(current.properties.source_table_id || current.properties.sourceTableId || ""),
+        String(edge.properties.source_table_id || edge.properties.sourceTableId || ""),
+      ].filter(Boolean))].sort();
+      edgesById.set(edge.edge_id, { ...current, properties: { ...current.properties, ...edge.properties, ...(sourceTableIds.length ? { source_table_ids: sourceTableIds } : {}) } });
+    }
+  }
+  const nodes = [...nodesById.values()];
+  const edges = [...edgesById.values()];
+  const topLevelIds = new Set(nodes.filter(isTopLevel).map((node) => node.node_id));
+  const assetsById = new Map(report.asset_classifications.map((item) => [item.asset_id, item]));
+  const relationshipsById = new Map(uniqueRelationships(report.relationship_classifications).map((item) => [item.edge_id, item]));
+  const uniqueTopLevelCount = [...assetsById.keys()].filter((id) => topLevelIds.has(id)).length;
+  return {
+    ...report,
+    graph: {
+      ...report.graph,
+      nodes,
+      edges,
+      node_types: Object.fromEntries([...new Set(nodes.map((node) => node.kind))].sort().map((kind) => [kind, nodes.filter((node) => node.kind === kind).length])),
+      edge_types: Object.fromEntries([...new Set(edges.map((edge) => edge.edge_type))].sort().map((kind) => [kind, edges.filter((edge) => edge.edge_type === kind).length])),
+    },
+    asset_classifications: [...assetsById.values()],
+    relationship_classifications: [...relationshipsById.values()],
+    pipelines: [...new Map(report.pipelines.map((item) => [item.pipeline_id, item])).values()],
+    summary: { ...report.summary, top_level_assets: uniqueTopLevelCount },
+  };
+}
+
+function isMapRoute(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.location.pathname === "/map-flows" || new URLSearchParams(window.location.search).get("view") === "map";
 }
 
 function layer(node: AnalysisNode, role: string): string {
@@ -113,21 +178,6 @@ function nodeTableId(node: AnalysisNode): string {
   return String(node.properties.source_table_id || node.properties.sourceTableId || "");
 }
 
-function nodeBelongsToTable(node: AnalysisNode, tableId: string, tables: SelectedSourceTable[]): boolean {
-  if (!tableId) return true;
-  const direct = nodeTableId(node);
-  const scopedIds = Array.isArray(node.properties.source_table_ids)
-    ? node.properties.source_table_ids.map(String)
-    : [];
-  if (direct || scopedIds.length) return direct === tableId || scopedIds.includes(tableId);
-  const table = tables.find((item) => item.id === tableId);
-  if (!table) return false;
-  const needle = table.table.toLowerCase();
-  return [node.name, node.properties.detail, node.properties.evidence_location, node.properties.discovery_asset_id]
-    .map((value) => String(value || "").toLowerCase())
-    .some((value) => value.includes(needle));
-}
-
 function FlowGraph({ nodes, edges, nodeMap, classifications, decisions, onNodeClick, onEdgeClick, hideQualityChecks }: {
   nodes: AnalysisNode[];
   edges: RelationshipClassification[];
@@ -142,12 +192,14 @@ function FlowGraph({ nodes, edges, nodeMap, classifications, decisions, onNodeCl
   const cardWidth = 180;
   const nodeGap = 104;
   const graphTop = 52;
-  const qualityTestNodes = nodes.filter((node) => node.kind === "dbt_test");
-  const visibleNodes = hideQualityChecks ? nodes.filter((node) => node.kind !== "dbt_test") : nodes;
-  const baseVisibleEdges = hideQualityChecks ? edges.filter((edge) => nodeMap.get(edge.source_asset_id)?.kind !== "dbt_test" && nodeMap.get(edge.target_asset_id)?.kind !== "dbt_test") : edges;
+  const uniqueNodes = [...new Map(nodes.map((node) => [node.node_id, node])).values()];
+  const uniqueEdges = uniqueRelationships(edges);
+  const qualityTestNodes = uniqueNodes.filter((node) => node.kind === "dbt_test");
+  const visibleNodes = hideQualityChecks ? uniqueNodes.filter((node) => node.kind !== "dbt_test") : uniqueNodes;
+  const baseVisibleEdges = hideQualityChecks ? uniqueEdges.filter((edge) => nodeMap.get(edge.source_asset_id)?.kind !== "dbt_test" && nodeMap.get(edge.target_asset_id)?.kind !== "dbt_test") : uniqueEdges;
   const qualityCheckGroup: AnalysisNode = { node_id: "quality-checks-group", kind: "quality_group", name: "Quality checks", properties: { is_top_level: true, proposed_layer: "Quality / other", connection_kind: "dbt", runtime_status: "NOT_RUN", detail: `${qualityTestNodes.length} dbt tests grouped for readability` } };
   const renderedNodes = hideQualityChecks && qualityTestNodes.length ? [...visibleNodes, qualityCheckGroup] : visibleNodes;
-  const qualityCheckSources = [...new Set(edges.filter((edge) => nodeMap.get(edge.target_asset_id)?.kind === "dbt_test").map((edge) => edge.source_asset_id))];
+  const qualityCheckSources = [...new Set(uniqueEdges.filter((edge) => nodeMap.get(edge.target_asset_id)?.kind === "dbt_test").map((edge) => edge.source_asset_id))];
   const groupedEdges: RelationshipClassification[] = qualityCheckSources.map((sourceId) => ({ edge_id: `quality-checks:${sourceId}`, source_asset_id: sourceId, target_asset_id: qualityCheckGroup.node_id, relationship: "tests", confidence: 1, source: "DETERMINISTIC", evidence_ids: [], rationale: `${qualityTestNodes.length} dbt quality checks grouped for readability.`, requires_review: false, status: "DETERMINISTIC", pipeline_ids: [], lineage_state: "PLANNED", runtime_status: "NOT_RUN" }));
   const visibleEdges = hideQualityChecks ? [...baseVisibleEdges, ...groupedEdges] : baseVisibleEdges;
   const lanes = layerOrder.map((layerName) => ({
@@ -161,6 +213,8 @@ function FlowGraph({ nodes, edges, nodeMap, classifications, decisions, onNodeCl
   const [panStart, setPanStart] = useState<{ x: number; y: number; origin: { x: number; y: number } } | null>(null);
   const [dragging, setDragging] = useState<{ id: string; x: number; y: number; origin: { x: number; y: number } } | null>(null);
   const dragMoved = useRef(false);
+  const graphViewportRef = useRef<HTMLDivElement>(null);
+  const graphHeaderRef = useRef<HTMLElement>(null);
   useEffect(() => {
     try { const stored = JSON.parse(window.localStorage.getItem(positionKey) || "{}"); if (stored && typeof stored === "object") setSavedPositions(stored); } catch { /* UI-only positions are optional. */ }
   }, [positionKey]);
@@ -187,7 +241,6 @@ function FlowGraph({ nodes, edges, nodeMap, classifications, decisions, onNodeCl
     window.addEventListener("pointermove", move); window.addEventListener("pointerup", end);
     return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", end); };
   }, [panStart]);
-  const fitContent = () => { setZoom(.85); setPan({ x: 0, y: 0 }); };
   const resetLayout = () => { setSavedPositions({}); setZoom(1); setPan({ x: 0, y: 0 }); window.localStorage.removeItem(positionKey); };
   const positions = new Map<string, { x: number; y: number }>();
   lanes.forEach((lane, laneIndex) => lane.nodes.forEach((node, nodeIndex) => {
@@ -195,11 +248,21 @@ function FlowGraph({ nodes, edges, nodeMap, classifications, decisions, onNodeCl
   }));
   const maxX = Math.max(lanes.length * laneWidth, ...[...positions.values()].map((item) => item.x + cardWidth + 16));
   const graphWidth = maxX;
-  const graphHeight = Math.max(260, Math.max(...lanes.map((lane) => lane.nodes.length), 1) * nodeGap + 84);
+  const maxY = Math.max(graphTop, ...[...positions.values()].map((item) => item.y + nodeGap));
+  const graphHeight = Math.max(260, maxY + 32);
+  const fitContent = () => {
+    const viewport = graphViewportRef.current;
+    const width = Math.max(1, (viewport?.clientWidth || graphWidth) - 28);
+    const height = Math.max(1, (viewport?.clientHeight || graphHeight) - (graphHeaderRef.current?.offsetHeight || 0) - 70);
+    setZoom(graphZoomToFit(width, height, graphWidth, graphHeight));
+    setPan({ x: 0, y: 0 });
+  };
+  useEffect(() => { fitContent(); }, [graphWidth, graphHeight]);
 
-  return <div className={local.graphViewport} aria-label="Interactive pipeline graph">
-    <header className={local.graphHeader}><div><strong>Lineage graph</strong><span>Drag objects to arrange. Drag the canvas to pan. Click a node or connector to inspect evidence.</span></div><div className={local.graphTools}><button aria-label="Zoom out" onClick={() => setZoom((current) => Math.max(.7, Number((current - .1).toFixed(1))))}>−</button><span className={local.zoomLabel}>{Math.round(zoom * 100)}%</span><button aria-label="Zoom in" onClick={() => setZoom((current) => Math.min(1.4, Number((current + .1).toFixed(1))))}>+</button><button onClick={fitContent}>Fit content</button><button onClick={resetLayout}>Auto-layout</button><span className={local.graphLegend}><i className={local.legendObserved} />Observed <i className={local.legendPlanned} />Planned <i className={local.legendAi} />AI reviewed</span></div></header>
-    <div className={local.graphCanvas} onPointerDown={(event) => { if (event.target === event.currentTarget) setPanStart({ x: event.clientX, y: event.clientY, origin: pan }); }} style={{ width: graphWidth, height: graphHeight, transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: "top left", marginBottom: `${graphHeight * (zoom - 1)}px` }}>
+  return <div ref={graphViewportRef} className={local.graphViewport} aria-label="Interactive pipeline graph">
+    <header ref={graphHeaderRef} className={local.graphHeader}><div><strong>Lineage graph</strong><span>Drag objects to arrange. Drag the canvas to pan. Click a node or connector to inspect evidence.</span></div><div className={local.graphTools}><button aria-label="Zoom out" onClick={() => setZoom((current) => Math.max(.15, Number((current - .1).toFixed(2))))}>−</button><span className={local.zoomLabel}>{Math.round(zoom * 100)}%</span><button aria-label="Zoom in" onClick={() => setZoom((current) => Math.min(1.4, Number((current + .1).toFixed(2))))}>+</button><button onClick={fitContent}>Fit content</button><button onClick={resetLayout}>Auto-layout</button><span className={local.graphLegend}><i className={local.legendObserved} />Observed <i className={local.legendPlanned} />Planned <i className={local.legendAi} />AI reviewed</span></div></header>
+    <div className={local.graphStage} style={{ width: graphWidth * zoom, height: graphHeight * zoom }}>
+    <div className={local.graphCanvas} onPointerDown={(event) => { if (event.target === event.currentTarget) setPanStart({ x: event.clientX, y: event.clientY, origin: pan }); }} style={{ width: graphWidth, height: graphHeight, transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: "top left" }}>
       <svg className={local.graphEdges} width={graphWidth} height={graphHeight} aria-hidden="true">
         <defs><marker id="map-flow-arrow-observed" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#16835a" /></marker><marker id="map-flow-arrow-planned" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#a5b5ad" /></marker></defs>
         {visibleEdges.map((edge) => {
@@ -233,7 +296,7 @@ function FlowGraph({ nodes, edges, nodeMap, classifications, decisions, onNodeCl
           </button>;
         })}
       </div>)}
-    </div><div className={local.minimap} aria-label="Graph minimap"><span>MINIMAP</span>{lanes.map((lane, index) => <div className={local.minimapLane} key={lane.name} style={{ left: `${index * 20}%`, width: "20%" }}><b>{lane.nodes.length}</b></div>)}</div>{hideQualityChecks && qualityTestNodes.length > 0 && <div className={local.graphNote}>{qualityTestNodes.length} dbt test{qualityTestNodes.length === 1 ? "" : "s"} grouped into <strong>Quality checks</strong>. Show dbt test links to expand them.</div>}
+    </div></div><div className={local.minimap} aria-label="Graph minimap"><span>MINIMAP</span>{lanes.map((lane, index) => <div className={local.minimapLane} key={lane.name} style={{ left: `${index * 20}%`, width: "20%" }}><b>{lane.nodes.length}</b></div>)}</div>{hideQualityChecks && qualityTestNodes.length > 0 && <div className={local.graphNote}>{qualityTestNodes.length} dbt test{qualityTestNodes.length === 1 ? "" : "s"} grouped into <strong>Quality checks</strong>. Show dbt test links to expand them.</div>}
   </div>;
 }
 
@@ -251,6 +314,7 @@ function ProjectDesignView({ defaultView = "roles", navActive = "design", contex
   const [pipelineId, setPipelineId] = useState("");
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const [sourceTables, setSourceTables] = useState<SelectedSourceTable[]>([]);
+  const [liveCatalogs, setLiveCatalogs] = useState<{ source: CatalogIdentity[]; target: CatalogIdentity[]; sourceStatus: string; targetStatus: string }>({ source: [], target: [], sourceStatus: "LOADING", targetStatus: "LOADING" });
   const [tableFilter, setTableFilter] = useState("all");
   const [draftRoles, setDraftRoles] = useState<Record<string, string>>({});
   const [draftRelationships, setDraftRelationships] = useState<Record<string, string>>({});
@@ -268,6 +332,7 @@ function ProjectDesignView({ defaultView = "roles", navActive = "design", contex
   const [hideQualityChecks, setHideQualityChecks] = useState(true);
   const [showEdgePanel, setShowEdgePanel] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [analysisLoading, setAnalysisLoading] = useState(true);
   const [reviewBusy, setReviewBusy] = useState<string | null>(null);
   const [runtimeBusy, setRuntimeBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
@@ -291,6 +356,7 @@ function ProjectDesignView({ defaultView = "roles", navActive = "design", contex
       setReport(workspace.report ? normalizeProjectAnalysis(workspace.report) : null);
       setDecisions(workspace.decisions);
       setCapabilities(workspace.capabilities);
+      if (workspace.scope_warning) setNotice({ tone: "bad", text: workspace.scope_warning });
       const storedReview = workspace.ai_review;
       const currentRunId = workspace.report?.run_id;
       setAiReview(storedReview && (!currentRunId || storedReview.analysis_run_id === currentRunId) ? storedReview : null);
@@ -305,8 +371,18 @@ function ProjectDesignView({ defaultView = "roles", navActive = "design", contex
       setPipelineId(isMapView
         ? ALL_ACCEPTED_FLOWS_ID
         : scopedPipeline?.pipeline_id || workspace.report?.pipelines?.[0]?.pipeline_id || "");
-    }).catch((error: Error) => setNotice({ tone: "bad", text: error.message }));
+    }).catch((error: Error) => setNotice({ tone: "bad", text: error.message })).finally(() => setAnalysisLoading(false));
   }, [defaultView]);
+
+  useEffect(() => {
+    let mounted = true;
+    void fetch(scopedApiUrl("/api/reconciliation"), { cache: "no-store", signal: AbortSignal.timeout(20000) }).then(async (response) => {
+      const value = await response.json() as { catalogs?: { source?: CatalogIdentity[]; target?: CatalogIdentity[] }; connectionStatus?: { source?: string; target?: string } };
+      if (!response.ok) throw new Error("catalog unavailable");
+      if (mounted) setLiveCatalogs({ source: value.catalogs?.source ?? [], target: value.catalogs?.target ?? [], sourceStatus: value.connectionStatus?.source ?? "UNVERIFIED", targetStatus: value.connectionStatus?.target ?? "UNVERIFIED" });
+    }).catch(() => { if (mounted) setLiveCatalogs({ source: [], target: [], sourceStatus: "UNAVAILABLE", targetStatus: "UNAVAILABLE" }); });
+    return () => { mounted = false; };
+  }, []);
 
   useEffect(() => {
     if (view !== "map" || report?.runtime?.status !== "RUNNING") return;
@@ -348,7 +424,15 @@ function ProjectDesignView({ defaultView = "roles", navActive = "design", contex
   }, [report]);
 
   const topLevelRows = useMemo(() => [...new Map((report?.asset_classifications ?? []).map((classification) => [classification.asset_id, classification])).values()].map((classification) => ({ classification, node: nodeMap.get(classification.asset_id) })).filter((row): row is { classification: AssetClassification; node: AnalysisNode } => Boolean(row.node && isTopLevel(row.node))), [report, nodeMap]);
-  const scopedTopLevelRows = useMemo(() => tableFilter === "all" ? topLevelRows : topLevelRows.filter(({ node }) => nodeBelongsToTable(node, tableFilter, sourceTables)), [topLevelRows, tableFilter, sourceTables]);
+  const scopedTopLevelRows = useMemo(() => tableFilter === "all" ? topLevelRows : topLevelRows.filter(({ node }) => nodeBelongsToSourceTable(node, tableFilter, sourceTables)), [topLevelRows, tableFilter, sourceTables]);
+  const sourceCoverage = useMemo(() => sourceTableDiscoveryCoverage(sourceTables, topLevelRows.map(({ node }) => node)), [sourceTables, topLevelRows]);
+  const uniqueSavedSourceTables = useMemo(() => uniqueSourceTables(sourceTables), [sourceTables]);
+  const liveSourceCount = catalogAvailability(liveCatalogs.source, liveCatalogs.sourceStatus);
+  const liveTargetCount = catalogAvailability(liveCatalogs.target, liveCatalogs.targetStatus);
+  const acceptedAssets = acceptedAssetCount(topLevelRows.map(({ node }) => node));
+  const analyzedFlows = analyzedFlowCount((report?.pipelines ?? []).map((pipeline) => pipeline.pipeline_id));
+  const runtimeCounts = runtimeEvidenceCounts(report?.runtime);
+  const inventoryCount = (value: ReturnType<typeof catalogAvailability>) => value.availableCount === null ? value.state === "LOADING" ? "Loading" : "Unavailable" : value.availableCount;
 
   const roleRows = useMemo(() => scopedTopLevelRows.filter(({ classification, node }) => {
     const status = decisionStatus(classification, decisions.assets[classification.asset_id]);
@@ -404,7 +488,7 @@ function ProjectDesignView({ defaultView = "roles", navActive = "design", contex
     if (!activeTable) return;
     const pipelineMatchesTable = (pipeline: NonNullable<ProjectAnalysisReport["pipelines"]>[number]) => pipeline.node_ids.some((id) => {
       const node = nodeMap.get(id);
-      return Boolean(node && nodeBelongsToTable(node, activeTable.id, sourceTables));
+      return Boolean(node && nodeBelongsToSourceTable(node, activeTable.id, sourceTables));
     });
     if (pipelineMatchesTable(selectedPipeline)) return;
     const matchingPipeline = report.pipelines?.find(pipelineMatchesTable);
@@ -417,7 +501,7 @@ function ProjectDesignView({ defaultView = "roles", navActive = "design", contex
     ? canonicalGraphNodes.filter(isTopLevel)
     : pipelineNodes;
   const pipelineEdges = uniqueRelationships([...(report?.relationship_classifications ?? []), ...proposedEdges]).filter((item) => selectedPipeline?.edge_ids.includes(item.edge_id) || item.pipeline_ids.includes(selectedPipeline?.pipeline_id || ""));
-  const tableScopedPipelineNodes = tableFilter === "all" ? acceptedProjectNodes : acceptedProjectNodes.filter((node) => nodeBelongsToTable(node, tableFilter, sourceTables));
+  const tableScopedPipelineNodes = tableFilter === "all" ? acceptedProjectNodes : acceptedProjectNodes.filter((node) => nodeBelongsToSourceTable(node, tableFilter, sourceTables));
   const tableScopedNodeIds = new Set(tableScopedPipelineNodes.map((node) => node.node_id));
   const tableScopedPipelineEdges = tableFilter === "all" ? pipelineEdges : pipelineEdges.filter((edge) => tableScopedNodeIds.has(edge.source_asset_id) && tableScopedNodeIds.has(edge.target_asset_id));
   const selectedPipelineNodes = mapScope === "selected"
@@ -456,9 +540,9 @@ function ProjectDesignView({ defaultView = "roles", navActive = "design", contex
       const value = await requestAnalysis({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "analyze" }) });
       const next = value.report as ProjectAnalysisReport;
       const normalized = normalizeProjectAnalysis(next);
-      setReport(normalized); setPipelineId(view === "map" ? ALL_ACCEPTED_FLOWS_ID : normalized.pipelines?.[0]?.pipeline_id || "");
+      setReport(normalized); setPipelineId(view === "map" || isMapRoute() ? ALL_ACCEPTED_FLOWS_ID : normalized.pipelines?.[0]?.pipeline_id || "");
       setNotice({ tone: "good", text: `Analysis persisted from ${normalized.summary.top_level_assets} unique accepted discovered assets.` });
-    } catch (error) { setNotice({ tone: "bad", text: error instanceof Error ? error.message : "Analysis failed" }); }
+    } catch (error) { setNotice({ tone: "bad", text: analysisRequestError(error, "running analysis") }); }
     finally { setBusy(false); }
   };
 
@@ -468,9 +552,9 @@ function ProjectDesignView({ defaultView = "roles", navActive = "design", contex
       const value = await requestAnalysis({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "refresh" }) });
       const next = value.report as ProjectAnalysisReport;
       const normalized = normalizeProjectAnalysis(next);
-      setReport(normalized); setPipelineId(view === "map" ? ALL_ACCEPTED_FLOWS_ID : normalized.pipelines?.[0]?.pipeline_id || "");
+      setReport(normalized); setPipelineId(view === "map" || isMapRoute() ? ALL_ACCEPTED_FLOWS_ID : normalized.pipelines?.[0]?.pipeline_id || "");
       setNotice({ tone: "good", text: `Runtime evidence refreshed: ${next.runtime?.status || "NOT_RUN"}. No pipeline was started.` });
-    } catch (error) { setNotice({ tone: "bad", text: error instanceof Error ? error.message : "Runtime refresh failed" }); }
+    } catch (error) { setNotice({ tone: "bad", text: analysisRequestError(error, "refreshing runtime evidence") }); }
     finally { setRuntimeBusy(false); }
   };
 
@@ -526,15 +610,23 @@ function ProjectDesignView({ defaultView = "roles", navActive = "design", contex
   };
 
   const openAiStatus = capabilities.openai && typeof capabilities.openai === "object" ? String((capabilities.openai as Record<string, unknown>).status || "UNAVAILABLE") : "UNAVAILABLE";
-  const analysisActions = <div className={local.analysisActions}><span className={`${local.status} ${tone(report?.status || "NOT_RUN")}`}>{report?.status || "NOT RUN"}</span><button className={styles.secondary} disabled={busy} onClick={() => void runAnalysis()}>{busy ? "Organizing catalog…" : "Run automated analysis"}</button></div>;
+  const analysisActions = <div className={local.analysisActions}><span className={`${local.status} ${tone(report?.status || "NOT_RUN")}`}>{report?.status || "NOT RUN"}</span><button className={styles.secondary} disabled={busy || analysisLoading} onClick={() => void runAnalysis()}>{analysisLoading ? "Loading lineage…" : busy ? "Organizing catalog…" : "Run automated analysis"}</button></div>;
 
   return <ProjectManagementShell phase={view === "map" ? "map" : "objects"} navActive={view === "map" ? "map" : navActive} contextOnly={contextOnly} title={view === "map" ? "Lineage" : "Catalog"} description={view === "map" ? "Explore accepted relationships across all project objects." : ""} headerActions={analysisActions}>
     {notice && <div className={notice.tone === "good" ? styles.successStrip : styles.dangerStrip}>{notice.text}</div>}
 
-    {!report ? <section className={styles.panel}><header className={styles.panelHead}><div><h2>No catalog analysis yet</h2><p>Run analysis to organize the saved discovery catalog.</p></div><button className={styles.primary} disabled={busy} onClick={() => void runAnalysis()}>{busy ? "Organizing catalog…" : "Run analysis"}</button></header></section> : <>
+    {!report ? <section className={styles.panel}><header className={styles.panelHead}><div><h2>No catalog analysis yet</h2><p>Run analysis to organize the saved discovery catalog.</p></div><button className={styles.primary} disabled={busy || analysisLoading} onClick={() => void runAnalysis()}>{analysisLoading ? "Loading lineage…" : busy ? "Organizing catalog…" : "Run analysis"}</button></header></section> : <>
+      <section className={local.metrics} aria-label="Project inventory coverage">
+        <article><span>Available PostgreSQL tables</span><strong>{inventoryCount(liveSourceCount)}</strong><small>{liveSourceCount.availableCount === null ? `${liveSourceCount.cachedCount ? `${liveSourceCount.cachedCount} cached entries · ` : ""}${liveSourceCount.state.toLowerCase()}; live count not confirmed` : "Live connector catalog"}</small></article>
+        <article><span>Available Snowflake catalog entries</span><strong>{inventoryCount(liveTargetCount)}</strong><small>{liveTargetCount.availableCount === null ? `${liveTargetCount.cachedCount ? `${liveTargetCount.cachedCount} cached entries · ` : ""}${liveTargetCount.state.toLowerCase()}; live count not confirmed` : "Live connector metadata; object type not supplied"}</small></article>
+        <article><span>Selected / onboarded source tables</span><strong>{uniqueSavedSourceTables.length}</strong><small>Saved project scope; not all available tables</small></article>
+        <article><span>Accepted analysis assets</span><strong>{acceptedAssets}</strong><small>Unique classified top-level objects; excludes columns and tasks</small></article>
+        <article><span>Analyzed flows</span><strong>{analyzedFlows}</strong><small>Unique source-rooted flows in this saved analysis</small></article>
+        <article><span>Runtime-verified evidence</span><strong>{runtimeCounts.refreshedAt ? `${runtimeCounts.nodes} nodes · ${runtimeCounts.edges} links` : "Not checked"}</strong><small>{runtimeCounts.refreshedAt ? `Last refreshed ${new Date(runtimeCounts.refreshedAt).toLocaleString()}` : "No runtime refresh recorded; planned lineage is not execution evidence"}</small></article>
+      </section>
       <section className={local.metrics}>
-        <article><span>Discovered objects</span><strong>{topLevelRows.length}</strong><small>{canonicalGraphNodes.filter((node) => !isTopLevel(node)).length} columns and job tasks</small></article>
-        <article><span>Detected pipeline flows</span><strong>{report.pipelines.length}</strong><small>{uniqueRelationships(report.relationship_classifications).length} unique technical links</small></article>
+        <article><span>Discovered objects</span><strong>{acceptedAssets}</strong><small>Accepted classified assets; repeated canonical identities count once</small></article>
+        <article><span>Connected pipeline flows</span><strong>{analyzedFlows}</strong><small>{uniqueRelationships(report.relationship_classifications).length} classified relationships across the analysis; the graph applies scope and link filters</small></article>
         <article><span>Not connected yet</span><strong>{unresolvedNodes.length}</strong><small>Visible, but not assigned to a flow without evidence</small></article>
         <article><span>AI review</span><strong>{aiReviewStatusLabel(aiReview?.status, aiBusy, openAiStatus)}</strong><small>{aiReview ? `${aiReview.scope} review · human approval remains required` : aiReviewStatusDescription(false, openAiStatus)}</small></article>
       </section>
@@ -544,8 +636,9 @@ function ProjectDesignView({ defaultView = "roles", navActive = "design", contex
       </section></details>
 
       {view === "roles" ? <>
-        {sourceTables.length > 0 && <section className={local.tableScopeBar}><strong>Table scope</strong><select aria-label="Filter source table" value={tableFilter} onChange={(event) => setTableFilter(event.target.value)}><option value="all">All source tables</option>{sourceTables.map((table) => <option key={table.id} value={table.id}>{table.database}.{table.schema}.{table.table}</option>)}</select><span>{tableFilter === "all" ? "Combined project catalog" : "Showing one isolated table workflow"}</span></section>}
-        <section className={local.toolbar}><div><strong>Discovered data and pipeline objects</strong><span>{roleRows.length} of {topLevelRows.length} objects match</span></div><input aria-label="Search objects" placeholder="Search object, type or role" value={query} onChange={(event) => setQuery(event.target.value)} /><select aria-label="Filter layer" value={layerFilter} onChange={(event) => setLayerFilter(event.target.value)}><option value="all">All pipeline layers</option>{layerOrder.map((item) => <option key={item}>{item}</option>)}</select><select aria-label="Filter technology" value={technologyFilter} onChange={(event) => setTechnologyFilter(event.target.value)}><option value="all">All technologies</option>{technologies.map((item) => <option key={item}>{item}</option>)}</select><select aria-label="Filter object type" value={kindFilter} onChange={(event) => setKindFilter(event.target.value)}><option value="all">All object types</option>{kinds.map((item) => <option key={item}>{item.replaceAll("_", " ")}</option>)}</select><select aria-label="Filter review status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All review statuses</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select>{(query || layerFilter !== "all" || technologyFilter !== "all" || kindFilter !== "all" || statusFilter !== "all") && <button onClick={() => { setQuery(""); setLayerFilter("all"); setTechnologyFilter("all"); setKindFilter("all"); setStatusFilter("all"); }}>Clear filters</button>}</section>
+        {uniqueSavedSourceTables.length > 0 && <section className={local.tableScopeBar}><strong>Table scope</strong><select aria-label="Filter source table" value={tableFilter} onChange={(event) => setTableFilter(event.target.value)}><option value="all">All source tables</option>{uniqueSavedSourceTables.map((table) => <option key={table.id} value={table.id}>{table.database}.{table.schema}.{table.table}</option>)}</select><span>{tableFilter === "all" ? "Combined project catalog" : "Showing one isolated table workflow"}</span></section>}
+        {tableFilter === "all" && sourceCoverage.missing.length > 0 && <aside className={local.catalogCoverage} role="status"><div><strong>Discovery covers {sourceCoverage.discovered} of {uniqueSavedSourceTables.length} selected source tables</strong><p>{sourceCoverage.missing.length} selected tables have no accepted discovery result in this analysis, so their objects are not included: {sourceCoverage.missing.map((table) => table.table).join(", ")}.</p></div><ScopedLink href="/register-project?phase=discovery">Review discovery</ScopedLink></aside>}
+        <section className={local.toolbar}><div><strong>Discovered data and pipeline objects</strong><span>{roleRows.length} of {topLevelRows.length} objects match</span></div><input aria-label="Search objects" placeholder="Search object, type or role" value={query} onChange={(event) => setQuery(event.target.value)} /><label className={local.layerFilter}><span>Pipeline layer</span><select aria-label="Filter pipeline layer" value={layerFilter} onChange={(event) => setLayerFilter(event.target.value)}><option value="all">All pipeline layers</option>{layerOrder.map((item) => <option key={item}>{item}</option>)}</select></label><select aria-label="Filter technology" value={technologyFilter} onChange={(event) => setTechnologyFilter(event.target.value)}><option value="all">All technologies</option>{technologies.map((item) => <option key={item}>{item}</option>)}</select><select aria-label="Filter object type" value={kindFilter} onChange={(event) => setKindFilter(event.target.value)}><option value="all">All object types</option>{kinds.map((item) => <option key={item}>{item.replaceAll("_", " ")}</option>)}</select><select aria-label="Filter review status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All review statuses</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select>{(query || layerFilter !== "all" || technologyFilter !== "all" || kindFilter !== "all" || statusFilter !== "all") && <button onClick={() => { setQuery(""); setLayerFilter("all"); setTechnologyFilter("all"); setKindFilter("all"); setStatusFilter("all"); }}>Clear filters</button>}</section>
         <div className={local.roleWorkspace}>{layerOrder.map((layerName) => {
           const groups = groupedRoles.get(layerName); if (!groups?.size) return null;
           return <section className={local.layer} key={layerName}><header><div><span>PIPELINE LAYER</span><h2>{layerName}</h2></div><b>{[...groups.values()].reduce((sum, rows) => sum + rows.length, 0)}</b></header>{[...groups.entries()].map(([tech, rows]) => <div className={local.technology} key={tech}><div className={local.technologyHead}><strong>{tech}</strong><span>{rows.length} objects</span></div><div className={local.roleGrid}>{rows.map(({ node, classification }) => {
@@ -561,8 +654,8 @@ function ProjectDesignView({ defaultView = "roles", navActive = "design", contex
         {roleRows.length === 0 && <section className={local.emptyResult}><strong>No objects match these filters.</strong><span>Clear one or more filters to return to the discovered object catalog.</span></section>}
         {roleRows.length > 0 && <nav className={local.pagination} aria-label="Asset catalog pages"><span>Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, roleRows.length)} of {roleRows.length}</span><div><button disabled={page === 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button><strong>Page {page} of {pageCount}</strong><button disabled={page === pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))}>Next</button></div></nav>}
       </> : <>
-        {sourceTables.length > 0 && <section className={local.tableScopeBar}><strong>Table scope</strong><select aria-label="Filter lineage by source table" value={tableFilter} onChange={(event) => setTableFilter(event.target.value)}><option value="all">All source tables</option>{sourceTables.map((table) => <option key={table.id} value={table.id}>{table.database}.{table.schema}.{table.table}</option>)}</select><span>{tableFilter === "all" ? "Combined project graph" : "Showing one isolated table lineage"}</span></section>}
-        <section className={local.toolbar}><div><strong>Project lineage</strong><span>The default graph shows every accepted project object. Existing links are shown; unconnected objects remain visible without invented paths.</span></div><select aria-label="Map scope" value={mapScope} onChange={(event) => setMapScope(event.target.value as "selected" | "catalog")}><option value="selected">Selected assets only</option><option value="catalog">Full accepted catalog</option></select><select aria-label="Select detected flow" value={selectedPipeline?.pipeline_id || ""} onChange={(event) => setPipelineId(event.target.value)}>{allAcceptedPipeline && <option value={ALL_ACCEPTED_FLOWS_ID}>All accepted objects · {report.summary.top_level_assets}</option>}{(report.pipelines ?? []).map((pipeline) => <option value={pipeline.pipeline_id} key={pipeline.pipeline_id}>{pipeline.name} · {pipeline.node_ids.length} objects</option>)}</select><select aria-label="Filter source asset" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}><option value="all">All source assets</option>{mapSources.map((id) => <option key={id} value={id}>{nodeMap.get(id)?.name || id}</option>)}</select><select aria-label="Filter target asset" value={targetFilter} onChange={(event) => setTargetFilter(event.target.value)}><option value="all">All target assets</option>{mapTargets.map((id) => <option key={id} value={id}>{nodeMap.get(id)?.name || id}</option>)}</select><select aria-label="Filter mapping layer" value={mapLayerFilter} onChange={(event) => setMapLayerFilter(event.target.value)}><option value="all">All layers</option>{layerOrder.map((item) => <option key={item}>{item}</option>)}</select><button onClick={() => setHideQualityChecks((current) => !current)}>{hideQualityChecks ? "Show dbt test links" : "Hide dbt test links"}</button><button onClick={() => setShowEdgePanel((current) => !current)}>{showEdgePanel ? "Hide link details" : "Show link details"}</button><button onClick={() => setAddingEdge(true)}>Propose mapping</button></section>
+        {uniqueSavedSourceTables.length > 0 && <section className={local.tableScopeBar}><strong>Table scope</strong><select aria-label="Filter lineage by source table" value={tableFilter} onChange={(event) => setTableFilter(event.target.value)}><option value="all">All source tables</option>{uniqueSavedSourceTables.map((table) => <option key={table.id} value={table.id}>{table.database}.{table.schema}.{table.table}</option>)}</select><span>{tableFilter === "all" ? "Combined project graph" : "Showing one isolated table lineage"}</span></section>}
+        <section className={`${local.toolbar} ${local.mapToolbar}`}><div><strong>Project lineage</strong><span>The default graph shows every accepted project object. Existing links are shown; unconnected objects remain visible without invented paths.</span></div><select aria-label="Map scope" value={mapScope} onChange={(event) => setMapScope(event.target.value as "selected" | "catalog")}><option value="selected">Selected assets only</option><option value="catalog">Full accepted catalog</option></select><select aria-label="Select detected flow" value={selectedPipeline?.pipeline_id || ""} onChange={(event) => setPipelineId(event.target.value)}>{allAcceptedPipeline && <option value={ALL_ACCEPTED_FLOWS_ID}>All accepted objects · {report.summary.top_level_assets}</option>}{(report.pipelines ?? []).map((pipeline) => <option value={pipeline.pipeline_id} key={pipeline.pipeline_id}>{pipeline.name} · {pipeline.node_ids.length} objects</option>)}</select><select aria-label="Filter source asset" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}><option value="all">All source assets</option>{mapSources.map((id) => <option key={id} value={id}>{nodeMap.get(id)?.name || id}</option>)}</select><select aria-label="Filter target asset" value={targetFilter} onChange={(event) => setTargetFilter(event.target.value)}><option value="all">All target assets</option>{mapTargets.map((id) => <option key={id} value={id}>{nodeMap.get(id)?.name || id}</option>)}</select><select aria-label="Filter mapping layer" value={mapLayerFilter} onChange={(event) => setMapLayerFilter(event.target.value)}><option value="all">All layers</option>{layerOrder.map((item) => <option key={item}>{item}</option>)}</select><button onClick={() => setHideQualityChecks((current) => !current)}>{hideQualityChecks ? "Show dbt test links" : "Hide dbt test links"}</button><button onClick={() => setShowEdgePanel((current) => !current)}>{showEdgePanel ? "Hide link details" : "Show link details"}</button><button onClick={() => setAddingEdge(true)}>Propose mapping</button></section>
         <section className={local.runtimePanel} aria-label="Runtime evidence">
           <header><div><span>RUNTIME EVIDENCE</span><h2>{report.runtime?.status || "NOT_RUN"}</h2><p>{report.runtime?.note || "Discovery and planned lineage are not execution evidence."}</p></div><button className={styles.secondary} disabled={runtimeBusy} onClick={() => void refreshRuntime()}>{runtimeBusy ? "Refreshing…" : "Refresh runtime evidence"}</button></header>
           <div className={local.runtimeGrid}>{["airflow", "dbt", "snowflake"].map((system) => { const item = report.runtime?.systems?.[system]; return <article key={system}><span>{system}</span><strong>{item?.status || "NOT_RUN"}</strong><small>{item?.completed_at ? `Completed ${new Date(item.completed_at).toLocaleString()}` : "No matching runtime completion observed"}</small></article>; })}</div>
@@ -571,10 +664,11 @@ function ProjectDesignView({ defaultView = "roles", navActive = "design", contex
         <section className={local.aiPanel} aria-label="AI lineage verification"><header><div><span>OPTIONAL AI REVIEW</span><h2>{aiReviewStatusLabel(aiReview?.status, aiBusy, openAiStatus)}</h2><p>AI review is optional and advisory; deterministic analysis remains the source of truth.</p></div><div className={local.aiActions}><button disabled={aiBusy} onClick={() => void verifyWithAI("proposed")}>{aiBusy ? "Reviewing…" : "Verify proposed mappings"}</button><button disabled={aiBusy} onClick={() => void verifyWithAI("all")}>Verify entire graph</button><button disabled={aiBusy} onClick={() => void verifyWithAI("conflicts")}>Review conflicts</button></div></header>{aiReview && <div className={local.aiResult}>
           <span>{aiReview.subjects_requested} relationships reviewed · {aiReview.reviews?.filter((item) => item.needs_human_approval).length || 0} need human approval</span>
           <small>{aiReview.outcome || aiReview.reason || `${aiReview.reviews?.length || 0} AI findings · ${aiReview.created_at ? new Date(aiReview.created_at).toLocaleString() : ""}`}</small>
+          {safeAIProviderFailure(aiReview.reason) && <p role="status">{safeAIProviderFailure(aiReview.reason)}</p>}
           <div className={local.aiReviewMeta}><span>Validation: {aiReview.validation?.status || "NOT RUN"}</span><span>Evidence: {aiReview.evidence_state || "NOT CHECKED"}</span><span>Provider: {aiReview.provider || "—"} · {aiReview.model || "—"}</span>{typeof aiReview.latency_ms === "number" && <span>{aiReview.latency_ms} ms</span>}</div>
           {aiReview.uncertainty && <p><strong>Uncertainty:</strong> {aiReview.uncertainty}</p>}
           {aiReview.reviews?.slice(0, 3).map((item) => <article key={item.subject_id}><strong>{item.subject_id}</strong><span>{Math.round(item.confidence * 100)}% evidence coverage · {item.needs_human_approval ? "Needs human approval" : "Review"}</span><small>{item.reasoning}{item.conflicts?.length ? ` Conflicts: ${item.conflicts.join("; ")}` : ""}</small><small>Citations: {item.evidence_links?.length ? item.evidence_links.map((link, index) => <span key={link.evidence_id || index}>{index ? ", " : ""}{link.href ? <a href={link.href} target="_blank" rel="noreferrer">{link.evidence_id}</a> : link.evidence_id}</span>) : "none"} · model score retained as advisory: {Math.round((item.model_confidence ?? 0) * 100)}%</small></article>)}
-          <p><strong>Next action:</strong> {aiReview.next_action || "Inspect the cited evidence and review the mapping."}</p>
+          <p><strong>Next action:</strong> {aiReviewNextAction(aiReview.reason, aiReview.next_action)}</p>
         </div>}</section>
         {selectedPipeline ? <><section className={local.mapSummary}><article><span>Map scope</span><strong>{mapScope === "selected" ? "Selected" : "Catalog"}</strong><small>{mapScope === "selected" ? `${selectedAssetIds.length} saved asset${selectedAssetIds.length === 1 ? "" : "s"}` : `${report.summary.top_level_assets} accepted objects`}</small></article><article><span>Objects in graph</span><strong>{selectedPipelineNodes.length}</strong><small>Drag to arrange · click to inspect</small></article><article><span>Links in graph</span><strong>{graphLinkCount}</strong><small>{hideQualityChecks ? `${groupedQualityLinkCount} quality-check group link${groupedQualityLinkCount === 1 ? "" : "s"} · detail list collapsed` : "All evidence links shown"}</small></article></section><details className={local.mappingTableDetails}><summary>Open mapping list <span>{displayedPipelineEdges.length} links · optional list view</span></summary><section className={local.mappingTable}><header><div><h2>Asset mappings</h2><p>Use the graph as the primary view. This compact list is available for precise scanning.</p></div><strong>{displayedPipelineEdges.length} links</strong></header><div><table><thead><tr><th>Source asset</th><th>Target asset</th><th>Lineage state</th><th>Runtime</th></tr></thead><tbody>{displayedPipelineEdges.slice(0, 80).map((edge) => <tr key={edge.edge_id}><td>{nodeMap.get(edge.source_asset_id)?.name || edge.source_asset_id}</td><td>{nodeMap.get(edge.target_asset_id)?.name || edge.target_asset_id}</td><td><span className={`${local.status} ${edge.lineage_state === "OBSERVED" ? local.good : local.review}`}>{edge.lineage_state || "PLANNED"}</span></td><td>{edge.runtime_status || "NOT_RUN"}</td></tr>)}</tbody></table>{!displayedPipelineEdges.length && <div className={local.emptyResult}>No evidence-backed mappings match the current filters.</div>}</div></section></details><div className={`${local.mapWorkspace} ${showEdgePanel ? "" : local.mapWorkspaceFull}`}><section className={local.pipelineCanvas}><header><div><span className={`${local.status} ${tone(selectedPipeline.status)}`}>{selectedPipeline.status}</span><h2>{selectedPipeline.name}</h2><p>{selectedPipelineNodes.length} visible nodes · {graphLinkCount} visible links · {selectedPipeline.technology_kinds.join(" → ")}</p></div></header>{selectedPipelineNodes.length ? <FlowGraph nodes={selectedPipelineNodes} edges={visiblePipelineEdges} nodeMap={nodeMap} classifications={classifications} decisions={decisions} hideQualityChecks={hideQualityChecks} onNodeClick={(id) => void openAsset(id)} onEdgeClick={setEdgeInspector} /> : <div className={local.graphEmpty}><strong>No selected assets are in this flow.</strong><span>Switch Map scope to Full accepted catalog or select assets in Discover assets.</span></div>}</section>{showEdgePanel && <section className={local.edgePanel}><header><h3>Link details</h3><span>{displayedPipelineEdges.length}</span></header>{displayedPipelineEdges.map((edge) => {
           const source = nodeMap.get(edge.source_asset_id); const target = nodeMap.get(edge.target_asset_id); const decision = decisions.relationships[edge.edge_id]; const status = decisionStatus(edge, decision); const selected = draftRelationships[edge.edge_id] || decision?.relationship || edge.relationship; const isDraft = edge.edge_id.startsWith("draft-edge-");
@@ -595,7 +689,7 @@ function ProjectDesignView({ defaultView = "roles", navActive = "design", contex
           {([['metadata', 'Live metadata'], ['definition', 'Definition'], ['evidence', 'Lineage evidence'], ['children', children[0]?.kind === 'airflow_task' ? 'Tasks' : 'Columns'], ['history', 'Execution history']] as Array<[InspectorTab, string]>).map(([id, label]) => <button className={inspectorTab === id ? local.activeInspectorTab : ""} key={id} onClick={() => setInspectorTab(id)}>{label}{id === "children" && children.length ? ` (${children.length})` : ""}</button>)}
         </nav>
         {inspectorTab === "metadata" && <><div className={local.objectSummary}><div><span>Classification</span><strong>{classification?.roles.map((item) => item.replaceAll("_", " ")).join(", ") || "Not classified"}</strong></div><div><span>Review status</span><strong>{classification ? decisionStatus(classification, decisions.assets[classification.asset_id]) : "DISCOVERED"}</strong></div><div><span>Evidence records</span><strong>{items.length}</strong></div></div><dl className={local.metadataList}>{metadata.map(([key, value]) => <div key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{String(value)}</dd></div>)}</dl></>}
-        {inspectorTab === "definition" && <>{assetSource.content_scope === "FULL_FILE" && <div className={styles.dangerStrip}><strong>Exact definition was not isolated.</strong> This is the attached source file, not a claim that every statement defines the selected object.</div>}{assetSource.content_scope === "OBJECT_DEFINITION" && <div className={styles.successStrip}><strong>Selected object definition isolated.</strong> The code below is the matching definition, not the entire deployment file.</div>}{displayedSource ? <><div className={local.sourceToolbar}><span>{showFullSource ? "Complete source file" : assetSource.content_scope === "OBJECT_DEFINITION" ? "Exact object definition" : "Attached source file"}</span>{assetSource.full_content_available && <button onClick={() => setShowFullSource((current) => !current)}>{showFullSource ? "Show exact definition" : "Open full file"}</button>}</div><pre className={local.code}><code>{displayedSource}</code></pre></> : <div className={styles.dangerStrip}>{assetSource.reason || "No repository definition is attached to this object."}</div>}</>}
+        {inspectorTab === "definition" && <>{assetSource.content_scope === "FULL_FILE" && <div className={styles.dangerStrip}><strong>Object-specific definition was not isolated.</strong> This is the attached source file, not a claim that every statement defines the selected object.</div>}{assetSource.content_scope === "OBJECT_DEFINITION" && <div className={styles.successStrip}><strong>{assetSource.definition_kind === "RECONSTRUCTED_DDL" ? "Definition reconstructed from provider catalog metadata." : "Object definition captured."}</strong> {assetSource.definition_source ? `Source: ${assetSource.definition_source}.` : "The content is scoped to this object."}{assetSource.captured_at ? ` Captured ${new Date(assetSource.captured_at).toLocaleString()}.` : ""}</div>}{displayedSource ? <>{assetSource.provider_reason && <div className={styles.infoStrip}><span>i</span><div><strong>Live definition could not be confirmed</strong><p>{assetSource.provider_reason} Showing the available repository definition instead.</p></div></div>}<div className={local.sourceToolbar}><span>{showFullSource ? "Complete source file" : assetSource.content_scope === "OBJECT_DEFINITION" ? assetSource.definition_kind === "RECONSTRUCTED_DDL" ? "Reconstructed object DDL" : "Exact object definition" : "Attached source file"}</span>{assetSource.full_content_available && <button onClick={() => setShowFullSource((current) => !current)}>{showFullSource ? "Show exact definition" : "Open full file"}</button>}</div><pre className={local.code}><code>{displayedSource}</code></pre></> : <div className={styles.dangerStrip}><strong>{assetSource.status === "ERROR" ? "Definition retrieval failed." : "Definition unavailable."}</strong><p>{assetSource.reason || "No repository definition or provider DDL is available for this object."}{assetSource.definition_source ? ` Source checked: ${assetSource.definition_source}.` : ""}</p></div>}</>}
         {inspectorTab === "evidence" && <>{items.length ? <div className={local.evidenceGrid}>{items.map((item) => <article key={item.evidence_id}><span>{item.maturity}</span><strong>{item.source}</strong><small>{new Date(item.observed_at).toLocaleString()}</small><p>{String(item.payload.collection_method || "Collection method not recorded")}</p><code>{String(item.payload.location || "No code/metadata location")}</code></article>)}</div> : <div className={styles.dangerStrip}>No relationship evidence is attached to this object.</div>}</>}
         {inspectorTab === "children" && <>{children.length ? <div className={local.childInspector}>{children.map((child) => <button key={child.node_id} onClick={() => void openAsset(child.node_id)}><strong>{child.name.split(".").pop()}</strong><span>{String(child.properties.detail || child.kind)}</span></button>)}</div> : <div className={styles.infoStrip}><span>i</span><div><strong>No child objects discovered</strong><p>No columns or tasks were attached to this object by the current discovery snapshot.</p></div></div>}</>}
         {inspectorTab === "history" && <div className={styles.infoStrip}><span>i</span><div><strong>No object-level execution history is attached here</strong><p>Discovery evidence and runtime history are kept separate. This view will show only backend-sourced runs when an object-level execution reference exists.</p></div></div>}

@@ -956,8 +956,13 @@ def build_tool_registry() -> ToolRegistry:
     add("airflow_quality_scan", Capability.VERIFY, lambda a, kind="quality": airflow_control(a).report(kind, a), "Airflow 2/3 airflow quality scan deterministic control-plane capability.", platforms=frozenset({Platform.LOCAL}))
 
     add("airflow_runtime_dags", Capability.DISCOVER, lambda a: airflow_runtime(a).dags(limit=int(a.get("limit", 100))), "List DAGs through the version-aware Airflow REST adapter.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_runtime_version", Capability.DISCOVER, lambda a: airflow_runtime(a).version(), "Read the connected Airflow version.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_runtime_health", Capability.VERIFY, lambda a: airflow_runtime(a).health(), "Read live Airflow scheduler and metadata health.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_runtime_dag", Capability.DISCOVER, lambda a: airflow_runtime(a).dag(a["dag_id"]), "Read one DAG through the Airflow REST adapter.", platforms=frozenset({Platform.LOCAL}))
     add("airflow_runtime_dag_runs", Capability.DISCOVER, lambda a: airflow_runtime(a).dag_runs(a["dag_id"], limit=int(a.get("limit", 100))), "List DAG runs through the Airflow REST adapter.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_runtime_dag_run", Capability.DISCOVER, lambda a: airflow_runtime(a).dag_run(a["dag_id"], a["run_id"]), "Read one DAG run through the Airflow REST adapter.", platforms=frozenset({Platform.LOCAL}))
     add("airflow_runtime_task_instances", Capability.DISCOVER, lambda a: airflow_runtime(a).task_instances(a["dag_id"], a["run_id"]), "List task instances through the Airflow REST adapter.", platforms=frozenset({Platform.LOCAL}))
+    add("airflow_runtime_task_instance", Capability.DISCOVER, lambda a: airflow_runtime(a).task_instance(a["dag_id"], a["run_id"], a["task_id"]), "Read one task instance through the Airflow REST adapter.", platforms=frozenset({Platform.LOCAL}))
     add("airflow_runtime_logs", Capability.DISCOVER, lambda a: airflow_runtime(a).logs(a["dag_id"], a["run_id"], a["task_id"], try_number=int(a.get("try_number", 1))), "Read bounded task logs through the Airflow REST adapter.", platforms=frozenset({Platform.LOCAL}))
     add("airflow_runtime_assets", Capability.DISCOVER, lambda a: airflow_runtime(a).assets(), "List runtime Assets/Datasets via Airflow API.", platforms=frozenset({Platform.LOCAL}))
     add("airflow_runtime_import_errors", Capability.DISCOVER, lambda a: airflow_runtime(a).import_errors(), "List runtime DAG import errors via Airflow API.", platforms=frozenset({Platform.LOCAL}))
@@ -1132,6 +1137,77 @@ def build_tool_registry() -> ToolRegistry:
             max_objects=int(a.get("max_objects", 5000)),
         )
 
+    def live_inventory_handler(a: dict[str, Any], expected_platform: str) -> dict[str, Any]:
+        """Return live, read-only warehouse objects for the onboarding inventory view."""
+        store = _connection_store(a)
+        profile = store.resolve_config(a["connection"])
+        if profile["platform"] != expected_platform:
+            raise ValueError(
+                f"{a['connection']} is configured as {profile['platform']}, not {expected_platform}"
+            )
+        try:
+            connector = connector_from_args({
+                "platform": profile["platform"],
+                "config": profile["config"],
+            })
+        except ExternalConnectionUnavailable as exc:
+            return {
+                "connection": a["connection"],
+                "platform": profile["platform"],
+                "status": "SKIP_EXTERNAL",
+                "reason": str(exc),
+            }
+
+        objects: list[dict[str, Any]] = []
+        max_objects = max(1, min(int(a.get("max_objects", 5000)), 10000))
+        requested_schemas = a.get("schemas")
+        if isinstance(requested_schemas, str):
+            requested_schemas = [item.strip() for item in requested_schemas.split(",") if item.strip()]
+        allowed_schemas = {str(item).casefold() for item in requested_schemas or []}
+        schemas_seen = 0
+        for schema_meta in connector.list_schemas():
+            if allowed_schemas and schema_meta.name.casefold() not in allowed_schemas:
+                continue
+            schemas_seen += 1
+            for table in connector.list_tables(schema_meta.name):
+                if len(objects) >= max_objects:
+                    return {
+                        "connection": a["connection"],
+                        "platform": profile["platform"],
+                "status": "PASS",
+                "source": "Authenticated information_schema query",
+                "database": profile["config"].get("database"),
+                "schemas": schemas_seen,
+                "objects": objects,
+                "truncated": True,
+                    }
+                detail = connector.describe_table(schema_meta.name, table.name)
+                objects.append({
+                    "table_schema": detail.schema,
+                    "table_name": detail.name,
+                    "table_type": detail.object_type,
+                    "catalog": detail.catalog or table.catalog,
+                    "columns": [
+                        {
+                            "column_name": column.name,
+                            "data_type": column.data_type,
+                            "nullable": column.nullable,
+                            "ordinal_position": column.ordinal_position,
+                        }
+                        for column in detail.columns
+                    ],
+                })
+        return {
+            "connection": a["connection"],
+            "platform": profile["platform"],
+            "status": "PASS",
+            "source": "Authenticated information_schema query",
+            "database": profile["config"].get("database"),
+            "schemas": schemas_seen,
+            "objects": objects,
+            "truncated": False,
+        }
+
     def metadata_autocomplete_handler(a: dict[str, Any]) -> dict[str, Any]:
         context = _metadata_service(a).schema_context(
             connection_name=a.get("connection"),
@@ -1265,6 +1341,8 @@ def build_tool_registry() -> ToolRegistry:
 
     add("schema_refresh", Capability.DISCOVER, schema_refresh_handler, "Refresh persistent warehouse metadata using a configured read-only connector.", platforms=frozenset({Platform.LOCAL}))
     add("schema_index", Capability.DISCOVER, schema_refresh_handler, "Index live warehouse metadata into the local metadata service.", platforms=frozenset({Platform.LOCAL}))
+    add("postgres_live_inventory", Capability.DISCOVER, lambda a: live_inventory_handler(a, "postgres"), "Discover live PostgreSQL schemas, tables and columns through a read-only connector.", platforms=frozenset({Platform.LOCAL}))
+    add("snowflake_live_inventory", Capability.DISCOVER, lambda a: live_inventory_handler(a, "snowflake"), "Discover live Snowflake schemas, tables and columns through a read-only connector.", platforms=frozenset({Platform.LOCAL}))
     add("schema_search", Capability.DISCOVER, lambda a: {"assets": _metadata_service(a).search_assets(a.get("query", ""), connection_name=a.get("connection"), limit=int(a.get("limit", 50)))}, "Search persistent warehouse objects.", platforms=frozenset({Platform.LOCAL}))
     add("schema_inspect", Capability.DISCOVER, lambda a: _metadata_service(a).inspect(a["connection"], a["schema"], a["object"]), "Inspect indexed object and column metadata.", platforms=frozenset({Platform.LOCAL}))
     add("schema_tags", Capability.DISCOVER, lambda a: {"tags": _metadata_service(a).tags(a["connection"], a["schema"], a["object"])}, "Return indexed object tags.", platforms=frozenset({Platform.LOCAL}))

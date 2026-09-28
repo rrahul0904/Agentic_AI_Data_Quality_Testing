@@ -111,4 +111,5 @@ export type ProjectAnalysisWorkspace = {
   capabilities: Record<string, unknown>;
   decisions: AnalysisDecisions;
   ai_review?: AILineageReview | null;
+  scope_warning?: string;
 };

@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { currentWorkspaceRunIds, currentWorkspaceState, projectSlug, recordMatchesCurrentExecution, resolveWorkspace, type WorkspaceScope } from "../../../lib/server-workspace";
+import { currentWorkspaceState, projectSlug, resolveWorkspace, type WorkspaceScope } from "../../../lib/server-workspace";
+import { isPhase4Fixture, phase3Reconciliation } from "../../../lib/server-test-fixture";
 
 export const dynamic = "force-dynamic";
 
@@ -9,9 +10,11 @@ const API_BASE = process.env.ADE_API_BASE_URL ?? "http://127.0.0.1:8011";
 async function backend(endpoint: string, init?: RequestInit, timeoutMs = 120000): Promise<Record<string, unknown>> {
   const headers = new Headers(init?.headers);
   headers.set("x-ade-project-id", (init as RequestInit & { projectId?: string })?.projectId ?? "data-quality-testing-beta");
+  const environment = (init as RequestInit & { environment?: string })?.environment;
+  if (environment) headers.set("x-ade-environment", environment);
   const response = await fetch(`${API_BASE}${endpoint}`, { ...init, headers, cache: "no-store", signal: AbortSignal.timeout(timeoutMs) });
   const value = await response.json().catch(() => ({})) as Record<string, unknown>;
-  if (!response.ok) throw new Error(typeof value.detail === "string" ? value.detail : `ADE API returned ${response.status}`);
+  if (!response.ok) throw new Error(typeof value.detail === "string" ? value.detail : `ADE API returned ${response.status} for ${endpoint}`);
   return value;
 }
 
@@ -42,6 +45,7 @@ function configuredCatalog(catalogItems: Array<Record<string, unknown>>, schemaS
 
 function connectionState(metadata: Record<string, unknown>, catalogItems: Array<Record<string, unknown>>, profileConfigured: boolean, profileMatchesMetadata: boolean): string {
   if (!profileConfigured) return "NOT CONFIGURED";
+  if (String(metadata.status ?? "").toUpperCase() === "UNAVAILABLE") return "UNAVAILABLE";
   if (!profileMatchesMetadata) return "CONFIGURATION CHANGED";
   const status = String(metadata.status ?? "UNKNOWN").toUpperCase();
   if (status === "CONNECTED") return "CONNECTED";
@@ -118,15 +122,19 @@ function sameDatabase(configured: string, observed: unknown): boolean {
 export async function GET(request: Request) {
   try {
     const scope = await resolveWorkspace(request);
-    const [currentState, currentRunIds] = await Promise.all([currentWorkspaceState(scope), currentWorkspaceRunIds(scope)]);
+    if (isPhase4Fixture(request)) return Response.json(phase3Reconciliation(), { headers: { "Cache-Control": "no-store", "X-ADQ-Test-Fixture": "phase4" } });
+    const currentState = await currentWorkspaceState(scope);
     const hasActiveTable = Boolean(currentState.sourceTableScopeId && currentState.selectedSourceTable);
-    const metadata = (endpoint: string): Promise<Record<string, unknown>> => backend(endpoint, { projectId: scope.projectId } as RequestInit & { projectId: string }, 8000).catch(() => ({ status: "UNAVAILABLE" }));
-    const [history, qualityHistory, postgres, snowflake] = await Promise.all([
-      backend(`/api/v1/reconciliation/history?limit=50`, { projectId: scope.projectId } as RequestInit & { projectId: string }),
-      backend(`/api/v1/quality/recent?limit=100`, { projectId: scope.projectId } as RequestInit & { projectId: string }),
+    const scopedInit = { projectId: scope.projectId, environment: scope.environment } as RequestInit & { projectId: string; environment: string };
+    const metadata = (endpoint: string, timeoutMs = 8000): Promise<Record<string, unknown>> => backend(endpoint, scopedInit, timeoutMs).catch(() => ({ status: "UNAVAILABLE" }));
+    const [historyResponse, qualityResponse, postgres, snowflake] = await Promise.all([
+      backend(`/api/v1/reconciliation/history?limit=50`, scopedInit).then((value) => ({ value })).catch((error: Error) => ({ error: error.message })),
+      backend(`/api/v1/quality/recent?limit=100`, scopedInit).then((value) => ({ value })).catch((error: Error) => ({ error: error.message })),
       metadata("/api/v1/connections/postgres/metadata"),
-      metadata("/api/v1/connections/snowflake/metadata"),
+      metadata("/api/v1/connections/snowflake/metadata?catalog_only=true", 16000),
     ]);
+    const history = "value" in historyResponse ? historyResponse.value : { items: [] };
+    const qualityHistory = "value" in qualityResponse ? qualityResponse.value : { items: [] };
     const postgresConnection = postgres.connection && typeof postgres.connection === "object" ? postgres.connection as Record<string, unknown> : {};
     const snowflakeConnection = snowflake.connection && typeof snowflake.connection === "object" ? snowflake.connection as Record<string, unknown> : {};
     const [postgresSnapshot, snowflakeSnapshot, sourceOptions, targetOptions] = await Promise.all([
@@ -151,8 +159,15 @@ export async function GET(request: Request) {
     // test the edited connection before its tables can appear here.
     const sourceCatalog = sourceMatches ? configuredCatalog(catalog(postgres, sourceDatabase), sourceSchema) : [];
     const targetCatalog = targetMatches ? configuredCatalog(catalog(snowflake, targetDatabase), targetSchema) : [];
-    const historyItems = Array.isArray(history.items) ? history.items.filter((item) => recordMatchesCurrentExecution(item, currentState, currentRunIds)) : [];
-    const qualityItems = Array.isArray(qualityHistory.items) ? qualityHistory.items.filter((item) => recordMatchesCurrentExecution(item, currentState, currentRunIds)) : [];
+    const matchesScope = (item: unknown, field: "result" | "details") => {
+      if (!item || typeof item !== "object") return false;
+      const payload = (item as Record<string, unknown>)[field];
+      if (!payload || typeof payload !== "object") return false;
+      const record = payload as Record<string, unknown>;
+      return record.project_id === scope.projectId && String(record.environment ?? "").toLowerCase() === scope.environment;
+    };
+    const historyItems = Array.isArray(history.items) ? history.items.filter((item) => matchesScope(item, "result")) : [];
+    const qualityItems = Array.isArray(qualityHistory.items) ? qualityHistory.items.filter((item) => matchesScope(item, "details")) : [];
     // Connection identity is useful even when no table has been selected.  The
     // table catalogs below remain empty until an explicit source-table scope
     // exists, so this never turns a configured connection into selected data.
@@ -166,6 +181,8 @@ export async function GET(request: Request) {
     };
     const catalogState = !sourceDatabase || !targetDatabase
       ? "CONNECTION_NOT_CONFIGURED"
+      : [postgres, snowflake].some((item) => String(item.status ?? "").toUpperCase() === "UNAVAILABLE")
+        ? "METADATA_UNAVAILABLE"
       : !sourceMatches || !targetMatches
         ? "CONNECTION_CONFIGURATION_CHANGED"
         : hasActiveTable
@@ -174,7 +191,7 @@ export async function GET(request: Request) {
             ? "DISCOVERED_NOT_SELECTED"
             : "NO_AVAILABLE_CATALOG";
     const connectionOptions = { source: sourceOptions, target: targetOptions };
-    return Response.json({ history: { ...history, count: historyItems.length, items: historyItems }, qualityHistory: { ...qualityHistory, count: qualityItems.length, items: qualityItems }, workspace: scope, execution: { runCount: currentRunIds.size }, databases, schemas, connectionOptions, catalog_state: catalogState, connectionStatus: { source: connectionState(postgres, sourceCatalog, Boolean(sourceDatabase), sourceMatches), target: connectionState(snowflake, targetCatalog, Boolean(targetDatabase), targetMatches) }, catalogs: { source: sourceCatalog, target: targetCatalog } }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ history: { ...history, count: historyItems.length, items: historyItems, error: "error" in historyResponse ? historyResponse.error : undefined }, qualityHistory: { ...qualityHistory, count: qualityItems.length, items: qualityItems, error: "error" in qualityResponse ? qualityResponse.error : undefined }, workspace: scope, databases, schemas, connectionOptions, catalog_state: catalogState, connectionStatus: { source: connectionState(postgres, sourceCatalog, Boolean(sourceDatabase), sourceMatches), target: connectionState(snowflake, targetCatalog, Boolean(targetDatabase), targetMatches) }, catalogs: { source: sourceCatalog, target: targetCatalog } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Unable to load reconciliation history" }, { status: 502 });
   }
@@ -182,6 +199,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    if (isPhase4Fixture(request)) return Response.json({ error: "Fixture mode is read-only; comparisons are not executed." }, { status: 403, headers: { "X-ADQ-Test-Fixture": "phase4" } });
     const scope = await resolveWorkspace(request);
     const body = await request.json() as Record<string, unknown>;
     const required = ["sourceSchema", "sourceTable", "targetSchema", "targetTable"];
@@ -197,6 +215,7 @@ export async function POST(request: Request) {
       const result = await backend("/api/v1/quality/run-live", {
         method: "POST",
         projectId: scope.projectId,
+        environment: scope.environment,
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ platform, schema: String(side === "target" ? body.targetSchema : body.sourceSchema), table: String(side === "target" ? body.targetTable : body.sourceTable), contract: { type: checkType === "NULL" ? "COMPLETENESS" : "UNIQUENESS", columns: [column], max_null_count: 0, max_null_percentage: 0, max_duplicate_groups: 0 } }),
       } as RequestInit & { projectId: string }, 300000);
@@ -205,15 +224,17 @@ export async function POST(request: Request) {
     const result = await backend("/api/v1/reconciliation/live-table", {
       method: "POST",
       projectId: scope.projectId,
+      environment: scope.environment,
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         source_schema: String(body.sourceSchema),
         source_table: String(body.sourceTable),
         target_schema: String(body.targetSchema),
         target_table: String(body.targetTable),
-        key_column: String(body.keyColumn ?? "").trim() || null,
-        source_key_column: String(body.sourceKeyColumn ?? "").trim() || null,
-        target_key_column: String(body.targetKeyColumn ?? "").trim() || null,
+        comparison_basis: checkType === "MINUS" ? String(body.comparisonBasis ?? "KEY") : "ROW_COUNT",
+        key_column: checkType === "MINUS" ? String(body.keyColumn ?? "").trim() || null : null,
+        source_key_column: checkType === "MINUS" ? String(body.sourceKeyColumn ?? "").trim() || null : null,
+        target_key_column: checkType === "MINUS" ? String(body.targetKeyColumn ?? "").trim() || null : null,
         max_keys: Number(body.maxKeys || 50000),
         pipeline_run_id: String(body.pipelineRunId ?? "").trim() || null,
       }),

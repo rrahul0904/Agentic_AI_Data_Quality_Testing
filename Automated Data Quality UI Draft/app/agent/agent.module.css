@@ -34,36 +34,51 @@
 .answerDetails[open] > summary { border-bottom: 1px solid #e3ebe6; background: #f7fbf8; }
 .answerDetails > summary:focus-visible { outline: 3px solid rgba(23, 131, 91, .28); outline-offset: -3px; }
 .detailContent { display: grid; gap: 14px; padding: 14px 15px; }
-.historyList { display: grid; gap: 12px; }
-.historyLayout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, .9fr); gap: 18px; align-items: start; }
+.historyList { display: grid; gap: 12px; min-width: 0; }
+.historyLayout { display: grid; grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr); gap: 18px; align-items: start; min-width: 0; }
 .historyDetail { position: sticky; top: 16px; min-width: 0; }
 .historyPager { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 14px; }
 .historyPager button { border: 1px solid #cbdad1; border-radius: 8px; padding: 8px 11px; background: #fff; color: #29483a; cursor: pointer; font: inherit; font-size: 13px; }
 .historyPager button:disabled { cursor: not-allowed; opacity: .45; }
 .historyPager button:focus-visible { outline: 3px solid rgba(23, 131, 91, .28); outline-offset: 2px; }
 .historyPager span { color: #63746a; font-size: 13px; }
-.historyItem { display: grid; gap: 10px; width: 100%; border: 1px solid #dce7e1; border-radius: 11px; padding: 16px; background: #fff; color: inherit; text-align: left; cursor: pointer; font: inherit; text-decoration: none; }
+.historyItem { display: grid; gap: 10px; width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid #dce7e1; border-radius: 11px; padding: 16px; background: #fff; color: inherit; text-align: left; cursor: pointer; font: inherit; text-decoration: none; }
 .historyItem:hover { border-color: #8bc6aa; background: #fbfefc; }
 .historyItem:focus-visible { outline: 3px solid rgba(23, 131, 91, .28); outline-offset: 2px; }
 .historyItemSelected { border-color: #17835b; box-shadow: 0 0 0 2px rgba(23, 131, 91, .12); }
 .historyEntryMain { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; }
-.historyEntryMain > span:first-child { display: grid; gap: 4px; }
-.historyEntryMain strong { color: #233c30; font-size: 16px; line-height: 1.35; }
+.historyEntryMain > span:first-child { display: grid; gap: 4px; min-width: 0; }
+.historyEntryMain strong { color: #233c30; font-size: 16px; line-height: 1.35; overflow-wrap: anywhere; }
 .historyEntryMain small { color: #718078; font-size: 12px; }
 .historyMeta { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 12px 0; color: #63746a; font-size: 12px; }
 .historyPrompt { margin-top: 14px; padding: 14px 16px; border: 1px dashed #bfd2c7; border-radius: 10px; color: #63746a; font-size: 13px; }
-.historyViewer { display: grid; gap: 16px; margin-top: 18px; padding: 20px; border: 1px solid #b9d8c6; border-radius: 12px; background: #fbfefc; scroll-margin-top: 20px; }
-.historyViewerHeader { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
-.historyViewerHeader h2 { margin: 4px 0; color: #233c30; font-size: 20px; line-height: 1.35; }
+.historyViewer { display: grid; gap: 16px; width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; margin-top: 18px; padding: 20px; border: 1px solid #b9d8c6; border-radius: 12px; background: #fbfefc; scroll-margin-top: 20px; }
+.historyViewer > * { min-width: 0; }
+.historyViewerHeader { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; min-width: 0; }
+.historyViewerHeader > div { min-width: 0; max-width: 100%; }
+.historyViewerHeader h2 { margin: 4px 0; color: #233c30; font-size: 20px; line-height: 1.35; overflow-wrap: anywhere; }
 .historyViewerHeader small { color: #718078; font-size: 12px; }
-.historyViewerMeta { display: flex; flex-wrap: wrap; gap: 8px 24px; padding: 12px 0; border-top: 1px solid #e0ebe4; border-bottom: 1px solid #e0ebe4; color: #63746a; font-size: 13px; }
-.historyViewerMeta span { display: grid; gap: 3px; }
+.historyViewerMeta { display: flex; flex-wrap: wrap; gap: 12px 20px; padding: 12px 0; border-top: 1px solid #e0ebe4; border-bottom: 1px solid #e0ebe4; color: #63746a; font-size: 13px; }
+.historyViewerMeta span { display: grid; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
 .historyViewerMeta strong { color: #456354; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
-.historyResponse { padding: 16px; border-left: 4px solid #7ab998; border-radius: 4px; background: #fff; }
+.historyResponse { min-width: 0; padding: 16px; border-left: 4px solid #7ab998; border-radius: 4px; background: #fff; }
 .historyResponse h3, .historyViewerGrid h3 { margin: 0 0 8px; color: #365245; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; }
-.historyResponse p { margin: 0; color: #36453e; line-height: 1.6; white-space: pre-wrap; }
-.historyResponse p + p { margin-top: 8px; }
-.historyViewerGrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+.formattedAnswer { display: grid; gap: 12px; min-width: 0; color: #36453e; line-height: 1.55; overflow-wrap: anywhere; }
+.formattedAnswer p { margin: 0; }
+.formattedAnswer ul { display: grid; gap: 8px; margin: 0; padding-left: 22px; }
+.formattedAnswer li { padding-left: 2px; }
+.historyResponse > p { margin: 8px 0 0; color: #36453e; line-height: 1.55; overflow-wrap: anywhere; }
+.historySnapshotNote { margin: 0; color: #63746a; font-size: 12px; line-height: 1.45; }
+.answerNarrative { white-space: pre-wrap; }
+.historyViewerGrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; }
+.historyViewerGrid > * { min-width: 0; }
+.historyViewerGrid span, .historyViewerGrid small, .historyViewerGrid strong { min-width: 0; overflow-wrap: anywhere; }
+.historyEvidenceDetails { min-width: 0; padding-top: 12px; border-top: 1px solid #e0ebe4; }
+.historyEvidenceDetails > summary { display: flex; justify-content: space-between; gap: 12px; color: #365245; cursor: pointer; font-size: 12px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+.historyEvidenceDetails > summary span { color: #63746a; font-weight: 600; letter-spacing: normal; text-transform: none; }
+.historyEvidenceDetails[open] > summary { margin-bottom: 12px; }
+.historyEvidenceDetails > div + div { margin-top: 12px; }
+.historyEvidenceDetails > summary:focus-visible { outline: 3px solid rgba(23, 131, 91, .28); outline-offset: 2px; }
 .historyEmpty { min-height: 180px; display: grid; place-content: center; text-align: center; color: #6c7c73; border: 1px dashed #cbd8d1; border-radius: 10px; }
 .historyEmpty strong { color: #294438; font-size: 16px; }
 .historyEmpty p { margin: 6px 0 0; }
