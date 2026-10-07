@@ -6,6 +6,7 @@ on:
       - feature/prototype-1-cloud-experience
     paths:
       - "src/agentic_data_platform/persistence/**"
+      - "src/agentic_data_platform/artifacts/**"
       - "src/agentic_data_platform/projects/**"
       - "src/agentic_data_platform/agents/store.py"
       - "src/agentic_data_platform/agents/postgres_store.py"
@@ -17,6 +18,8 @@ on:
       - "tests/test_cloud_persistence.py"
       - "tests/test_quality_cloud_persistence.py"
       - "tests/test_project_sources.py"
+      - "tests/test_artifact_store.py"
+      - "tests/test_s3_artifact_store.py"
       - "deploy/Dockerfile.api"
       - "docker-compose.production.yml"
       - "docker-compose.release.yml"
@@ -36,9 +39,9 @@ concurrency:
 
 jobs:
   persistence-contract:
-    name: Cloud persistence + project-source contract
+    name: Cloud persistence + project-source + artifact contract
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16-alpine
@@ -63,24 +66,62 @@ jobs:
       - name: Install ADE cloud package and test runner
         run: python -m pip install --disable-pip-version-check -e ".[cloud]" pytest
 
-      - name: Compile cloud persistence, project source, and hosted entrypoint modules
+      - name: Start S3-compatible MinIO test service
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name ade-minio \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=ade-test \
+            -e MINIO_ROOT_PASSWORD=ade-test-secret \
+            minio/minio:latest server /data
+          ready=false
+          for i in $(seq 1 60); do
+            if curl -fsS --connect-timeout 2 --max-time 5 http://127.0.0.1:9000/minio/health/live >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" != "true" ]; then
+            docker logs ade-minio || true
+            exit 1
+          fi
+
+      - name: Compile cloud persistence, project source, artifact, and hosted entrypoint modules
         env:
           PYTHONPATH: src
         run: |
           python -m compileall -q src/agentic_data_platform/persistence
           python -m compileall -q src/agentic_data_platform/quality
           python -m compileall -q src/agentic_data_platform/projects
+          python -m compileall -q src/agentic_data_platform/artifacts
           python -m py_compile \
             src/agentic_data_platform/agents/postgres_store.py \
             src/agentic_data_platform/agents/store_factory.py \
             src/agentic_data_platform/api/hosted_app.py
 
-      - name: Run SQLite, PostgreSQL, and project-source contract tests
+      - name: Run SQLite, PostgreSQL, project-source, and real S3-compatible contract tests
         env:
           PYTHONPATH: src
           ADE_TEST_POSTGRES_DSN: postgresql://ade:ade@127.0.0.1:5432/ade
+          ADE_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          AWS_ACCESS_KEY_ID: ade-test
+          AWS_SECRET_ACCESS_KEY: ade-test-secret
+          AWS_REGION: us-east-1
+          AWS_EC2_METADATA_DISABLED: "true"
         run: >-
           pytest -q
           tests/test_cloud_persistence.py
           tests/test_quality_cloud_persistence.py
           tests/test_project_sources.py
+          tests/test_artifact_store.py
+          tests/test_s3_artifact_store.py
+
+      - name: Show MinIO logs on failure
+        if: failure()
+        run: docker logs ade-minio || true
+
+      - name: Stop MinIO
+        if: always()
+        run: docker rm -f ade-minio || true

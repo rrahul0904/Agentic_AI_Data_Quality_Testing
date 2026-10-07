@@ -13,6 +13,12 @@ services:
       ADE_PROJECT_GIT_REF: ${ADE_PROJECT_GIT_REF:-}
       ADE_PROJECT_GIT_ALLOWED_HOSTS: ${ADE_PROJECT_GIT_ALLOWED_HOSTS:-github.com,gitlab.com,bitbucket.org}
       ADE_WORKSPACE_ROOT: /workspaces
+      ADE_ARTIFACT_STORE_MODE: ${ADE_ARTIFACT_STORE_MODE:-filesystem}
+      ADE_ARTIFACT_ROOT: /state/artifacts
+      ADE_ARTIFACT_BUCKET: ${ADE_ARTIFACT_BUCKET:-}
+      ADE_ARTIFACT_PREFIX: ${ADE_ARTIFACT_PREFIX:-ade}
+      ADE_ARTIFACT_ENDPOINT_URL: ${ADE_ARTIFACT_ENDPOINT_URL:-}
+      ADE_ARTIFACT_REGION: ${ADE_ARTIFACT_REGION:-}
       # Hosted deployments can set PostgreSQL DSNs. When omitted, the existing
       # SQLite/PVC paths remain the deterministic single-node fallback.
       ADE_DATABASE_URL: ${ADE_DATABASE_URL:-}
