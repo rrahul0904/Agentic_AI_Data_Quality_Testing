@@ -9,8 +9,12 @@ on:
       - "src/agentic_data_platform/agents/store.py"
       - "src/agentic_data_platform/agents/postgres_store.py"
       - "src/agentic_data_platform/agents/store_factory.py"
+      - "src/agentic_data_platform/quality/store.py"
+      - "src/agentic_data_platform/quality/postgres_store.py"
+      - "src/agentic_data_platform/quality/store_factory.py"
       - "src/agentic_data_platform/api/hosted_app.py"
       - "tests/test_cloud_persistence.py"
+      - "tests/test_quality_cloud_persistence.py"
       - "deploy/Dockerfile.api"
       - "pyproject.toml"
       - ".github/workflows/prototype-persistence-ci.yml"
@@ -57,6 +61,7 @@ jobs:
           PYTHONPATH: src
         run: |
           python -m compileall -q src/agentic_data_platform/persistence
+          python -m compileall -q src/agentic_data_platform/quality
           python -m py_compile \
             src/agentic_data_platform/agents/postgres_store.py \
             src/agentic_data_platform/agents/store_factory.py \
@@ -66,4 +71,4 @@ jobs:
         env:
           PYTHONPATH: src
           ADE_TEST_POSTGRES_DSN: postgresql://ade:ade@127.0.0.1:5432/ade
-        run: pytest -q tests/test_cloud_persistence.py
+        run: pytest -q tests/test_cloud_persistence.py tests/test_quality_cloud_persistence.py
