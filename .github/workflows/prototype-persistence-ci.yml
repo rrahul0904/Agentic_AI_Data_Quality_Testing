@@ -70,11 +70,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          MINIO_IMAGE=quay.io/minio/minio:latest
+          docker pull "$MINIO_IMAGE"
+          echo "MinIO image receipt: $(docker image inspect --format '{{index .RepoDigests 0}}' "$MINIO_IMAGE")"
           docker run -d --name ade-minio \
             -p 9000:9000 \
             -e MINIO_ROOT_USER=ade-test \
             -e MINIO_ROOT_PASSWORD=ade-test-secret \
-            minio/minio:latest server /data
+            "$MINIO_IMAGE" server /data
           ready=false
           for i in $(seq 1 60); do
             if curl -fsS --connect-timeout 2 --max-time 5 http://127.0.0.1:9000/minio/health/live >/dev/null; then
