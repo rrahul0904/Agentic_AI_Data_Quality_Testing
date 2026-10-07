@@ -12,6 +12,7 @@ services:
       # SQLite/PVC paths remain the deterministic single-node fallback.
       ADE_DATABASE_URL: ${ADE_DATABASE_URL:-}
       ADE_INVESTIGATION_DATABASE_URL: ${ADE_INVESTIGATION_DATABASE_URL:-}
+      ADE_QUALITY_DATABASE_URL: ${ADE_QUALITY_DATABASE_URL:-}
       ADE_DATABASE_PATH: /state/control-plane.db
       ADE_QUALITY_DATABASE: /state/quality.db
       ADE_INVESTIGATION_DATABASE: /state/investigations.db
