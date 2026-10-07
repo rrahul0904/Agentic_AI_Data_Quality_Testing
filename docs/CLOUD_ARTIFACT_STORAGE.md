@@ -23,7 +23,7 @@ ADE_ARTIFACT_STORE_MODE=s3
 ADE_ARTIFACT_BUCKET=<bucket>
 ADE_ARTIFACT_PREFIX=ade
 ADE_ARTIFACT_REGION=us-east-1
-ADE_ARTIFACT_ENDPOINT_URL=              # optional; set for MinIO/other S3-compatible stores
+ADE_ARTIFACT_ENDPOINT_URL=              # optional; set for an S3-compatible endpoint
 ```
 
 Authentication uses the standard boto3/AWS credential chain. Do not place access keys
@@ -42,13 +42,16 @@ revision independently of the ephemeral worker checkout.
 
 ## CI certification
 
-`prototype-persistence-ci` starts a real MinIO service alongside PostgreSQL and tests:
+`prototype-persistence-ci` starts a networked S3 API compatibility server on localhost
+alongside PostgreSQL. The server is provided by Moto and is exercised through boto3 over
+HTTP; it is not an in-process stub. The gate tests:
 - filesystem integrity and traversal rejection;
-- real S3-compatible put/get behavior;
+- networked S3-compatible put/get behavior;
 - missing digest rejection;
 - tamper detection;
 - PostgreSQL control-plane/investigation/quality persistence;
 - managed project-source contracts.
 
-This validates the adapter contract without claiming certification against every cloud
-provider's managed S3 implementation.
+This certifies ADE's provider-neutral S3 API contract. It does not claim external
+certification against AWS S3, MinIO, or every vendor-specific S3 implementation; those
+remain target-environment certification steps.
