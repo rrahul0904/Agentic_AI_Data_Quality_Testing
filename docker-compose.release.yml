@@ -8,6 +8,10 @@ services:
       ADE_AUTH_MODE: api_key
       ADE_API_KEYS_JSON: ${ADE_API_KEYS_JSON:?ADE_API_KEYS_JSON is required}
       ADE_PROJECT_ROOT: /workspace
+      # Hosted deployments can set PostgreSQL DSNs. When omitted, the existing
+      # SQLite/PVC paths remain the deterministic single-node fallback.
+      ADE_DATABASE_URL: ${ADE_DATABASE_URL:-}
+      ADE_INVESTIGATION_DATABASE_URL: ${ADE_INVESTIGATION_DATABASE_URL:-}
       ADE_DATABASE_PATH: /state/control-plane.db
       ADE_QUALITY_DATABASE: /state/quality.db
       ADE_INVESTIGATION_DATABASE: /state/investigations.db
