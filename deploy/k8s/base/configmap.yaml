@@ -10,6 +10,7 @@ data:
   ADE_PROJECT_ROOT: /app/hospitality-snowflake-data-platform
   ADE_PROJECT_GIT_URL: ""
   ADE_PROJECT_GIT_REF: ""
+  ADE_PROJECT_GIT_ALLOWED_HOSTS: github.com,gitlab.com,bitbucket.org
   ADE_WORKSPACE_ROOT: /workspaces
   ADE_DATABASE_PATH: /state/control-plane.db
   ADE_QUALITY_DATABASE: /state/quality.db

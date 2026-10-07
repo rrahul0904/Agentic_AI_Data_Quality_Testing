@@ -15,8 +15,11 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
-from typing import Mapping
+from typing import Iterable, Mapping
 from urllib.parse import urlparse
+
+
+DEFAULT_GIT_ALLOWED_HOSTS = frozenset({"github.com", "gitlab.com", "bitbucket.org"})
 
 
 class ProjectSourceError(RuntimeError):
@@ -53,7 +56,21 @@ def _run_git(args: list[str], *, cwd: Path | None = None, timeout: int = 120) ->
     return completed.stdout.strip()
 
 
-def _validate_git_source(url: str, *, allow_local: bool = False) -> str:
+def _normalize_allowed_hosts(hosts: Iterable[str] | None) -> frozenset[str]:
+    if hosts is None:
+        return DEFAULT_GIT_ALLOWED_HOSTS
+    normalized = frozenset(str(host).strip().lower().rstrip(".") for host in hosts if str(host).strip())
+    if not normalized:
+        raise ProjectSourceError("ADE_PROJECT_GIT_ALLOWED_HOSTS must contain at least one hostname")
+    return normalized
+
+
+def _validate_git_source(
+    url: str,
+    *,
+    allow_local: bool = False,
+    allowed_hosts: Iterable[str] | None = None,
+) -> str:
     candidate = url.strip()
     if not candidate:
         raise ProjectSourceError("ADE_PROJECT_GIT_URL is required for git project sources")
@@ -64,6 +81,9 @@ def _validate_git_source(url: str, *, allow_local: bool = False) -> str:
             raise ProjectSourceError("git source URL must include a hostname")
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ProjectSourceError("git source URL must not embed credentials, query parameters, or fragments")
+        hostname = parsed.hostname.lower().rstrip(".")
+        if hostname not in _normalize_allowed_hosts(allowed_hosts):
+            raise ProjectSourceError(f"git source hostname is not allowed: {hostname}")
         return candidate
 
     if allow_local:
@@ -123,8 +143,9 @@ def materialize_git_project(
     ref: str | None = None,
     workspace_root: str | Path,
     allow_local: bool = False,
+    allowed_hosts: Iterable[str] | None = None,
 ) -> MaterializedProject:
-    safe_url = _validate_git_source(url, allow_local=allow_local)
+    safe_url = _validate_git_source(url, allow_local=allow_local, allowed_hosts=allowed_hosts)
     safe_ref = _validate_git_ref(ref)
     workspace = Path(workspace_root).expanduser().resolve()
     workspace.mkdir(parents=True, exist_ok=True)
@@ -198,6 +219,13 @@ def resolve_hosted_project(
     if mode == "git":
         workspace_root = values.get("ADE_WORKSPACE_ROOT") or "/workspaces"
         ref = str(values.get("ADE_PROJECT_GIT_REF") or "").strip() or None
-        return materialize_git_project(git_url, ref=ref, workspace_root=workspace_root)
+        raw_hosts = str(values.get("ADE_PROJECT_GIT_ALLOWED_HOSTS") or "github.com,gitlab.com,bitbucket.org")
+        allowed_hosts = [host for host in raw_hosts.split(",") if host.strip()]
+        return materialize_git_project(
+            git_url,
+            ref=ref,
+            workspace_root=workspace_root,
+            allowed_hosts=allowed_hosts,
+        )
 
     raise ProjectSourceError("ADE_PROJECT_SOURCE_MODE must be one of: filesystem, embedded_demo, git")

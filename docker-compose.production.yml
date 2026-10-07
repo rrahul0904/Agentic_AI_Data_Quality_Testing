@@ -15,6 +15,7 @@ services:
       ADE_PROJECT_ROOT: ${ADE_PROJECT_ROOT:-/app/hospitality-snowflake-data-platform}
       ADE_PROJECT_GIT_URL: ${ADE_PROJECT_GIT_URL:-}
       ADE_PROJECT_GIT_REF: ${ADE_PROJECT_GIT_REF:-}
+      ADE_PROJECT_GIT_ALLOWED_HOSTS: ${ADE_PROJECT_GIT_ALLOWED_HOSTS:-github.com,gitlab.com,bitbucket.org}
       ADE_WORKSPACE_ROOT: /workspaces
       # Optional hosted PostgreSQL backends. Empty values preserve the
       # single-node SQLite volume fallback below.

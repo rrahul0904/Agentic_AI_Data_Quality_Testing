@@ -79,6 +79,46 @@ def test_hosted_git_source_rejects_non_https_url(tmp_path: Path) -> None:
         materialize_git_project(str(origin), workspace_root=tmp_path / "workspaces")
 
 
+def test_hosted_git_source_rejects_embedded_credentials(tmp_path: Path) -> None:
+    with pytest.raises(ProjectSourceError, match="must not embed credentials"):
+        materialize_git_project(
+            "https://token@example.com/acme/repo.git",
+            workspace_root=tmp_path / "workspaces",
+            allowed_hosts={"example.com"},
+        )
+
+
+def test_hosted_git_source_rejects_unapproved_hostname(tmp_path: Path) -> None:
+    with pytest.raises(ProjectSourceError, match="hostname is not allowed"):
+        resolve_hosted_project(
+            {
+                "ADE_PROJECT_SOURCE_MODE": "git",
+                "ADE_PROJECT_GIT_URL": "https://internal.example/repo.git",
+                "ADE_WORKSPACE_ROOT": str(tmp_path / "workspaces"),
+            }
+        )
+
+
+def test_hosted_git_source_accepts_operator_allowlisted_hostname_before_clone(tmp_path: Path, monkeypatch) -> None:
+    calls: list[str] = []
+
+    def fake_materialize(url: str, **kwargs):
+        calls.append(url)
+        raise ProjectSourceError("clone sentinel")
+
+    monkeypatch.setattr("agentic_data_platform.projects.sources.materialize_git_project", fake_materialize)
+    with pytest.raises(ProjectSourceError, match="clone sentinel"):
+        resolve_hosted_project(
+            {
+                "ADE_PROJECT_SOURCE_MODE": "git",
+                "ADE_PROJECT_GIT_URL": "https://git.corp.example/team/repo.git",
+                "ADE_PROJECT_GIT_ALLOWED_HOSTS": "git.corp.example",
+                "ADE_WORKSPACE_ROOT": str(tmp_path / "workspaces"),
+            }
+        )
+    assert calls == ["https://git.corp.example/team/repo.git"]
+
+
 def test_git_source_rejects_symlinked_project_content(tmp_path: Path) -> None:
     origin, _ = _make_repo(tmp_path)
     link = origin / "outside-link"
