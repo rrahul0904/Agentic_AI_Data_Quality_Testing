@@ -2,18 +2,33 @@ from __future__ import annotations
 
 """Hosted ASGI entrypoint.
 
-This module keeps the existing API application factory authoritative while selecting
-its control-plane persistence through the cloud-aware repository factory. Local and
-single-node deployments still resolve to SQLite; setting ``ADE_DATABASE_URL`` to a
-PostgreSQL DSN switches the served control plane to PostgreSQL.
+The existing API factory remains authoritative. This entrypoint injects cloud-aware
+persistence adapters without changing the local/default application module:
 
-Investigation and quality stores remain on their existing adapters for this bounded
-slice and are deliberately not represented as cloud-native yet.
+- ``ADE_DATABASE_URL`` selects PostgreSQL for control-plane state;
+- ``ADE_INVESTIGATION_DATABASE_URL`` selects PostgreSQL for incident/evidence state;
+- absent those URLs, the existing SQLite/filesystem behavior is preserved.
+
+The API factory currently constructs its investigation store internally. To keep this
+prototype slice bounded and avoid a high-risk rewrite of the large certified route
+module, this entrypoint temporarily replaces that constructor while ``create_app``
+builds the hosted application, then restores it. The resulting FastAPI app owns the
+selected durable store through the SupervisorAgent closure.
 """
 
-from agentic_data_platform.api.app import create_app
+import importlib
+
+from agentic_data_platform.agents.store_factory import create_investigation_store
 from agentic_data_platform.persistence.factory import create_control_plane_repository
 
 
+api_module = importlib.import_module("agentic_data_platform.api.app")
 repository = create_control_plane_repository()
-app = create_app(repository=repository)
+investigation_store = create_investigation_store()
+
+_original_investigation_store = api_module.InvestigationStore
+api_module.InvestigationStore = lambda *_args, **_kwargs: investigation_store
+try:
+    app = api_module.create_app(repository=repository)
+finally:
+    api_module.InvestigationStore = _original_investigation_store
