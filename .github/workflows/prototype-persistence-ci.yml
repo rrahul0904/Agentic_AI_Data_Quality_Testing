@@ -6,6 +6,9 @@ on:
       - feature/prototype-1-cloud-experience
     paths:
       - "src/agentic_data_platform/persistence/**"
+      - "src/agentic_data_platform/agents/store.py"
+      - "src/agentic_data_platform/agents/postgres_store.py"
+      - "src/agentic_data_platform/agents/store_factory.py"
       - "src/agentic_data_platform/api/hosted_app.py"
       - "tests/test_cloud_persistence.py"
       - "deploy/Dockerfile.api"
@@ -49,12 +52,15 @@ jobs:
       - name: Install focused test dependencies
         run: python -m pip install --disable-pip-version-check pytest "psycopg[binary]>=3"
 
-      - name: Compile persistence and hosted entrypoint modules
+      - name: Compile cloud persistence and hosted entrypoint modules
         env:
           PYTHONPATH: src
         run: |
           python -m compileall -q src/agentic_data_platform/persistence
-          python -m py_compile src/agentic_data_platform/api/hosted_app.py
+          python -m py_compile \
+            src/agentic_data_platform/agents/postgres_store.py \
+            src/agentic_data_platform/agents/store_factory.py \
+            src/agentic_data_platform/api/hosted_app.py
 
       - name: Run SQLite and PostgreSQL persistence contract tests
         env:
