@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import os
 
 import pytest
 
@@ -45,8 +46,7 @@ def test_factory_fails_closed_for_unknown_remote_backend() -> None:
         create_control_plane_repository("mysql://example/control")
 
 
-def test_sqlite_approval_is_single_use(tmp_path) -> None:
-    repository = SQLiteControlPlaneRepository(tmp_path / "approval.db")
+def _assert_single_use_approval(repository: ControlPlaneRepository) -> None:
     repository.initialize()
 
     project = ProjectRecord(name="prototype")
@@ -62,10 +62,35 @@ def test_sqlite_approval_is_single_use(tmp_path) -> None:
     repository.save_run(run)
     repository.save_approval(approval)
 
+    stored_run = repository.get_run(run.run_id)
+    assert stored_run is not None
+    assert stored_run.intent == "repair"
     assert repository.has_approval(run.run_id, "dbt_build", environment="prod")
-    assert repository.get_approval(approval.approval_id)["used_at"] is None
+    stored_approval = repository.get_approval(approval.approval_id)
+    assert stored_approval is not None
+    assert stored_approval["used_at"] is None
 
     repository.consume_approval(approval.approval_id)
 
     assert not repository.has_approval(run.run_id, "dbt_build", environment="prod")
-    assert repository.get_approval(approval.approval_id)["used_at"] is not None
+    consumed = repository.get_approval(approval.approval_id)
+    assert consumed is not None
+    assert consumed["used_at"] is not None
+
+
+def test_sqlite_approval_is_single_use(tmp_path) -> None:
+    _assert_single_use_approval(SQLiteControlPlaneRepository(tmp_path / "approval.db"))
+
+
+def test_postgres_repository_preserves_single_use_approval_contract() -> None:
+    dsn = os.getenv("ADE_TEST_POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("ADE_TEST_POSTGRES_DSN is not configured")
+
+    repository = PostgresControlPlaneRepository(dsn)
+    _assert_single_use_approval(repository)
+
+    runs = repository.list_records("runs")
+    approvals = repository.list_records("approvals")
+    assert any(row["intent"] == "repair" for row in runs)
+    assert any(row["scope"] == "dbt_build" for row in approvals)
