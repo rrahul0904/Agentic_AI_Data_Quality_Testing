@@ -59,8 +59,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install focused test dependencies
-        run: python -m pip install --disable-pip-version-check pytest PyYAML "psycopg[binary]>=3"
+      - name: Install ADE cloud package and test runner
+        run: python -m pip install --disable-pip-version-check -e ".[cloud]" pytest
 
       - name: Compile cloud persistence, project source, and hosted entrypoint modules
         env:
