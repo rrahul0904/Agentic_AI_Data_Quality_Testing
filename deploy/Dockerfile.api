@@ -12,7 +12,10 @@ COPY . .
 # Build deterministic dbt artifacts into the image so a clean deployment does not depend on a
 # developer's ignored dbt/target directory. scripts/parse_dbt.py uses an ephemeral profile and
 # non-secret offline placeholders; it does not require live Snowflake credentials.
-RUN python -m pip install --no-cache-dir . "dbt-snowflake>=1.9,<2" \
+#
+# Install the lightweight cloud extra so the same immutable image can use PostgreSQL when
+# ADE_DATABASE_URL is configured, while local/demo deployments continue to use SQLite.
+RUN python -m pip install --no-cache-dir ".[cloud]" "dbt-snowflake>=1.9,<2" \
     && python scripts/parse_dbt.py
 RUN mkdir -p /state /app/.ade /app/hospitality-snowflake-data-platform/.ade \
     && groupadd --gid 10001 ade \
@@ -29,4 +32,4 @@ EXPOSE 8001
 
 USER ade
 
-CMD ["sh", "-c", "python -m uvicorn agentic_data_platform.api.app:app --host 0.0.0.0 --port ${PORT:-8001}"]
+CMD ["sh", "-c", "python -m uvicorn agentic_data_platform.api.hosted_app:app --host 0.0.0.0 --port ${PORT:-8001}"]
