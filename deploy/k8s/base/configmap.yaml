@@ -6,7 +6,11 @@ data:
   ADE_RUNTIME_MODE: production
   ADE_DEMO_MODE: "false"
   ADE_AUTH_MODE: api_key
-  ADE_PROJECT_ROOT: /workspace
+  ADE_PROJECT_SOURCE_MODE: embedded_demo
+  ADE_PROJECT_ROOT: /app/hospitality-snowflake-data-platform
+  ADE_PROJECT_GIT_URL: ""
+  ADE_PROJECT_GIT_REF: ""
+  ADE_WORKSPACE_ROOT: /workspaces
   ADE_DATABASE_PATH: /state/control-plane.db
   ADE_QUALITY_DATABASE: /state/quality.db
   ADE_INVESTIGATION_DATABASE: /state/investigations.db

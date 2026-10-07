@@ -6,6 +6,7 @@ on:
       - feature/prototype-1-cloud-experience
     paths:
       - "src/agentic_data_platform/persistence/**"
+      - "src/agentic_data_platform/projects/**"
       - "src/agentic_data_platform/agents/store.py"
       - "src/agentic_data_platform/agents/postgres_store.py"
       - "src/agentic_data_platform/agents/store_factory.py"
@@ -15,7 +16,12 @@ on:
       - "src/agentic_data_platform/api/hosted_app.py"
       - "tests/test_cloud_persistence.py"
       - "tests/test_quality_cloud_persistence.py"
+      - "tests/test_project_sources.py"
       - "deploy/Dockerfile.api"
+      - "docker-compose.production.yml"
+      - "docker-compose.release.yml"
+      - "deploy/k8s/base/api-deployment.yaml"
+      - "deploy/k8s/base/configmap.yaml"
       - "pyproject.toml"
       - ".github/workflows/prototype-persistence-ci.yml"
   workflow_dispatch:
@@ -29,7 +35,7 @@ concurrency:
 
 jobs:
   persistence-contract:
-    name: Cloud persistence contract
+    name: Cloud persistence + project-source contract
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -56,19 +62,24 @@ jobs:
       - name: Install focused test dependencies
         run: python -m pip install --disable-pip-version-check pytest PyYAML "psycopg[binary]>=3"
 
-      - name: Compile cloud persistence and hosted entrypoint modules
+      - name: Compile cloud persistence, project source, and hosted entrypoint modules
         env:
           PYTHONPATH: src
         run: |
           python -m compileall -q src/agentic_data_platform/persistence
           python -m compileall -q src/agentic_data_platform/quality
+          python -m compileall -q src/agentic_data_platform/projects
           python -m py_compile \
             src/agentic_data_platform/agents/postgres_store.py \
             src/agentic_data_platform/agents/store_factory.py \
             src/agentic_data_platform/api/hosted_app.py
 
-      - name: Run SQLite and PostgreSQL persistence contract tests
+      - name: Run SQLite, PostgreSQL, and project-source contract tests
         env:
           PYTHONPATH: src
           ADE_TEST_POSTGRES_DSN: postgresql://ade:ade@127.0.0.1:5432/ade
-        run: pytest -q tests/test_cloud_persistence.py tests/test_quality_cloud_persistence.py
+        run: >-
+          pytest -q
+          tests/test_cloud_persistence.py
+          tests/test_quality_cloud_persistence.py
+          tests/test_project_sources.py

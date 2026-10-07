@@ -3,28 +3,29 @@ from __future__ import annotations
 """Hosted ASGI entrypoint.
 
 The existing API factory remains authoritative. This entrypoint injects cloud-aware
-persistence adapters without changing the local/default application module:
+persistence and project-source adapters without changing local/default startup:
 
 - ``ADE_DATABASE_URL`` selects PostgreSQL for control-plane state;
 - ``ADE_INVESTIGATION_DATABASE_URL`` selects PostgreSQL for incident/evidence state;
 - ``ADE_QUALITY_DATABASE_URL`` selects PostgreSQL for quality/reconciliation state;
-- absent those URLs, the existing SQLite/filesystem behavior is preserved.
-
-The API factory currently constructs its investigation store internally and the tool
-registry constructs quality stores from a database argument. To keep this prototype
-slice bounded and avoid a high-risk rewrite of the large certified route/tool modules,
-this hosted entrypoint injects the durable adapters at those two construction seams.
-The patches are process-local to this hosted ASGI module; local/default application
-startup remains unchanged.
+- ``ADE_PROJECT_SOURCE_MODE=git`` materializes an HTTPS Git project into the
+  managed workspace and points the existing API/tool seams at that exact checkout;
+- filesystem/embedded-demo behavior remains available for local and demo use.
 """
 
 import importlib
 import os
+from pathlib import Path
 
 from agentic_data_platform.agents.store_factory import create_investigation_store
 from agentic_data_platform.persistence.factory import create_control_plane_repository
+from agentic_data_platform.projects.sources import resolve_hosted_project
 from agentic_data_platform.quality.store_factory import create_quality_store
 
+
+program_root = Path(__file__).resolve().parents[3]
+project = resolve_hosted_project(default_project=program_root / "hospitality-snowflake-data-platform")
+os.environ["ADE_PROJECT_ROOT"] = str(project.root)
 
 api_module = importlib.import_module("agentic_data_platform.api.app")
 builtin_tools = importlib.import_module("agentic_data_platform.tools.builtin")
