@@ -12,6 +12,7 @@ on:
       - "docker-compose.production.yml"
       - "docker-compose.release.yml"
       - ".github/workflows/prototype-1-ci.yml"
+      - ".github/workflows/prototype-persistence-ci.yml"
   workflow_dispatch:
 
 permissions:

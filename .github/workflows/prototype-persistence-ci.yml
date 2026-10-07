@@ -24,6 +24,7 @@ on:
       - "deploy/k8s/base/configmap.yaml"
       - "pyproject.toml"
       - ".github/workflows/prototype-persistence-ci.yml"
+      - ".github/workflows/prototype-1-ci.yml"
   workflow_dispatch:
 
 permissions:
