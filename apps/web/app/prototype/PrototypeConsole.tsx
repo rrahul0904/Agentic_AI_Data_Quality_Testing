@@ -25,6 +25,29 @@ type Scenario = {
   affected_asset: string;
 };
 
+type Remediation = {
+  action: string;
+  reason: string;
+  risk: string;
+  rollback: string;
+  requires_approval: boolean;
+  status?: string;
+  approved_by?: string | null;
+  arguments?: {
+    selective_recovery?: {
+      airflow_actions?: Array<{
+        system: string;
+        operation: string;
+        target: string;
+        risk: string;
+      }>;
+      dbt_command?: string | null;
+      quality_rechecks?: string[];
+      certification_targets?: string[];
+    };
+  };
+};
+
 type Incident = {
   incident_id: string;
   scenario_id: string;
@@ -39,11 +62,7 @@ type Incident = {
   approved: boolean;
   blast_radius?: string[];
   evidence?: Array<{ evidence_id: string; kind: string; source: string; summary: string }>;
-  remediation?: null | {
-    plan_id?: string;
-    summary?: string;
-    steps?: Array<{ action?: string; description?: string }>;
-  };
+  remediation?: Remediation | null;
   verification_result?: Record<string, unknown>;
 };
 
@@ -60,6 +79,19 @@ function confidenceLabel(value: number): string {
 
 function stateLabel(state: string): string {
   return state.replaceAll("_", " ");
+}
+
+function remediationSteps(remediation: Remediation): string[] {
+  const recovery = remediation.arguments?.selective_recovery;
+  const steps: string[] = [];
+  for (const action of recovery?.airflow_actions || []) {
+    steps.push(`${action.system}: ${action.operation} ${action.target}`);
+  }
+  if (recovery?.dbt_command) steps.push(`dbt: ${recovery.dbt_command}`);
+  for (const check of recovery?.quality_rechecks || []) steps.push(`Recheck quality: ${check}`);
+  for (const target of recovery?.certification_targets || []) steps.push(`Recertify: ${target}`);
+  if (!steps.length) steps.push(remediation.action);
+  return steps;
 }
 
 export default function PrototypeConsole() {
@@ -96,6 +128,7 @@ export default function PrototypeConsole() {
 
   useEffect(() => {
     void refresh();
+    // The initial load is intentionally one-shot; subsequent refreshes are operator-driven.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -341,13 +374,20 @@ export default function PrototypeConsole() {
           <p className={styles.nextAction}>{nextAction}</p>
           {activeIncident?.remediation ? (
             <div className={styles.remediation}>
-              <strong>{activeIncident.remediation.summary || "Proposed remediation"}</strong>
-              {(activeIncident.remediation.steps || []).map((step, index) => (
-                <div key={`${step.action || "step"}-${index}`}>
+              <strong>{activeIncident.remediation.action}</strong>
+              <p>{activeIncident.remediation.reason}</p>
+              <div className={styles.chips}>
+                <span>Risk: {activeIncident.remediation.risk}</span>
+                <span>{activeIncident.remediation.requires_approval ? "Approval required" : "Read-only"}</span>
+                {activeIncident.remediation.status ? <span>{activeIncident.remediation.status}</span> : null}
+              </div>
+              {remediationSteps(activeIncident.remediation).map((step, index) => (
+                <div key={`${step}-${index}`}>
                   <span>{index + 1}</span>
-                  <p>{step.description || step.action || "Remediation step"}</p>
+                  <p>{step}</p>
                 </div>
               ))}
+              <small className={styles.muted}>Rollback: {activeIncident.remediation.rollback}</small>
             </div>
           ) : (
             <div className={styles.emptyState}>No remediation proposal is available yet.</div>
