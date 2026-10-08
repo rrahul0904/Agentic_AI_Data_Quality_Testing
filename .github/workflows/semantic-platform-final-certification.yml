@@ -1,0 +1,111 @@
+name: semantic-platform-final-certification
+
+on:
+  pull_request:
+    branches:
+      - feature/snowflake-pipeline-testing
+    paths:
+      - "src/agentic_data_platform/semantic_platform_cli_ext.py"
+      - "scripts/rga_testbed/build_certification_report.py"
+      - "scripts/rga_testbed/build_semantic_release.py"
+      - "scripts/rga_testbed/export_semantic_platform_core.py"
+      - "tests/rga_testbed/test_semantic_platform_cli_ext.py"
+      - "tests/rga_testbed/test_rga_certification_report.py"
+      - "tests/rga_testbed/test_semantic_platform_core_export.py"
+      - "config/examples/banking_semantic_contract.yml"
+      - ".github/workflows/semantic-platform-final-certification.yml"
+  push:
+    branches:
+      - feature/rga-synthetic-domain-pack
+    paths:
+      - "src/agentic_data_platform/semantic_platform_cli_ext.py"
+      - "scripts/rga_testbed/build_certification_report.py"
+      - "scripts/rga_testbed/build_semantic_release.py"
+      - "scripts/rga_testbed/export_semantic_platform_core.py"
+      - "tests/rga_testbed/test_semantic_platform_cli_ext.py"
+      - "tests/rga_testbed/test_rga_certification_report.py"
+      - "tests/rga_testbed/test_semantic_platform_core_export.py"
+      - "config/examples/banking_semantic_contract.yml"
+      - ".github/workflows/semantic-platform-final-certification.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: semantic-platform-final-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  certify-final-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install repository dependencies
+        run: python -m pip install -e '.[dev]'
+      - name: Run final integration tests
+        run: |
+          python -m pytest -q -p no:cacheprovider \
+            tests/rga_testbed/test_semantic_platform_cli_ext.py \
+            tests/rga_testbed/test_rga_certification_report.py \
+            tests/rga_testbed/test_semantic_platform_core_export.py
+      - name: Certify all-consumer plus managed MCP planning
+        run: |
+          semantic-platform demo-build \
+            --workspace /tmp/semantic-platform-final \
+            --preset tiny \
+            --policies 120 \
+            --seed 42 >/tmp/final-demo.json
+          semantic-platform prepare-consumer-evidence \
+            --workspace /tmp/semantic-platform-final \
+            --evidence-dir /tmp/final-consumer-evidence \
+            --security-context ROLE_ANALYST >/tmp/final-evidence-templates.json
+          semantic-platform capture-all-evidence \
+            --workspace /tmp/semantic-platform-final \
+            --evidence-dir /tmp/final-consumer-evidence \
+            --security-context ROLE_ANALYST \
+            --mcp-smoke \
+            --mcp-endpoint https://example.snowflakecomputing.com/api/v2/databases/RGA_SYNTHETIC_TESTBED/schemas/AI/mcp-servers/RGA_REINSURANCE_MCP \
+            --dry-run >/tmp/final-all-evidence-plan.json
+          grep -q '"status": "DRY_RUN"' /tmp/final-all-evidence-plan.json
+          grep -q '"snowflake_managed_mcp_remote_client"' /tmp/final-all-evidence-plan.json
+          grep -q '"managed_mcp"' /tmp/final-all-evidence-plan.json
+          grep -q '"expected_tool"' /tmp/final-all-evidence-plan.json
+          semantic-platform certification-report \
+            --workspace /tmp/semantic-platform-final \
+            --evidence-dir /tmp/final-consumer-evidence \
+            --output-dir /tmp/final-certification-report >/tmp/final-certification.json
+          grep -q '"end_to_end_certified": false' /tmp/final-certification.json
+          grep -q 'Snowflake-managed MCP remote client: \*\*PENDING\*\*' /tmp/final-certification-report/CERTIFICATION_SUMMARY.md
+          grep -q 'managed-MCP discovery/invocation has not passed' /tmp/final-certification-report/CERTIFICATION_SUMMARY.md
+      - name: Certify standalone semantic platform core export
+        run: |
+          python scripts/rga_testbed/export_semantic_platform_core.py \
+            --contract config/examples/banking_semantic_contract.yml \
+            --output /tmp/semantic-platform-core >/tmp/core-export.json
+          grep -q '"status": "PASS"' /tmp/core-export.json
+          grep -q '"reference_workload_included": false' /tmp/core-export.json
+          test -f /tmp/semantic-platform-core/core_manifest.json
+          test -f /tmp/semantic-platform-core/config/semantic_contract.yml
+          test -f /tmp/semantic-platform-core/scripts/semantic_platform_core/build_semantic_release.py
+          test ! -f /tmp/semantic-platform-core/scripts/semantic_platform_core/generate_data.py
+          test ! -f /tmp/semantic-platform-core/scripts/semantic_platform_core/generate_change_events.py
+          test ! -f /tmp/semantic-platform-core/scripts/semantic_platform_core/generate_multi_fact_certification.py
+          python /tmp/semantic-platform-core/scripts/semantic_platform_core/build_semantic_release.py \
+            --contract /tmp/semantic-platform-core/config/semantic_contract.yml \
+            --database BANKING_ANALYTICS \
+            --output /tmp/semantic-platform-core/release \
+            --source-sha "$GITHUB_SHA" >/tmp/standalone-release.json
+          grep -q '"status": "PASS"' /tmp/standalone-release.json
+          grep -q 'BANKING_ANALYTICS.SEMANTIC.BANKING_ACCOUNT_PERFORMANCE' /tmp/semantic-platform-core/release/release_manifest.json
+          test ! -d /tmp/semantic-platform-core/release/multi_fact
+          test -f /tmp/semantic-platform-core/release/ai/mcp_spec.yml
+          test -f /tmp/semantic-platform-core/release/microsoft/PARITY_CHECKLIST.md
+          if grep -R -n 'scripts.rga_testbed\|RGA_SYNTHETIC_TESTBED\|rga_semantic_contract.yml' /tmp/semantic-platform-core/scripts/semantic_platform_core --include='*.py'; then
+            echo "RGA implementation defaults leaked into standalone core"
+            exit 1
+          fi
