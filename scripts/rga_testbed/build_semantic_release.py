@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from types import ModuleType
 
 try:
     from scripts.rga_testbed import classify_semantic_change as change_mod
@@ -16,7 +17,6 @@ try:
     from scripts.rga_testbed import generate_ai_integration as ai_mod
     from scripts.rga_testbed import generate_benchmark_pack as benchmark_mod
     from scripts.rga_testbed import generate_microsoft_consumer_pack as microsoft_mod
-    from scripts.rga_testbed import generate_multi_fact_certification as multi_fact_mod
     from scripts.rga_testbed import generate_parity_suite as parity_mod
     from scripts.rga_testbed import generate_semantic_view as semantic_mod
     from scripts.rga_testbed import report_interchange_compatibility as compatibility_mod
@@ -29,7 +29,6 @@ except ModuleNotFoundError:
     import generate_ai_integration as ai_mod
     import generate_benchmark_pack as benchmark_mod
     import generate_microsoft_consumer_pack as microsoft_mod
-    import generate_multi_fact_certification as multi_fact_mod
     import generate_parity_suite as parity_mod
     import generate_semantic_view as semantic_mod
     import report_interchange_compatibility as compatibility_mod
@@ -47,6 +46,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--source-sha", default=os.environ.get("GITHUB_SHA"))
     return parser.parse_args()
+
+
+def _load_multi_fact_module() -> ModuleType:
+    """Load the optional reference-workload multi-fact extension only when requested."""
+    try:
+        from scripts.rga_testbed import generate_multi_fact_certification as module
+
+        return module
+    except ModuleNotFoundError:
+        try:
+            import generate_multi_fact_certification as module
+
+            return module
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "semantic contract requests reference_extensions.multi_fact but "
+                "generate_multi_fact_certification is not installed"
+            ) from exc
 
 
 def sha256(path: Path) -> str:
@@ -108,7 +125,7 @@ def build_release(
         contract.get("reference_extensions", {}).get("multi_fact", False)
     )
     if multi_fact_enabled:
-        multi_fact_mod.generate(output / "multi_fact")
+        _load_multi_fact_module().generate(output / "multi_fact")
     acceleration_mod.generate(output / "acceleration", database, contract_path)
 
     ossie_path = output / "interchange" / f"{contract_slug(contract)}.ossie.yml"
