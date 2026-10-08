@@ -136,6 +136,43 @@ jobs:
           assert isinstance(report.get('evidence', []), list), report
           PY
 
+      - name: Certify Node middleware Basic Auth behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth_users='{"ci":{"password":"ci-password","api_token":"ci-token"}}'
+          auth_container=$(docker compose -f docker-compose.web.yml run -d --no-deps \
+            -e PORT=3001 \
+            -e ADE_WEB_AUTH_MODE=basic \
+            -e ADE_WEB_USERS_JSON="$auth_users" \
+            -p 3001:3001 web)
+          cleanup_auth() { docker rm -f "$auth_container" >/dev/null 2>&1 || true; }
+          trap cleanup_auth EXIT
+
+          ready=false
+          for i in $(seq 1 60); do
+            if curl -fsS --connect-timeout 2 --max-time 5 http://127.0.0.1:3001/api/healthz >/tmp/auth-health.json; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          [ "$ready" = "true" ]
+
+          unauth_status=$(curl -sS -o /tmp/unauth.html -w '%{http_code}' http://127.0.0.1:3001/prototype)
+          [ "$unauth_status" = "401" ]
+          grep -q "Authentication required" /tmp/unauth.html
+
+          wrong_status=$(curl -sS -u ci:wrong-password -o /tmp/wrong-auth.html -w '%{http_code}' http://127.0.0.1:3001/prototype)
+          [ "$wrong_status" = "401" ]
+
+          curl -fsS -u ci:ci-password http://127.0.0.1:3001/prototype >/tmp/auth-prototype.html
+          grep -q "Agentic Data Engineering Workbench" /tmp/auth-prototype.html
+          curl -fsS -u ci:ci-password http://127.0.0.1:3001/api/ade/healthz >/tmp/auth-proxy-health.json
+
+          cleanup_auth
+          trap - EXIT
+
       - name: Show logs on failure
         if: failure()
         run: docker compose -f docker-compose.web.yml logs --no-color || true
