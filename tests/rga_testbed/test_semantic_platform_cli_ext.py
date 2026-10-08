@@ -84,9 +84,91 @@ def test_capture_all_evidence_dry_run_plans_all_four_consumers(tmp_path: Path):
         "power_bi",
         "excel",
     ]
+    assert result["planned_runtime_surfaces"] == []
     assert result["governed"]["status"] == "DRY_RUN"
     assert result["governed"]["power_bi"]["status"] == "DRY_RUN"
     assert result["excel"]["status"] == "DRY_RUN"
+    assert result["managed_mcp"]["status"] == "NOT_REQUESTED"
+
+
+def test_capture_all_evidence_can_plan_managed_mcp_runtime(tmp_path: Path):
+    workspace = _workspace(tmp_path)
+    result = ext.capture_all_evidence(
+        workspace,
+        evidence_dir=tmp_path / "evidence",
+        security_context="ROLE_ANALYST",
+        run_mcp_smoke=True,
+        mcp_endpoint=(
+            "https://acct.snowflakecomputing.com/api/v2/databases/"
+            "RGA_SYNTHETIC_TESTBED/schemas/AI/mcp-servers/RGA_REINSURANCE_MCP"
+        ),
+        dry_run=True,
+    )
+    assert result["status"] == "DRY_RUN"
+    assert result["planned_consumers"] == [
+        "snowflake_semantic_view",
+        "cortex_agent_mcp",
+        "power_bi",
+        "excel",
+    ]
+    assert result["planned_runtime_surfaces"] == [
+        "snowflake_managed_mcp_remote_client"
+    ]
+    assert result["managed_mcp"]["status"] == "DRY_RUN"
+    assert result["managed_mcp"]["expected_tool"] == "reinsurance_analyst"
+
+
+def test_capture_all_evidence_fails_when_requested_mcp_runtime_fails(
+    tmp_path: Path,
+    monkeypatch,
+):
+    workspace = _workspace(tmp_path)
+    evidence_dir = tmp_path / "evidence"
+
+    monkeypatch.setattr(
+        ext.base,
+        "capture_governed_evidence",
+        lambda *args, **kwargs: {"status": "PASS"},
+    )
+    monkeypatch.setattr(
+        ext,
+        "capture_excel_evidence",
+        lambda *args, **kwargs: {"status": "PASS"},
+    )
+    monkeypatch.setattr(
+        ext,
+        "mcp_remote_smoke",
+        lambda *args, **kwargs: {"status": "FAIL"},
+    )
+    monkeypatch.setattr(
+        ext.base,
+        "consumer_parity_plan",
+        lambda *args, **kwargs: {
+            "expected_evidence_count": 12,
+            "captured_evidence_count": 12,
+            "missing_evidence_count": 0,
+            "pending_evidence_count": 0,
+            "invalid_evidence_count": 0,
+        },
+    )
+    monkeypatch.setattr(
+        ext.base,
+        "certify_consumers",
+        lambda *args, **kwargs: {"status": "PASS"},
+    )
+
+    result = ext.capture_all_evidence(
+        workspace,
+        evidence_dir=evidence_dir,
+        security_context="ROLE_ANALYST",
+        run_mcp_smoke=True,
+        confirm=True,
+    )
+    assert result["status"] == "FAIL"
+    assert result["managed_mcp"]["status"] == "FAIL"
+    assert result["runtime_surfaces_remaining"] == [
+        "snowflake_managed_mcp_remote_client"
+    ]
 
 
 def test_mcp_extension_derives_governed_tool_and_verified_question(tmp_path: Path):
