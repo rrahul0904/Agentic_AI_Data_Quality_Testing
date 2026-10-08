@@ -45,7 +45,7 @@ jobs:
           npm run typecheck
           npm run build
 
-      - name: Certify hosted middleware runtime
+      - name: Certify Vercel Services middleware compatibility
         working-directory: apps/web
         run: |
           python - <<'PY'
@@ -55,11 +55,12 @@ jobs:
           path = Path('.next/server/middleware-manifest.json')
           assert path.is_file(), 'Next.js middleware manifest was not produced'
           manifest = json.loads(path.read_text())
-          middleware = manifest.get('middleware', {})
-          assert middleware, manifest
-          runtimes = {entry.get('runtime') for entry in middleware.values()}
-          assert runtimes == {'nodejs'}, f'hosted Services require Node.js middleware, got {runtimes}'
-          print('middleware runtimes:', sorted(runtimes))
+          edge_middleware = manifest.get('middleware', {})
+          assert not edge_middleware, f'Vercel Services cannot accept Edge middleware output: {edge_middleware}'
+
+          source = Path('middleware.ts').read_text()
+          assert 'runtime: "nodejs"' in source, 'middleware must explicitly request the Node.js runtime'
+          print('Vercel Services middleware contract: no Edge output; Node runtime requested')
           PY
 
       - name: Build Vercel-compatible API image contract
