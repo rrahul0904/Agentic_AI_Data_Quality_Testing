@@ -13,13 +13,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# The operator console loads dbt summary, coverage, and documentation endpoints on first render.
-# Build deterministic dbt artifacts into the image so a clean deployment does not depend on a
-# developer's ignored dbt/target directory. scripts/parse_dbt.py uses an ephemeral profile and
-# non-secret offline placeholders; it does not require live Snowflake credentials.
-#
-# Install the lightweight cloud extra so the same immutable image can use PostgreSQL when
-# ADE_DATABASE_URL is configured, while local/demo deployments continue to use SQLite.
+# Keep this root Dockerfile behaviorally identical to deploy/Dockerfile.api.
+# Vercel Services requires a container entrypoint literally named Dockerfile/Containerfile.
 RUN python -m pip install --no-cache-dir ".[cloud]" "dbt-snowflake>=1.9,<2" \
     && python scripts/parse_dbt.py
 RUN mkdir -p /state /workspaces /app/.ade /app/hospitality-snowflake-data-platform/.ade \

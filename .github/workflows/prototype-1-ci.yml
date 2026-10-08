@@ -1,0 +1,182 @@
+name: prototype-1-ci
+
+on:
+  push:
+    branches:
+      - feature/prototype-1-cloud-experience
+    paths:
+      - "apps/web/**"
+      - "src/agentic_data_platform/**"
+      - "deploy/**"
+      - "Dockerfile"
+      - "vercel.json"
+      - "docker-compose.web.yml"
+      - "docker-compose.production.yml"
+      - "docker-compose.release.yml"
+      - ".github/workflows/prototype-1-ci.yml"
+      - ".github/workflows/prototype-persistence-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prototype-1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prototype-smoke:
+    name: Prototype 1.0 typecheck + browser smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Typecheck and build focused prototype UI
+        working-directory: apps/web
+        run: |
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npm run build
+
+      - name: Certify Vercel Services middleware compatibility
+        working-directory: apps/web
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('.next/server/middleware-manifest.json')
+          assert path.is_file(), 'Next.js middleware manifest was not produced'
+          manifest = json.loads(path.read_text())
+          edge_middleware = manifest.get('middleware', {})
+          assert not edge_middleware, f'Vercel Services cannot accept Edge middleware output: {edge_middleware}'
+
+          source = Path('middleware.ts').read_text()
+          assert 'runtime: "nodejs"' in source, 'middleware must explicitly request the Node.js runtime'
+          print('Vercel Services middleware contract: no Edge output; Node runtime requested')
+          PY
+
+      - name: Build Vercel-compatible API image contract
+        run: docker build -f Dockerfile -t ade-prototype-api:ci .
+
+      - name: Build and start production-like web/API stack
+        run: docker compose -f docker-compose.web.yml up -d --build
+
+      - name: Wait for services
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready=false
+          for i in $(seq 1 90); do
+            if curl -fsS --connect-timeout 2 --max-time 5 http://127.0.0.1:8001/healthz >/tmp/api-health.json \
+              && curl -fsS --connect-timeout 2 --max-time 5 http://127.0.0.1:3000/api/healthz >/tmp/web-health.json \
+              && curl -fsS --connect-timeout 2 --max-time 5 http://127.0.0.1:3000/api/ade/healthz >/tmp/proxy-health.json; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" != "true" ]; then
+            docker compose -f docker-compose.web.yml ps || true
+            docker compose -f docker-compose.web.yml logs --no-color || true
+            exit 1
+          fi
+
+      - name: Smoke Prototype 1.0 product journey
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --connect-timeout 2 --max-time 30 http://127.0.0.1:3000/prototype >/tmp/prototype.html
+          grep -q "Agentic Data Engineering Workbench" /tmp/prototype.html
+          grep -q "ADE PROTOTYPE 1.0" /tmp/prototype.html
+
+          curl -fsS --connect-timeout 2 --max-time 30 \
+            http://127.0.0.1:3000/api/ade/api/v1/overview >/tmp/overview.json
+          curl -fsS --connect-timeout 2 --max-time 30 \
+            http://127.0.0.1:3000/api/ade/api/v1/investigations/scenarios >/tmp/scenarios.json
+
+          python - <<'PY'
+          import json
+          overview = json.load(open('/tmp/overview.json'))
+          scenarios = json.load(open('/tmp/scenarios.json'))
+          assert overview['counts']['dbt_models'] > 0, overview
+          assert overview['counts']['airflow_dags'] > 0, overview
+          assert scenarios['count'] > 0, scenarios
+          assert scenarios['scenarios'], scenarios
+          PY
+
+          scenario_id=$(python - <<'PY'
+          import json
+          payload = json.load(open('/tmp/scenarios.json'))
+          print(payload['scenarios'][0]['scenario_id'])
+          PY
+          )
+
+          curl -fsS --connect-timeout 2 --max-time 60 \
+            -H 'Content-Type: application/json' \
+            -d '{}' \
+            "http://127.0.0.1:3000/api/ade/api/v1/investigations/${scenario_id}/start" >/tmp/investigation.json
+
+          python - <<'PY'
+          import json
+          report = json.load(open('/tmp/investigation.json'))
+          assert report['incident_id'], report
+          assert report['scenario_id'], report
+          assert report['state'] in {
+              'AWAITING_APPROVAL', 'REMEDIATION_PROPOSED', 'IMPACT_ANALYSIS',
+              'RCA', 'EVIDENCE_COLLECTION', 'INVESTIGATING', 'RESOLVED'
+          }, report
+          assert isinstance(report.get('evidence', []), list), report
+          PY
+
+      - name: Certify Node middleware Basic Auth behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth_users='{"ci":{"password":"ci-password","api_token":"ci-token"}}'
+          auth_container=$(docker compose -f docker-compose.web.yml run -d --no-deps \
+            -e PORT=3001 \
+            -e ADE_WEB_AUTH_MODE=basic \
+            -e ADE_WEB_USERS_JSON="$auth_users" \
+            -p 3001:3001 web)
+          cleanup_auth() { docker rm -f "$auth_container" >/dev/null 2>&1 || true; }
+          trap cleanup_auth EXIT
+
+          ready=false
+          for i in $(seq 1 60); do
+            if curl -fsS --connect-timeout 2 --max-time 5 http://127.0.0.1:3001/api/healthz >/tmp/auth-health.json; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          [ "$ready" = "true" ]
+
+          unauth_status=$(curl -sS -o /tmp/unauth.html -w '%{http_code}' http://127.0.0.1:3001/prototype)
+          [ "$unauth_status" = "401" ]
+          grep -q "Authentication required" /tmp/unauth.html
+
+          wrong_status=$(curl -sS -u ci:wrong-password -o /tmp/wrong-auth.html -w '%{http_code}' http://127.0.0.1:3001/prototype)
+          [ "$wrong_status" = "401" ]
+
+          curl -fsS -u ci:ci-password http://127.0.0.1:3001/prototype >/tmp/auth-prototype.html
+          grep -q "Agentic Data Engineering Workbench" /tmp/auth-prototype.html
+          curl -fsS -u ci:ci-password http://127.0.0.1:3001/api/ade/healthz >/tmp/auth-proxy-health.json
+
+          cleanup_auth
+          trap - EXIT
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.web.yml logs --no-color || true
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose -f docker-compose.web.yml down -v --remove-orphans

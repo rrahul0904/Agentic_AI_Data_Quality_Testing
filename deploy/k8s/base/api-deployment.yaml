@@ -45,8 +45,8 @@ spec:
           volumeMounts:
             - name: state
               mountPath: /state
-            - name: project
-              mountPath: /workspace
+            - name: workspaces
+              mountPath: /workspaces
           readinessProbe:
             httpGet:
               path: /healthz
@@ -67,6 +67,6 @@ spec:
         - name: state
           persistentVolumeClaim:
             claimName: ade-state
-        - name: project
+        - name: workspaces
           persistentVolumeClaim:
             claimName: ade-project

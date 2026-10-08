@@ -1,0 +1,132 @@
+name: prototype-persistence-ci
+
+on:
+  push:
+    branches:
+      - feature/prototype-1-cloud-experience
+    paths:
+      - "src/agentic_data_platform/persistence/**"
+      - "src/agentic_data_platform/artifacts/**"
+      - "src/agentic_data_platform/projects/**"
+      - "src/agentic_data_platform/agents/store.py"
+      - "src/agentic_data_platform/agents/postgres_store.py"
+      - "src/agentic_data_platform/agents/store_factory.py"
+      - "src/agentic_data_platform/quality/store.py"
+      - "src/agentic_data_platform/quality/postgres_store.py"
+      - "src/agentic_data_platform/quality/store_factory.py"
+      - "src/agentic_data_platform/api/hosted_app.py"
+      - "tests/test_cloud_persistence.py"
+      - "tests/test_quality_cloud_persistence.py"
+      - "tests/test_project_sources.py"
+      - "tests/test_artifact_store.py"
+      - "tests/test_s3_artifact_store.py"
+      - "deploy/Dockerfile.api"
+      - "docker-compose.production.yml"
+      - "docker-compose.release.yml"
+      - "deploy/k8s/base/api-deployment.yaml"
+      - "deploy/k8s/base/configmap.yaml"
+      - "pyproject.toml"
+      - ".github/workflows/prototype-persistence-ci.yml"
+      - ".github/workflows/prototype-1-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prototype-persistence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  persistence-contract:
+    name: Cloud persistence + project-source + artifact contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ade
+          POSTGRES_PASSWORD: ade
+          POSTGRES_DB: ade
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ade -d ade"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ADE cloud package and test runner
+        run: python -m pip install --disable-pip-version-check -e ".[cloud]" pytest "moto[server,s3]>=5,<6"
+
+      - name: Start networked S3-compatible test service
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup moto_server -H 127.0.0.1 -p 5000 >/tmp/ade-s3-server.log 2>&1 &
+          echo $! >/tmp/ade-s3-server.pid
+          ready=false
+          for i in $(seq 1 30); do
+            if curl -sS --connect-timeout 2 --max-time 2 http://127.0.0.1:5000/ >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            if ! kill -0 "$(cat /tmp/ade-s3-server.pid)" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != "true" ]; then
+            cat /tmp/ade-s3-server.log || true
+            exit 1
+          fi
+          echo "S3 compatibility server: $(python -c 'import moto; print(moto.__version__)')"
+
+      - name: Compile cloud persistence, project source, artifact, and hosted entrypoint modules
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m compileall -q src/agentic_data_platform/persistence
+          python -m compileall -q src/agentic_data_platform/quality
+          python -m compileall -q src/agentic_data_platform/projects
+          python -m compileall -q src/agentic_data_platform/artifacts
+          python -m py_compile \
+            src/agentic_data_platform/agents/postgres_store.py \
+            src/agentic_data_platform/agents/store_factory.py \
+            src/agentic_data_platform/api/hosted_app.py
+
+      - name: Run SQLite, PostgreSQL, project-source, and networked S3-compatible contract tests
+        env:
+          PYTHONPATH: src
+          ADE_TEST_POSTGRES_DSN: postgresql://ade:ade@127.0.0.1:5432/ade
+          ADE_TEST_S3_ENDPOINT: http://127.0.0.1:5000
+          AWS_ACCESS_KEY_ID: ade-test
+          AWS_SECRET_ACCESS_KEY: ade-test-secret
+          AWS_REGION: us-east-1
+          AWS_EC2_METADATA_DISABLED: "true"
+        run: >-
+          pytest -q
+          tests/test_cloud_persistence.py
+          tests/test_quality_cloud_persistence.py
+          tests/test_project_sources.py
+          tests/test_artifact_store.py
+          tests/test_s3_artifact_store.py
+
+      - name: Show S3 server logs on failure
+        if: failure()
+        run: cat /tmp/ade-s3-server.log || true
+
+      - name: Stop S3 compatibility server
+        if: always()
+        shell: bash
+        run: |
+          if [ -f /tmp/ade-s3-server.pid ]; then
+            kill "$(cat /tmp/ade-s3-server.pid)" 2>/dev/null || true
+          fi
