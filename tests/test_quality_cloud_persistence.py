@@ -23,7 +23,7 @@ def test_quality_factory_keeps_sqlite_as_local_default(tmp_path, monkeypatch) ->
 
 
 def test_quality_factory_selects_postgres_without_connecting() -> None:
-    store = create_quality_store("postgresql://ade:secret@db.internal:5432/ade")
+    store = create_quality_store("postgresql://ade:secret@db.internal:5432/ade")  # audit-safe-fixture
 
     assert isinstance(store, PostgresQualityStore)
     assert quality_backend_name(store) == "postgresql"
