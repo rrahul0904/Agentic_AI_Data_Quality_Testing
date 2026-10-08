@@ -37,6 +37,9 @@ def test_parity_suite_requires_all_four_consumers(tmp_path: Path):
         assert case["power_bi"]["capture_api"] == "executeDaxQueries"
         assert case["power_bi"]["dax_file"].endswith(".powerbi.dax")
         assert case["excel"]["allow_local_metric_reimplementation"] is False
+        assert case["excel"]["capture_protocol"] == "xmla_adomd_mdx"
+        assert case["excel"]["mdx_file"].endswith(".excel.mdx")
+        assert case["excel"]["cube_name_token"] == "__CUBE_NAME__"
 
 
 def test_parity_suite_emits_reference_sql_for_every_case(tmp_path: Path):
@@ -46,7 +49,7 @@ def test_parity_suite_emits_reference_sql_for_every_case(tmp_path: Path):
     )
     files = module.generate(tmp_path, "RGA_SYNTHETIC_TESTBED")
     manifest = json.loads((tmp_path / "parity_manifest.json").read_text(encoding="utf-8"))
-    assert len(files) == (len(manifest["cases"]) * 2) + 1
+    assert len(files) == (len(manifest["cases"]) * 3) + 1
     for case in manifest["cases"]:
         sql_path = tmp_path / case["reference"]["sql_file"]
         assert sql_path.exists()
@@ -64,6 +67,16 @@ def test_parity_suite_emits_reference_sql_for_every_case(tmp_path: Path):
             assert f"[{dimension}]" in dax
         for metric in case["metrics"]:
             assert f"[{metric}]" in dax
+
+        mdx_path = tmp_path / case["excel"]["mdx_file"]
+        assert mdx_path.exists()
+        mdx = mdx_path.read_text(encoding="utf-8")
+        assert mdx.startswith("SELECT\n")
+        assert "FROM [__CUBE_NAME__]" in mdx
+        for dimension in case["dimensions"]:
+            assert f"[{dimension}]" in mdx
+        for metric in case["metrics"]:
+            assert f"[Measures].[{metric}]" in mdx
 
 
 def test_parity_cases_share_metric_and_dimension_contract():
@@ -99,3 +112,25 @@ def test_power_bi_dax_uses_canonical_table_and_no_local_metric_formula():
         assert f"[{metric}]" in dax
     assert "NULLIF" not in dax
     assert "SUM(" not in dax
+
+
+def test_excel_mdx_uses_canonical_members_and_no_local_metric_formula():
+    module = load_module(
+        "rga_excel_mdx_test",
+        ROOT / "scripts" / "rga_testbed" / "generate_parity_suite.py",
+    )
+    contract = module.load_semantic_contract(
+        ROOT / "config" / "rga_semantic_contract.yml",
+        "RGA_SYNTHETIC_TESTBED",
+    )
+    query = contract["verified_queries"][0]
+    mdx = module.excel_mdx(contract, query)
+
+    assert "FROM [__CUBE_NAME__]" in mdx
+    assert "[REINSURANCE_PERFORMANCE]" in mdx
+    for dimension in query["dimensions"]:
+        assert f"[{dimension}]" in mdx
+    for metric in query["metrics"]:
+        assert f"[Measures].[{metric}]" in mdx
+    assert "NULLIF" not in mdx
+    assert "SUM(" not in mdx
