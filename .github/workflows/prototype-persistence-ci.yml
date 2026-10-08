@@ -105,7 +105,7 @@ jobs:
       - name: Run SQLite, PostgreSQL, project-source, and networked S3-compatible contract tests
         env:
           PYTHONPATH: src
-          ADE_TEST_POSTGRES_DSN: postgresql://ade:ade@127.0.0.1:5432/ade
+          ADE_TEST_POSTGRES_DSN: postgresql://ade:ade@127.0.0.1:5432/ade # audit-safe-fixture
           ADE_TEST_S3_ENDPOINT: http://127.0.0.1:5000
           AWS_ACCESS_KEY_ID: ade-test
           AWS_SECRET_ACCESS_KEY: ade-test-secret
