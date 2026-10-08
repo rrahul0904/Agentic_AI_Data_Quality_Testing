@@ -84,6 +84,8 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
     bounded_path = workspace / "evidence" / "snowflake_demo.json"
     consumer_path = workspace / "evidence" / "cross_consumer_parity.json"
     agent_path = workspace / "evidence" / "agent_smoke.json"
+    mcp_path = workspace / "evidence" / "mcp_remote_smoke.json"
+    mcp_spec_path = workspace / "release" / "ai" / "mcp_spec.yml"
     cdc_path = workspace / "evidence" / "cdc_application.json"
     scale_path = workspace / "evidence" / "scale_test.json"
     workload_path = workspace / "evidence" / "workload_analysis.json"
@@ -97,6 +99,7 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
     bounded = _load(bounded_path)
     consumer = _load(consumer_path)
     agent = _load(agent_path)
+    managed_mcp = _load(mcp_path)
     cdc = _load(cdc_path)
     scale = _load(scale_path)
     workload = _load(workload_path)
@@ -109,6 +112,12 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
     bounded_status = bounded.get("status") if bounded else "PENDING"
     consumer_status = consumer.get("status") if consumer else "PENDING"
     agent_status = agent.get("status") if agent else "PENDING"
+    mcp_required = mcp_spec_path.exists()
+    mcp_status = (
+        managed_mcp.get("status")
+        if managed_mcp
+        else ("PENDING" if mcp_required else "NOT_APPLICABLE")
+    )
     cdc_status = cdc.get("status") if cdc else "PENDING"
     scale_status = scale.get("status") if scale else "PENDING"
     live_optimization = (
@@ -152,6 +161,10 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
             blockers.append("live Snowflake semantic-runtime certification has not passed")
     if consumer_status != "PASS":
         blockers.append("cross-consumer Snowflake/AI/Power BI/Excel parity has not passed")
+    if mcp_required and mcp_status != "PASS":
+        blockers.append(
+            "release exposes a Snowflake-managed MCP server but external managed-MCP discovery/invocation has not passed"
+        )
     if cdc and cdc_status != "PASS":
         blockers.append("CDC correction/late-arrival certification evidence exists but has not passed")
     if scale and scale_status != "PASS":
@@ -181,11 +194,13 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
             f"({evidence_status['captured']}/{evidence_status['expected']} captured)"
         )
 
+    mcp_runtime_pass = (not mcp_required) or mcp_status == "PASS"
     end_to_end_certified = bool(
         release
         and live_status == "PASS"
         and consumer_status == "PASS"
         and evidence_status["status"] == "COMPLETE"
+        and mcp_runtime_pass
     )
 
     if end_to_end_certified:
@@ -200,7 +215,7 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
         overall_status = "INCOMPLETE"
 
     return {
-        "certification_report_version": 2,
+        "certification_report_version": 3,
         "overall_status": overall_status,
         "end_to_end_certified": end_to_end_certified,
         "production_rollout_certified": False,
@@ -242,6 +257,38 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
             "path": str(agent_path),
             "passed": agent.get("passed") if agent else None,
             "failed": agent.get("failed") if agent else None,
+        },
+        "managed_mcp_client": {
+            "required": mcp_required,
+            "status": mcp_status,
+            "path": str(mcp_path),
+            "expected_tool": managed_mcp.get("expected_tool") if managed_mcp else None,
+            "tool_count": (
+                managed_mcp.get("tools_list", {}).get("tool_count")
+                if managed_mcp
+                else None
+            ),
+            "invocation_result_present": (
+                managed_mcp.get("tools_call", {}).get("result_present")
+                if managed_mcp
+                else None
+            ),
+            "oauth_token_persisted": (
+                managed_mcp.get("oauth", {}).get("token_persisted")
+                if managed_mcp
+                else None
+            ),
+            "reasoning_persisted": (
+                managed_mcp.get("reasoning_persisted") if managed_mcp else None
+            ),
+            "truth_boundary": (
+                managed_mcp.get("truth_boundary")
+                if managed_mcp
+                else (
+                    "Managed MCP remote invocation is required for end-to-end certification when the governed release exposes ai/mcp_spec.yml. "
+                    "It proves external client discovery/invocation, while business-result parity is certified separately."
+                )
+            ),
         },
         "change_data": {
             "status": cdc_status,
@@ -331,9 +378,10 @@ def build_report(workspace: Path, evidence_dir: Path | None = None) -> dict[str,
             "A PASS bounded_target_account status means only the executed bootstrap, RAW load, dbt build, "
             "and server-side Semantic View verification stages in snowflake_demo.json passed for the recorded "
             "target account and exact source/semantic hashes. It does not imply Semantic View deployment, "
-            "Cortex Agent/MCP runtime proof, direct-versus-semantic benchmark certification, consumer parity, "
-            "target-scale SLA, or production rollout approval. END_TO_END_CERTIFIED_FOR_EXECUTED_WORKLOAD "
-            "requires the broader live runtime plus captured consumer evidence and cross-consumer parity."
+            "Cortex Agent runtime proof, managed MCP remote-client proof, direct-versus-semantic benchmark certification, "
+            "consumer parity, target-scale SLA, or production rollout approval. END_TO_END_CERTIFIED_FOR_EXECUTED_WORKLOAD "
+            "requires the broader live runtime plus captured consumer evidence/cross-consumer parity and, when the release "
+            "exposes an MCP server, passing external managed-MCP discovery/invocation evidence."
         ),
     }
 
@@ -359,6 +407,13 @@ def render_markdown(report: dict[str, Any]) -> str:
         ),
         f"- Live Snowflake runtime: **{report['live_runtime']['status']}**",
         f"- Cortex Agent runtime: **{report['agent_runtime']['status']}**",
+        (
+            "- Snowflake-managed MCP remote client: "
+            f"**{report['managed_mcp_client']['status']}** "
+            f"(required={report['managed_mcp_client']['required']}, "
+            f"tool={report['managed_mcp_client']['expected_tool']}, "
+            f"invoked={report['managed_mcp_client']['invocation_result_present']})"
+        ),
         f"- CDC correction/late-arrival cycle: **{report['change_data']['status']}**",
         (
             "- Local generator/out-of-core scale: "
