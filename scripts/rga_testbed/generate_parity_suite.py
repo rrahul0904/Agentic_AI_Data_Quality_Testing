@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 try:
     from scripts.rga_testbed.semantic_contract import DEFAULT_CONTRACT, load_semantic_contract, semantic_view_fqn
 except ModuleNotFoundError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
     from semantic_contract import DEFAULT_CONTRACT, load_semantic_contract, semantic_view_fqn
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -41,7 +43,7 @@ def semantic_sql(contract: dict, query: dict) -> str:
 
 
 def _dax_identifier(name: str) -> str:
-    return str(name).replace("]", "]]" )
+    return str(name).replace("]", "]]")
 
 
 def _dax_table(name: str) -> str:
@@ -59,10 +61,7 @@ def power_bi_dax(contract: dict, query: dict) -> str:
         )
         return "EVALUATE\nROW(\n    " + args + "\n)\n"
 
-    parts = [
-        f"{table}[{_dax_identifier(name)}]"
-        for name in dimensions
-    ]
+    parts = [f"{table}[{_dax_identifier(name)}]" for name in dimensions]
     parts.extend(
         f'\"{_dax_identifier(metric)}\", [{_dax_identifier(metric)}]'
         for metric in metrics
@@ -75,7 +74,7 @@ def power_bi_dax(contract: dict, query: dict) -> str:
 
 
 def _mdx_identifier(name: str) -> str:
-    return str(name).replace("]", "]]" )
+    return str(name).replace("]", "]]")
 
 
 def excel_mdx(contract: dict, query: dict) -> str:
@@ -170,7 +169,12 @@ def build_suite(database: str, contract_path: Path = DEFAULT_CONTRACT) -> dict:
         "name": f"{contract['name'].lower()}_cross_consumer_semantic_parity",
         "canonical_contract": str(contract_path),
         "semantic_view": semantic_view_fqn(contract),
-        "required_consumers": ["snowflake_semantic_view", "cortex_agent_mcp", "power_bi", "excel"],
+        "required_consumers": [
+            "snowflake_semantic_view",
+            "cortex_agent_mcp",
+            "power_bi",
+            "excel",
+        ],
         "cases": cases,
     }
 
