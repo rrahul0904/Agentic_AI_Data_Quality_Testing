@@ -45,7 +45,7 @@ def test_factory_keeps_sqlite_as_local_default(tmp_path, monkeypatch) -> None:
 
 
 def test_factory_selects_postgres_without_connecting() -> None:
-    repository = create_control_plane_repository("postgresql://ade:secret@db.internal:5432/ade")
+    repository = create_control_plane_repository("postgresql://ade:secret@db.internal:5432/ade")  # audit-safe-fixture
 
     assert isinstance(repository, PostgresControlPlaneRepository)
     assert persistence_backend_name(repository) == "postgresql"
@@ -123,7 +123,7 @@ def test_investigation_factory_selects_postgres_without_connecting(monkeypatch) 
             return None
 
     monkeypatch.setattr("agentic_data_platform.agents.store_factory.PostgresInvestigationStore", DeferredPostgresStore)
-    store = create_investigation_store("postgresql://ade:secret@db.internal:5432/ade")
+    store = create_investigation_store("postgresql://ade:secret@db.internal:5432/ade")  # audit-safe-fixture
 
     assert isinstance(store, DeferredPostgresStore)
     assert store.dsn.endswith("/ade")
