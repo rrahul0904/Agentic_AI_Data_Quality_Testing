@@ -13,6 +13,7 @@ except ModuleNotFoundError:
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT = ROOT / "rga-snowflake-data-platform" / "parity"
+EXCEL_CUBE_TOKEN = "__CUBE_NAME__"
 
 
 def parse_args() -> argparse.Namespace:
@@ -40,7 +41,7 @@ def semantic_sql(contract: dict, query: dict) -> str:
 
 
 def _dax_identifier(name: str) -> str:
-    return str(name).replace("]", "]]")
+    return str(name).replace("]", "]]" )
 
 
 def _dax_table(name: str) -> str:
@@ -71,6 +72,46 @@ def power_bi_dax(contract: dict, query: dict) -> str:
         + ",\n    ".join(parts)
         + "\n)\n"
     )
+
+
+def _mdx_identifier(name: str) -> str:
+    return str(name).replace("]", "]]" )
+
+
+def excel_mdx(contract: dict, query: dict) -> str:
+    """Compile an Excel/XMLA-oriented MDX query without local metric formulas.
+
+    The cube/model name is resolved at capture time because XMLA providers can expose
+    different cube names for the same governed semantic model. Dimensions and measures
+    stay contract-driven and no spreadsheet-side metric expression is introduced.
+    """
+    table = _mdx_identifier(contract["table_alias"])
+    dimensions = query.get("dimensions", [])
+    metrics = query["metrics"]
+    measures = ", ".join(
+        f"[Measures].[{_mdx_identifier(metric)}]" for metric in metrics
+    )
+    lines = [
+        "SELECT",
+        f"  NON EMPTY {{{measures}}} ON COLUMNS",
+    ]
+    if dimensions:
+        member_sets = [
+            (
+                f"[{table}].[{_mdx_identifier(dimension)}]."
+                f"[{_mdx_identifier(dimension)}].MEMBERS"
+            )
+            for dimension in dimensions
+        ]
+        row_axis = (
+            member_sets[0]
+            if len(member_sets) == 1
+            else "NONEMPTYCROSSJOIN(" + ", ".join(member_sets) + ")"
+        )
+        lines[-1] += ","
+        lines.append(f"  NON EMPTY {row_axis} ON ROWS")
+    lines.append(f"FROM [{EXCEL_CUBE_TOKEN}]")
+    return "\n".join(lines) + "\n"
 
 
 def build_suite(database: str, contract_path: Path = DEFAULT_CONTRACT) -> dict:
@@ -110,6 +151,9 @@ def build_suite(database: str, contract_path: Path = DEFAULT_CONTRACT) -> dict:
                     "expected_metrics": query["metrics"],
                     "expected_dimensions": query.get("dimensions", []),
                     "allow_local_metric_reimplementation": False,
+                    "mdx_file": f"{query['id']}.excel.mdx",
+                    "capture_protocol": "xmla_adomd_mdx",
+                    "cube_name_token": EXCEL_CUBE_TOKEN,
                 },
                 "acceptance": {
                     "same_metric_definition": True,
@@ -144,6 +188,11 @@ def generate(output: Path, database: str, contract_path: Path = DEFAULT_CONTRACT
         dax_path = output / f"{query['id']}.powerbi.dax"
         dax_path.write_text(power_bi_dax(contract, query), encoding="utf-8")
         written.append(dax_path)
+
+        mdx_path = output / f"{query['id']}.excel.mdx"
+        mdx_path.write_text(excel_mdx(contract, query), encoding="utf-8")
+        written.append(mdx_path)
+
     manifest = output / "parity_manifest.json"
     manifest.write_text(json.dumps(suite, indent=2) + "\n", encoding="utf-8")
     written.append(manifest)
