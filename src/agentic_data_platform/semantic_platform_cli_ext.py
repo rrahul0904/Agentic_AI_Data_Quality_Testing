@@ -1,8 +1,8 @@
-"""Extension commands for governed Microsoft consumer evidence capture.
+"""Extension commands for external governed-consumer evidence.
 
 All existing semantic-platform commands delegate unchanged to semantic_platform_cli.
-This thin layer adds Excel XMLA evidence capture and one end-to-end all-consumer
-capture/certification command without duplicating the certified core CLI.
+This thin layer adds Excel XMLA evidence capture, Snowflake-managed MCP remote
+invocation evidence, and one end-to-end all-consumer capture/certification command.
 """
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ import json
 import sys
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 from . import semantic_platform_cli as base
 
@@ -83,6 +85,106 @@ def capture_excel_evidence(
         workspace,
         evidence_dir,
     )
+    return payload
+
+
+def _workspace_mcp_defaults(workspace: Path) -> dict[str, str]:
+    mcp_spec_path = workspace / "release" / "ai" / "mcp_spec.yml"
+    parity_path = workspace / "release" / "parity" / "parity_manifest.json"
+    if not mcp_spec_path.exists():
+        raise FileNotFoundError(f"MCP specification not found: {mcp_spec_path}")
+    if not parity_path.exists():
+        raise FileNotFoundError(f"parity manifest not found: {parity_path}")
+
+    spec = yaml.safe_load(mcp_spec_path.read_text(encoding="utf-8")) or {}
+    tools = spec.get("tools") or []
+    if not tools or not isinstance(tools[0], dict) or not tools[0].get("name"):
+        raise ValueError("MCP specification does not expose a named governed tool")
+
+    parity = json.loads(parity_path.read_text(encoding="utf-8"))
+    cases = parity.get("cases") or []
+    if not cases or not cases[0].get("business_question"):
+        raise ValueError("parity manifest has no verified business question for MCP smoke")
+    return {
+        "expected_tool": str(tools[0]["name"]),
+        "question": str(cases[0]["business_question"]),
+        "mcp_spec": str(mcp_spec_path),
+        "parity_manifest": str(parity_path),
+    }
+
+
+def mcp_remote_smoke(
+    workspace: Path,
+    *,
+    endpoint: str | None = None,
+    account_url: str | None = None,
+    database: str | None = None,
+    schema: str = "AI",
+    server: str | None = None,
+    expected_tool: str | None = None,
+    question: str | None = None,
+    token_env: str = "SNOWFLAKE_MCP_ACCESS_TOKEN",
+    timeout: int = 120,
+    output: Path | None = None,
+    confirm: bool = False,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    defaults = _workspace_mcp_defaults(workspace)
+    expected_tool = expected_tool or defaults["expected_tool"]
+    question = question or defaults["question"]
+    output = output or (workspace / "evidence" / "mcp_remote_smoke.json")
+
+    args = [
+        "--expected-tool",
+        expected_tool,
+        "--question",
+        question,
+        "--token-env",
+        token_env,
+        "--timeout",
+        str(timeout),
+    ]
+    if endpoint:
+        args += ["--endpoint", endpoint]
+    else:
+        if account_url:
+            args += ["--account-url", account_url]
+        if database:
+            args += ["--database", database]
+        if schema:
+            args += ["--schema", schema]
+        if server:
+            args += ["--server", server]
+    if dry_run:
+        args.append("--dry-run")
+    else:
+        args += ["--output", str(output)]
+        if confirm:
+            args.append("--confirm")
+
+    result = base._run(
+        base._python_script("smoke_snowflake_mcp.py", *args),
+        capture=True,
+    )
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            result.stdout.strip()
+            or result.stderr.strip()
+            or "Snowflake MCP smoke returned invalid output"
+        ) from exc
+    if result.returncode != 0:
+        raise RuntimeError(
+            payload.get("error")
+            or "; ".join(payload.get("errors", []))
+            or result.stdout.strip()
+            or result.stderr.strip()
+        )
+    payload["source_mcp_spec"] = defaults["mcp_spec"]
+    payload["source_parity_manifest"] = defaults["parity_manifest"]
+    if not dry_run:
+        payload["evidence"] = str(output)
     return payload
 
 
@@ -203,15 +305,30 @@ def _extension_parser() -> argparse.ArgumentParser:
     excel.add_argument("--security-context", required=True)
     excel.add_argument("--runner")
     excel.add_argument("--cube-name")
-    excel.add_argument(
-        "--connection-string-env",
-        default="EXCEL_XMLA_CONNECTION_STRING",
-    )
+    excel.add_argument("--connection-string-env", default="EXCEL_XMLA_CONNECTION_STRING")
     excel.add_argument("--max-rows", type=int, default=100000)
     excel.add_argument("--query-timeout", type=int, default=300)
     excel.add_argument("--overwrite", action="store_true")
     excel.add_argument("--confirm", action="store_true")
     excel.add_argument("--dry-run", action="store_true")
+
+    mcp = sub.add_parser(
+        "mcp-smoke",
+        help="Discover and invoke the governed Snowflake-managed MCP Agent tool.",
+    )
+    mcp.add_argument("--workspace", type=Path, default=base.DEFAULT_WORKSPACE)
+    mcp.add_argument("--endpoint")
+    mcp.add_argument("--account-url")
+    mcp.add_argument("--database")
+    mcp.add_argument("--schema", default="AI")
+    mcp.add_argument("--server")
+    mcp.add_argument("--expected-tool")
+    mcp.add_argument("--question")
+    mcp.add_argument("--token-env", default="SNOWFLAKE_MCP_ACCESS_TOKEN")
+    mcp.add_argument("--timeout", type=int, default=120)
+    mcp.add_argument("--output", type=Path)
+    mcp.add_argument("--confirm", action="store_true")
+    mcp.add_argument("--dry-run", action="store_true")
 
     all_evidence = sub.add_parser(
         "capture-all-evidence",
@@ -228,10 +345,7 @@ def _extension_parser() -> argparse.ArgumentParser:
     all_evidence.add_argument("--power-bi-query-timeout", type=int, default=300)
     all_evidence.add_argument("--excel-runner")
     all_evidence.add_argument("--excel-cube-name")
-    all_evidence.add_argument(
-        "--excel-connection-string-env",
-        default="EXCEL_XMLA_CONNECTION_STRING",
-    )
+    all_evidence.add_argument("--excel-connection-string-env", default="EXCEL_XMLA_CONNECTION_STRING")
     all_evidence.add_argument("--excel-query-timeout", type=int, default=300)
     all_evidence.add_argument("--overwrite", action="store_true")
     all_evidence.add_argument("--confirm", action="store_true")
@@ -241,7 +355,12 @@ def _extension_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     command = sys.argv[1] if len(sys.argv) > 1 else None
-    if command not in {"capture-excel-evidence", "capture-all-evidence"}:
+    extension_commands = {
+        "capture-excel-evidence",
+        "capture-all-evidence",
+        "mcp-smoke",
+    }
+    if command not in extension_commands:
         return base.main()
 
     args = _extension_parser().parse_args()
@@ -259,6 +378,22 @@ def main() -> int:
                 confirm=args.confirm,
                 dry_run=args.dry_run,
                 overwrite=args.overwrite,
+            )
+        elif args.command == "mcp-smoke":
+            result = mcp_remote_smoke(
+                args.workspace,
+                endpoint=args.endpoint,
+                account_url=args.account_url,
+                database=args.database,
+                schema=args.schema,
+                server=args.server,
+                expected_tool=args.expected_tool,
+                question=args.question,
+                token_env=args.token_env,
+                timeout=args.timeout,
+                output=args.output,
+                confirm=args.confirm,
+                dry_run=args.dry_run,
             )
         else:
             result = capture_all_evidence(
