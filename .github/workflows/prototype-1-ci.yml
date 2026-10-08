@@ -8,6 +8,8 @@ on:
       - "apps/web/**"
       - "src/agentic_data_platform/**"
       - "deploy/**"
+      - "Dockerfile"
+      - "vercel.json"
       - "docker-compose.web.yml"
       - "docker-compose.production.yml"
       - "docker-compose.release.yml"
@@ -42,6 +44,26 @@ jobs:
           npm ci --no-audit --no-fund
           npm run typecheck
           npm run build
+
+      - name: Certify hosted middleware runtime
+        working-directory: apps/web
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('.next/server/middleware-manifest.json')
+          assert path.is_file(), 'Next.js middleware manifest was not produced'
+          manifest = json.loads(path.read_text())
+          middleware = manifest.get('middleware', {})
+          assert middleware, manifest
+          runtimes = {entry.get('runtime') for entry in middleware.values()}
+          assert runtimes == {'nodejs'}, f'hosted Services require Node.js middleware, got {runtimes}'
+          print('middleware runtimes:', sorted(runtimes))
+          PY
+
+      - name: Build Vercel-compatible API image contract
+        run: docker build -f Dockerfile -t ade-prototype-api:ci .
 
       - name: Build and start production-like web/API stack
         run: docker compose -f docker-compose.web.yml up -d --build
