@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ade-config
+data:
+  ADE_RUNTIME_MODE: production
+  ADE_DEMO_MODE: "false"
+  ADE_AUTH_MODE: api_key
+  ADE_PROJECT_ROOT: /workspace
+  ADE_DATABASE_PATH: /state/control-plane.db
+  ADE_QUALITY_DATABASE: /state/quality.db
+  ADE_INVESTIGATION_DATABASE: /state/investigations.db
+  ADE_COMMIT_SHA: REPLACE_COMMIT_SHA
+  ADE_EXTERNAL_ASSURANCE_EVIDENCE: ""

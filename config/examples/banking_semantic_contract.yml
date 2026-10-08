@@ -1,0 +1,112 @@
+version: 1
+name: BANKING_ACCOUNT_PERFORMANCE
+description: Governed retail banking account performance semantics used by Snowflake, BI, Excel, and AI.
+database: BANKING_ANALYTICS
+semantic_schema: SEMANTIC
+mart_schema: MART
+mart_table: ACCOUNT_PERFORMANCE
+table_alias: ACCOUNT_PERFORMANCE
+grain:
+  - ACCOUNT_ID
+  - PERIOD_MONTH
+
+dimensions:
+  - name: ACCOUNT_ID
+    synonyms: [bank account id]
+    description: Synthetic banking account identifier.
+    expr: ACCOUNT_ID
+    data_type: VARCHAR
+  - name: CUSTOMER_SEGMENT
+    synonyms: [segment, customer type]
+    description: Synthetic customer segment.
+    expr: CUSTOMER_SEGMENT
+    data_type: VARCHAR
+
+time_dimensions:
+  - name: PERIOD_MONTH
+    synonyms: [month, reporting month]
+    description: Calendar month for account performance.
+    expr: PERIOD_MONTH
+    data_type: DATE
+
+facts:
+  - {name: DEPOSIT_BALANCE, expr: DEPOSIT_BALANCE, data_type: "NUMBER(38,2)"}
+  - {name: INTEREST_INCOME, expr: INTEREST_INCOME, data_type: "NUMBER(38,2)"}
+  - {name: TRANSACTION_COUNT, expr: TRANSACTION_COUNT, data_type: NUMBER}
+
+metrics:
+  - name: TOTAL_DEPOSIT_BALANCE
+    synonyms: [deposit balance, deposits]
+    description: Total deposit balance.
+    expr: SUM(DEPOSIT_BALANCE)
+  - name: TOTAL_INTEREST_INCOME
+    synonyms: [interest income]
+    description: Total interest income.
+    expr: SUM(INTEREST_INCOME)
+  - name: TOTAL_TRANSACTION_COUNT
+    synonyms: [transactions]
+    description: Total number of transactions.
+    expr: SUM(TRANSACTION_COUNT)
+  - name: INTEREST_YIELD
+    synonyms: [yield]
+    description: Interest income divided by deposit balance.
+    expr: SUM(INTEREST_INCOME) / NULLIF(SUM(DEPOSIT_BALANCE), 0)
+
+verified_queries:
+  - id: monthly_balance_by_segment
+    question: What is monthly deposit balance by customer segment?
+    metrics: [TOTAL_DEPOSIT_BALANCE]
+    dimensions: [CUSTOMER_SEGMENT, PERIOD_MONTH]
+    use_as_onboarding_question: true
+  - id: monthly_interest_yield
+    question: What is the monthly interest yield?
+    metrics: [INTEREST_YIELD]
+    dimensions: [PERIOD_MONTH]
+    use_as_onboarding_question: false
+
+consumers:
+  snowflake:
+    protocol: SQL
+    governed_object: semantic_view
+  ai:
+    interface: cortex_agent
+    tool_type: cortex_analyst_text_to_sql
+    allow_unrestricted_sql: false
+  power_bi:
+    required_connection_mode: live
+    protocol: XMLA
+    duplicate_metric_logic_allowed: false
+  excel:
+    required_connection_mode: live_xmla
+    protocol: XMLA
+    duplicate_metric_logic_allowed: false
+
+acceleration:
+  semantic_sql:
+    max_staleness_sec: 1800
+    warehouse_env: SNOWFLAKE_MATERIALIZATION_WAREHOUSE
+    refresh_mode: AUTO
+  ai_physical_sql:
+    strategy: underlying_mart_optimization
+    candidate_mechanisms:
+      - dynamic_table_or_aggregate_table
+      - clustering
+      - search_optimization
+      - query_acceleration_service
+      - warehouse_concurrency
+
+performance:
+  concurrency: [1, 5, 10]
+  target_p95_ms: 3000
+  max_remote_spill_bytes: 0
+  collect:
+    - client_elapsed_ms
+    - total_elapsed_time
+    - execution_time
+    - compilation_time
+    - queued_overload_time
+    - bytes_scanned
+    - partitions_scanned
+    - percentage_scanned_from_cache
+    - bytes_spilled_to_local_storage
+    - bytes_spilled_to_remote_storage

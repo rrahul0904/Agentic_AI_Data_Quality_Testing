@@ -1,0 +1,559 @@
+name: rga-synthetic-data
+
+on:
+  pull_request:
+    branches:
+      - main
+      - feature/snowflake-pipeline-testing
+    paths:
+      - "config/rga_domain.yml"
+      - "config/rga_semantic_contract.yml"
+      - "pyproject.toml"
+      - "src/agentic_data_platform/semantic_platform_cli.py"
+      - "scripts/rga_testbed/**"
+      - "tests/rga_testbed/**"
+      - "docs/RGA_SYNTHETIC_DATA_PACK.md"
+      - "docs/GOVERNED_SEMANTIC_PLATFORM_REQUIREMENTS.md"
+      - "docs/SEMANTIC_PLATFORM_EXTERNAL_RESEARCH.md"
+      - ".github/workflows/rga-synthetic-data.yml"
+      - ".github/workflows/production-release.yml"
+      - "apps/web/Dockerfile"
+      - "deploy/**"
+      - "docker-compose.release.yml"
+      - "docs/PRODUCTION_DEPLOYMENT.md"
+      - "tests/test_production_deployment_manifests.py"
+  push:
+    branches:
+      - main
+      - feature/rga-synthetic-domain-pack
+      - feature/semantic-platform-repository-complete
+    paths:
+      - "config/rga_domain.yml"
+      - "config/rga_semantic_contract.yml"
+      - "pyproject.toml"
+      - "src/agentic_data_platform/semantic_platform_cli.py"
+      - "scripts/rga_testbed/**"
+      - "tests/rga_testbed/**"
+      - "docs/RGA_SYNTHETIC_DATA_PACK.md"
+      - "docs/GOVERNED_SEMANTIC_PLATFORM_REQUIREMENTS.md"
+      - "docs/SEMANTIC_PLATFORM_EXTERNAL_RESEARCH.md"
+      - ".github/workflows/rga-synthetic-data.yml"
+      - ".github/workflows/production-release.yml"
+      - "apps/web/Dockerfile"
+      - "deploy/**"
+      - "docker-compose.release.yml"
+      - "docs/PRODUCTION_DEPLOYMENT.md"
+      - "tests/test_production_deployment_manifests.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rga-synthetic-data-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install repository dependencies
+        run: python -m pip install -e '.[dev,testbed]'
+      - name: Compile RGA Python surface
+        run: python -m compileall -q scripts/rga_testbed tests/rga_testbed
+      - name: Run RGA and immutable deployment tests
+        run: python -m pytest -q -p no:cacheprovider tests/rga_testbed tests/test_production_deployment_manifests.py
+      - name: Certify installed semantic-platform operator CLI
+        run: |
+          semantic-platform about >/tmp/semantic-platform-about.json
+          grep -q 'Snowflake Semantic Views are the governed semantic runtime' /tmp/semantic-platform-about.json
+          semantic-platform status >/tmp/semantic-platform-status.json
+          grep -q 'READY_FOR_LOCAL_BUILD' /tmp/semantic-platform-status.json
+          semantic-platform demo-build --workspace /tmp/semantic-platform-demo --preset tiny --policies 120 --seed 42 >/tmp/semantic-platform-demo.json
+          grep -q '"status": "PASS"' /tmp/semantic-platform-demo.json
+          test -f /tmp/semantic-platform-demo/data/manifest.json
+          test -f /tmp/semantic-platform-demo/cdc/manifest.json
+          test -f /tmp/semantic-platform-demo/cdc/change_events.jsonl
+          test -f /tmp/semantic-platform-demo/snowflake/001_raw_tables.sql
+          test -f /tmp/semantic-platform-demo/snowflake/003_apply_cdc.sql
+          test -f /tmp/semantic-platform-demo/dbt/dbt_project.yml
+          test -f /tmp/semantic-platform-demo/release/release_manifest.json
+          test -f /tmp/semantic-platform-demo/airflow/rga_synthetic_pipeline.py
+          semantic-platform apply-cdc --workspace /tmp/semantic-platform-demo --verify-idempotency --dry-run >/tmp/semantic-platform-cdc-plan.json
+          grep -q '"status": "DRY_RUN"' /tmp/semantic-platform-cdc-plan.json
+          grep -q '"workspace_ready": true' /tmp/semantic-platform-cdc-plan.json
+          grep -q '"verify_idempotency": true' /tmp/semantic-platform-cdc-plan.json
+          set +e
+          semantic-platform apply-cdc --workspace /tmp/semantic-platform-demo >/tmp/semantic-platform-cdc-refusal.json
+          cdc_code=$?
+          set -e
+          test "$cdc_code" -eq 2
+          grep -q 'without --confirm' /tmp/semantic-platform-cdc-refusal.json
+          semantic-platform benchmark --workspace /tmp/semantic-platform-demo --mode both --concurrency 10 --iterations 2 --dry-run >/tmp/semantic-platform-benchmark.json
+          grep -q '"status": "DRY_RUN"' /tmp/semantic-platform-benchmark.json
+          grep -q '"task_count": 12' /tmp/semantic-platform-benchmark.json
+          grep -q 'direct and semantic result signatures match' /tmp/semantic-platform-benchmark.json
+          grep -q 'Snowflake Query History telemetry is collected with bounded retry' /tmp/semantic-platform-benchmark.json
+          semantic-platform certify-live --workspace /tmp/semantic-platform-demo --concurrency 1,5,10 --iterations 2 --dry-run >/tmp/semantic-platform-certify-live.json
+          grep -q '"status": "DRY_RUN"' /tmp/semantic-platform-certify-live.json
+          grep -q '"workspace_ready": true' /tmp/semantic-platform-certify-live.json
+          grep -q '"requires_result_parity": true' /tmp/semantic-platform-certify-live.json
+          grep -q '"requires_query_history_telemetry": true' /tmp/semantic-platform-certify-live.json
+          semantic-platform certify-live --workspace /tmp/semantic-platform-demo --apply-cdc --verify-cdc-idempotency --concurrency 1,5 --iterations 1 --dry-run >/tmp/semantic-platform-certify-cdc.json
+          grep -q '"status": "DRY_RUN"' /tmp/semantic-platform-certify-cdc.json
+          grep -q '"apply_cdc": true' /tmp/semantic-platform-certify-cdc.json
+          grep -q '"verify_cdc_idempotency": true' /tmp/semantic-platform-certify-cdc.json
+          grep -q '003_apply_cdc.sql' /tmp/semantic-platform-certify-cdc.json
+          semantic-platform agent-smoke --workspace /tmp/semantic-platform-demo --dry-run >/tmp/semantic-platform-agent-smoke.json
+          grep -q '"status": "DRY_RUN"' /tmp/semantic-platform-agent-smoke.json
+          grep -q 'system_execute_sql' /tmp/semantic-platform-agent-smoke.json
+          grep -q 'parity-ready canonical signature' /tmp/semantic-platform-agent-smoke.json
+          semantic-platform certify-live --workspace /tmp/semantic-platform-demo --deploy-ai --concurrency 1,5 --iterations 1 --dry-run >/tmp/semantic-platform-certify-ai.json
+          grep -q '"status": "DRY_RUN"' /tmp/semantic-platform-certify-ai.json
+          grep -q '"agent_runtime_smoke": true' /tmp/semantic-platform-certify-ai.json
+          grep -q '"requires_agent_result_parity": true' /tmp/semantic-platform-certify-ai.json
+          grep -q '"workspace_ready": true' /tmp/semantic-platform-certify-ai.json
+          grep -q 'create_agent.sql' /tmp/semantic-platform-certify-ai.json
+          grep -q 'create_mcp_server.sql' /tmp/semantic-platform-certify-ai.json
+          semantic-platform prepare-consumer-evidence --workspace /tmp/semantic-platform-demo --evidence-dir /tmp/consumer-evidence --security-context ROLE_ANALYST >/tmp/semantic-platform-consumer-templates.json
+          grep -q '"written_count": 12' /tmp/semantic-platform-consumer-templates.json
+          grep -q 'Replace PENDING with CAPTURED' /tmp/semantic-platform-consumer-templates.json
+          grep -q '"capture_status": "PENDING"' /tmp/consumer-evidence/monthly_loss_ratio_by_cedant.power_bi.json
+          cat >/tmp/powerbi-monthly-loss-ratio.csv <<'CSV'
+          CEDANT_NAME,PERIOD_MONTH,CEDED_LOSS_RATIO
+          CEDANT-A,2026-01-01,0.5
+          CSV
+          semantic-platform ingest-consumer-evidence --workspace /tmp/semantic-platform-demo --evidence-dir /tmp/consumer-evidence --case-id monthly_loss_ratio_by_cedant --consumer power_bi --input /tmp/powerbi-monthly-loss-ratio.csv --security-context ROLE_ANALYST >/tmp/semantic-platform-powerbi-ingest.json
+          grep -q '"status": "PASS"' /tmp/semantic-platform-powerbi-ingest.json
+          grep -q '"row_count": 1' /tmp/semantic-platform-powerbi-ingest.json
+          grep -q '"capture_status": "CAPTURED"' /tmp/consumer-evidence/monthly_loss_ratio_by_cedant.power_bi.json
+          semantic-platform capture-governed-evidence --workspace /tmp/semantic-platform-demo --evidence-dir /tmp/consumer-evidence --security-context ROLE_ANALYST --max-rows 1000 --dry-run >/tmp/semantic-platform-governed-capture-plan.json
+          grep -q '"status": "DRY_RUN"' /tmp/semantic-platform-governed-capture-plan.json
+          grep -q '"case_count": 3' /tmp/semantic-platform-governed-capture-plan.json
+          grep -q '"snowflake_semantic_view"' /tmp/semantic-platform-governed-capture-plan.json
+          grep -q '"cortex_agent_mcp"' /tmp/semantic-platform-governed-capture-plan.json
+          grep -q '"power_bi"' /tmp/semantic-platform-governed-capture-plan.json
+          grep -q '"excel"' /tmp/semantic-platform-governed-capture-plan.json
+          set +e
+          semantic-platform capture-governed-evidence --workspace /tmp/semantic-platform-demo --evidence-dir /tmp/consumer-evidence --security-context ROLE_ANALYST >/tmp/semantic-platform-governed-capture-refusal.json
+          governed_code=$?
+          set -e
+          test "$governed_code" -eq 2
+          grep -q 'without --confirm' /tmp/semantic-platform-governed-capture-refusal.json
+          semantic-platform certify-consumers --workspace /tmp/semantic-platform-demo --evidence-dir /tmp/consumer-evidence --dry-run >/tmp/semantic-platform-consumer-plan.json
+          grep -q '"status": "DRY_RUN"' /tmp/semantic-platform-consumer-plan.json
+          grep -q '"expected_evidence_count": 12' /tmp/semantic-platform-consumer-plan.json
+          grep -q '"present_evidence_count": 12' /tmp/semantic-platform-consumer-plan.json
+          grep -q '"missing_evidence_count": 0' /tmp/semantic-platform-consumer-plan.json
+          grep -q '"captured_evidence_count": 1' /tmp/semantic-platform-consumer-plan.json
+          grep -q '"pending_evidence_count": 11' /tmp/semantic-platform-consumer-plan.json
+          grep -q '"capture_status": "CAPTURED"' /tmp/semantic-platform-consumer-plan.json
+          set +e
+          semantic-platform certify-consumers --workspace /tmp/semantic-platform-demo --evidence-dir /tmp/consumer-evidence >/tmp/semantic-platform-consumer-fail.json
+          consumer_code=$?
+          set -e
+          test "$consumer_code" -eq 1
+          grep -q '"status": "FAIL"' /tmp/semantic-platform-consumer-fail.json
+          grep -q 'capture_status must be CAPTURED' /tmp/semantic-platform-consumer-fail.json
+          semantic-platform certification-report --workspace /tmp/semantic-platform-demo --evidence-dir /tmp/consumer-evidence --output-dir /tmp/semantic-platform-certification-report >/tmp/semantic-platform-certification-report.json
+          grep -q '"status": "PASS"' /tmp/semantic-platform-certification-report.json
+          grep -q '"overall_status": "REPOSITORY_READY_LIVE_CERTIFICATION_PENDING"' /tmp/semantic-platform-certification-report.json
+          grep -q '"end_to_end_certified": false' /tmp/semantic-platform-certification-report.json
+          grep -q '"production_rollout_certified": false' /tmp/semantic-platform-certification-report.json
+          grep -q '"repository_scope_complete": true' /tmp/semantic-platform-certification-report.json
+          grep -q '"repository_completion_status": "REPOSITORY_SCOPE_COMPLETE_EXTERNAL_CERTIFICATION_DEFERRED"' /tmp/semantic-platform-certification-report.json
+          test -f /tmp/semantic-platform-certification-report/certification_summary.json
+          test -f /tmp/semantic-platform-certification-report/CERTIFICATION_SUMMARY.md
+          grep -q 'Production rollout certified.*NO' /tmp/semantic-platform-certification-report/CERTIFICATION_SUMMARY.md
+          set +e
+          semantic-platform certify-live --workspace /tmp/semantic-platform-demo --concurrency 1 --iterations 1 >/tmp/semantic-platform-certify-refusal.json
+          code=$?
+          set -e
+          test "$code" -eq 2
+          grep -q 'without --confirm' /tmp/semantic-platform-certify-refusal.json
+      - name: Generate bounded smoke dataset
+        run: python scripts/rga_testbed/generate_data.py --preset tiny --policies 120 --seed 42 --output /tmp/rga-smoke
+      - name: Validate generated dataset
+        run: python scripts/rga_testbed/validate_dataset.py --input /tmp/rga-smoke
+      - name: Certify bounded-memory generator scale slice
+        run: |
+          semantic-platform scale-test --workspace /tmp/rga-scale --preset tiny --policies 10000 --seed 42 --memory-limit 256MB --parquet --row-group-size 10000 >/tmp/rga-scale.json
+          python - <<'PY'
+          import json
+          report = json.load(open("/tmp/rga-scale.json"))
+          assert report["status"] == "PASS"
+          assert report["policies"] == 10000
+          assert report["generation"]["row_emission"] == "streaming_rotating_csv"
+          assert report["generation"]["total_rows"] > 100000
+          assert report["generation"]["peak_rss_mb"] < 256
+          assert report["validation"]["status"] == "PASS"
+          assert report["validation"]["engine"] == "duckdb_out_of_core"
+          assert report["parquet"]["status"] == "PASS"
+          assert report["parquet"]["format"] == "parquet"
+          assert report["parquet"]["counts"] == report["generation"]["entity_counts"]
+          assert "does not certify 100M policies" in report["truth_boundary"]
+          PY
+          test -f /tmp/rga-scale/evidence/generation_scale.json
+          test -f /tmp/rga-scale/evidence/scale_test.json
+          test -f /tmp/rga-scale/parquet/manifest.json
+          grep -q '"bounded_memory_by_policy_count": true' /tmp/rga-scale/scale-data/manifest.json
+          grep -q '"compression": "zstd"' /tmp/rga-scale/parquet/manifest.json
+      - name: Generate CDC and late-arriving fixtures
+        run: |
+          python scripts/rga_testbed/generate_change_events.py --input /tmp/rga-smoke --output /tmp/rga-cdc --events-per-type 5
+          grep -q '"status": "PASS"' /tmp/rga-cdc/manifest.json
+          grep -q '"event_count": 15' /tmp/rga-cdc/manifest.json
+          grep -q 'late_arriving_claim' /tmp/rga-cdc/change_events.jsonl
+          grep -q 'premium_correction' /tmp/rga-cdc/change_events.jsonl
+          grep -q 'policy_status_change' /tmp/rga-cdc/change_events.jsonl
+      - name: Compile Snowflake DDL and load SQL
+        run: |
+          python scripts/rga_testbed/generate_snowflake_ddl.py --output /tmp/rga-smoke/001_raw_tables.sql
+          python scripts/rga_testbed/generate_load_sql.py --output /tmp/rga-smoke/002_load_raw.sql --local-root /tmp/rga-smoke/csv
+          python scripts/rga_testbed/generate_cdc_apply_sql.py --input /tmp/rga-cdc/change_events.jsonl --output /tmp/rga-smoke/003_apply_cdc.sql
+      - name: Certify CDC validator dry-run
+        run: |
+          python scripts/rga_testbed/validate_cdc_application.py --events /tmp/rga-cdc/change_events.jsonl --dry-run >/tmp/rga-cdc-validation-dry-run.json
+          grep -q '"status": "DRY_RUN"' /tmp/rga-cdc-validation-dry-run.json
+          grep -q '"event_count": 15' /tmp/rga-cdc-validation-dry-run.json
+          set +e
+          python scripts/rga_testbed/validate_cdc_application.py --events /tmp/rga-cdc/change_events.jsonl >/tmp/rga-cdc-validation-refusal.json
+          cdc_validation_code=$?
+          set -e
+          test "$cdc_validation_code" -eq 2
+          grep -q 'without --confirm' /tmp/rga-cdc-validation-refusal.json
+      - name: Certify CDC semantic-effect plan
+        run: |
+          python scripts/rga_testbed/validate_cdc_semantic_effects.py --events /tmp/rga-cdc/change_events.jsonl --baseline /tmp/rga-cdc/semantic-baseline.json --mode capture --dry-run >/tmp/rga-cdc-semantic-dry-run.json
+          grep -q '"status": "DRY_RUN"' /tmp/rga-cdc-semantic-dry-run.json
+          grep -q 'Premium corrections assert exact gross/ceded premium deltas' /tmp/rga-cdc-semantic-dry-run.json
+          grep -q 'Late claims assert exact gross/ceded claim and claim-count deltas' /tmp/rga-cdc-semantic-dry-run.json
+          grep -q '"semantic_grain"' /tmp/rga-cdc/change_events.jsonl
+          set +e
+          python scripts/rga_testbed/validate_cdc_semantic_effects.py --events /tmp/rga-cdc/change_events.jsonl --baseline /tmp/rga-cdc/semantic-baseline.json --mode capture >/tmp/rga-cdc-semantic-refusal.json
+          semantic_cdc_code=$?
+          set -e
+          test "$semantic_cdc_code" -eq 2
+          grep -q 'without --confirm' /tmp/rga-cdc-semantic-refusal.json
+      - name: Generate and parse dbt analytics project
+        env:
+          SNOWFLAKE_ACCOUNT: dummy_account
+          SNOWFLAKE_USER: dummy_user
+          SNOWFLAKE_PASSWORD: dummy_password
+        run: |
+          python scripts/rga_testbed/generate_dbt_project.py --output /tmp/rga-dbt
+          cp /tmp/rga-dbt/profiles.yml.example /tmp/rga-dbt/profiles.yml
+          dbt parse --project-dir /tmp/rga-dbt --profiles-dir /tmp/rga-dbt --no-partial-parse
+      - name: Generate Snowflake semantic view contract
+        run: python scripts/rga_testbed/generate_semantic_view.py --output /tmp/rga-semantic
+      - name: Compile canonical semantic manifest
+        run: python scripts/rga_testbed/compile_semantic_manifest.py --output /tmp/rga-manifest/semantic_manifest.json
+      - name: Export Apache Ossie interchange model
+        run: python scripts/rga_testbed/export_ossie.py --output /tmp/rga-interchange/rga_reinsurance_performance.ossie.yml
+      - name: Generate governed AI contracts
+        run: python scripts/rga_testbed/generate_ai_integration.py --output /tmp/rga-ai
+      - name: Generate Microsoft consumer contracts
+        run: python scripts/rga_testbed/generate_microsoft_consumer_pack.py --output /tmp/rga-microsoft
+      - name: Generate paired performance benchmark pack
+        run: python scripts/rga_testbed/generate_benchmark_pack.py --output /tmp/rga-benchmarks
+      - name: Generate Snowflake acceleration plan
+        run: python scripts/rga_testbed/generate_acceleration_plan.py --output /tmp/rga-acceleration
+      - name: Certify evidence-driven optimizer safety
+        run: |
+          python scripts/rga_testbed/collect_query_history.py --days 14 --limit 100 --dry-run >/tmp/rga-query-history-plan.json
+          grep -q '"status": "DRY_RUN"' /tmp/rga-query-history-plan.json
+          grep -q 'Query text is excluded by default' /tmp/rga-query-history-plan.json
+          python - <<'PY'
+          import json
+
+          benchmark_row = {
+              "status": "PASS",
+              "query_name": "monthly_loss_ratio_by_cedant",
+              "variant": "direct",
+              "query_id": "qid-benchmark",
+              "client_elapsed_ms": 7000,
+              "bytes_scanned": 2000000000,
+              "partitions_scanned": 95,
+              "partitions_total": 100,
+              "queued_overload_time": 500,
+              "bytes_spilled_to_remote_storage": 0,
+              "query_acceleration_bytes_scanned": 0,
+              "query_acceleration_upper_limit_scale_factor": 4,
+              "query_hash": "qh-benchmark",
+              "query_parameterized_hash": "pqh-benchmark",
+          }
+          json.dump(
+              {"concurrency": 10, "results": [benchmark_row, dict(benchmark_row)]},
+              open("/tmp/rga-optimizer-benchmark.json", "w"),
+          )
+
+          queries = []
+          for index in range(3):
+              queries.append({
+                  "query_id": f"qid-history-{index}",
+                  "query_hash": "qh-history",
+                  "query_parameterized_hash": "pqh-history",
+                  "total_elapsed_time": 8000 + index,
+                  "bytes_scanned": 1000000000,
+                  "partitions_scanned": 90,
+                  "partitions_total": 100,
+                  "queued_overload_time": 0,
+                  "bytes_spilled_to_remote_storage": 0,
+                  "query_acceleration_bytes_scanned": 0,
+                  "query_acceleration_upper_limit_scale_factor": 2,
+                  "shape": {
+                      "tables": ["RGA_SYNTHETIC_TESTBED.MART.REINSURANCE_PERFORMANCE"],
+                      "predicates": [
+                          {"column": "CEDANT_ID", "operator": "="},
+                          {"column": "PERIOD_MONTH", "operator": "BETWEEN"},
+                      ],
+                  },
+              })
+          json.dump(
+              {"status": "PASS", "query_count": len(queries), "queries": queries},
+              open("/tmp/rga-query-history.json", "w"),
+          )
+          PY
+          python scripts/rga_testbed/analyze_workload.py \
+            --manifest /tmp/rga-benchmarks/manifest.json \
+            --report /tmp/rga-optimizer-benchmark.json \
+            --history /tmp/rga-query-history.json \
+            --output /tmp/rga-workload-analysis.json >/tmp/rga-workload-analysis-summary.json
+          python scripts/rga_testbed/render_optimization_experiments.py \
+            --analysis /tmp/rga-workload-analysis.json \
+            --output /tmp/rga-optimization-experiments.sql >/tmp/rga-optimization-render-summary.json
+          python scripts/rga_testbed/execute_optimization_diagnostics.py \
+            --sql-file /tmp/rga-optimization-experiments.sql \
+            --dry-run >/tmp/rga-optimization-diagnostics-plan.json
+          grep -q '"status": "DRY_RUN"' /tmp/rga-optimization-diagnostics-plan.json
+          grep -q '"statement_count": 4' /tmp/rga-optimization-diagnostics-plan.json
+          grep -q 'SYSTEM$ESTIMATE_QUERY_ACCELERATION' /tmp/rga-optimization-experiments.sql
+          grep -q 'SYSTEM$CLUSTERING_INFORMATION' /tmp/rga-optimization-experiments.sql
+          grep -q 'SYSTEM$ESTIMATE_SEARCH_OPTIMIZATION_COSTS' /tmp/rga-optimization-experiments.sql
+          grep -q -- '-- ALTER TABLE RGA_SYNTHETIC_TESTBED.MART.REINSURANCE_PERFORMANCE' /tmp/rga-optimization-experiments.sql
+          if grep -Eq '^[[:space:]]*ALTER[[:space:]]+(TABLE|WAREHOUSE)' /tmp/rga-optimization-experiments.sql; then
+            echo "unsafe executable physical mutation found"
+            exit 1
+          fi
+          python - <<'PY'
+          import json
+          analysis = json.load(open("/tmp/rga-workload-analysis.json"))
+          types = {item["type"] for item in analysis["query_history"]["experiments"]}
+          assert "query_acceleration_service" in types
+          assert "clustering_diagnostic" in types
+          assert "search_optimization_cost_estimate" in types
+          assert all(
+              item.get("automatic_mutation_allowed") is False
+              for item in analysis["query_history"]["experiments"]
+          )
+          render = json.load(open("/tmp/rga-optimization-render-summary.json"))
+          assert render["executable_physical_mutations"] == 0
+          PY
+          python - <<'PY'
+          import json
+
+          def report(p95_direct, p95_semantic, signature):
+              results = []
+              for variant in ("direct", "semantic"):
+                  for iteration in (1, 2):
+                      results.append({
+                          "status": "PASS",
+                          "query_name": "monthly_loss_ratio_by_cedant",
+                          "variant": variant,
+                          "iteration": iteration,
+                          "result_sha256": signature,
+                      })
+              return {
+                  "status": "PASS",
+                  "concurrency": 10,
+                  "result_parity": {"status": "PASS"},
+                  "results": results,
+                  "summary": {
+                      "variants": {
+                          "direct": {
+                              "p95_client_elapsed_ms": p95_direct,
+                              "bytes_scanned": 1000000,
+                              "queued_overload_ms": 0,
+                              "remote_spill_bytes": 0,
+                          },
+                          "semantic": {
+                              "p95_client_elapsed_ms": p95_semantic,
+                              "bytes_scanned": 800000,
+                              "queued_overload_ms": 0,
+                              "remote_spill_bytes": 0,
+                          },
+                      }
+                  },
+              }
+
+          json.dump(report(1000, 1200, "stable"), open("/tmp/optimization-before.json", "w"))
+          json.dump(report(800, 900, "stable"), open("/tmp/optimization-after.json", "w"))
+          json.dump(report(700, 800, "drifted"), open("/tmp/optimization-after-drift.json", "w"))
+          PY
+          semantic-platform evaluate-optimization \
+            --before /tmp/optimization-before.json \
+            --after /tmp/optimization-after.json \
+            --target-variant both \
+            --min-p95-improvement-pct 10 >/tmp/optimization-accept.json
+          grep -q '"decision": "ACCEPT"' /tmp/optimization-accept.json
+          set +e
+          semantic-platform evaluate-optimization \
+            --before /tmp/optimization-before.json \
+            --after /tmp/optimization-after-drift.json \
+            --target-variant both \
+            --min-p95-improvement-pct 10 >/tmp/optimization-reject.json
+          optimization_reject_code=$?
+          set -e
+          test "$optimization_reject_code" -eq 3
+          grep -q '"decision": "REJECT"' /tmp/optimization-reject.json
+          grep -q '"semantic_contract_preserved": false' /tmp/optimization-reject.json
+      - name: Generate cross-consumer semantic parity suite
+        run: python scripts/rga_testbed/generate_parity_suite.py --output /tmp/rga-parity
+      - name: Certify Power BI governed evidence dry-run
+        run: |
+          test "$(find /tmp/rga-parity -maxdepth 1 -name '*.powerbi.dax' | wc -l)" -eq 3
+          python scripts/rga_testbed/capture_power_bi_parity_evidence.py \
+            --manifest /tmp/rga-parity/parity_manifest.json \
+            --evidence-dir /tmp/rga-governed-evidence \
+            --security-context ROLE_ANALYST \
+            --max-rows 1000 \
+            --dry-run >/tmp/power-bi-evidence-dry-run.json
+          grep -q '"status": "DRY_RUN"' /tmp/power-bi-evidence-dry-run.json
+          grep -q '"case_count": 3' /tmp/power-bi-evidence-dry-run.json
+          python - <<'PY'
+          import json
+          plan = json.load(open("/tmp/power-bi-evidence-dry-run.json"))
+          assert all(item["dax_exists"] for item in plan["cases"])
+          assert plan["api"] == "Power BI Execute DAX Queries (Apache Arrow)"
+          PY
+          set +e
+          python scripts/rga_testbed/capture_power_bi_parity_evidence.py \
+            --manifest /tmp/rga-parity/parity_manifest.json \
+            --evidence-dir /tmp/rga-governed-evidence \
+            --security-context ROLE_ANALYST >/tmp/power-bi-evidence-refusal.json
+          power_bi_code=$?
+          set -e
+          test "$power_bi_code" -eq 2
+          grep -q 'without --confirm' /tmp/power-bi-evidence-refusal.json
+      - name: Build governed semantic release bundle
+        run: python scripts/rga_testbed/build_semantic_release.py --output /tmp/rga-release --source-sha "$GITHUB_SHA"
+      - name: Certify semantic platform cross-domain portability
+        run: |
+          python scripts/rga_testbed/build_semantic_release.py \
+            --contract config/examples/banking_semantic_contract.yml \
+            --database BANKING_ANALYTICS \
+            --output /tmp/banking-semantic-release \
+            --source-sha "$GITHUB_SHA" >/tmp/banking-release.json
+          grep -q '"status": "PASS"' /tmp/banking-release.json
+          test -f /tmp/banking-semantic-release/release_manifest.json
+          test -f /tmp/banking-semantic-release/semantic/banking_account_performance.yml
+          test -f /tmp/banking-semantic-release/ai/create_agent.sql
+          test -f /tmp/banking-semantic-release/interchange/banking_account_performance.ossie.yml
+          test ! -d /tmp/banking-semantic-release/multi_fact
+          grep -q 'BANKING_ACCOUNT_PERFORMANCE_AGENT' /tmp/banking-semantic-release/ai/create_agent.sql
+          grep -q 'BANKING_ACCOUNT_PERFORMANCE_MCP' /tmp/banking-semantic-release/ai/create_mcp_server.sql
+          grep -q 'banking_account_performance_cross_consumer_semantic_parity' /tmp/banking-semantic-release/parity/parity_manifest.json
+          if grep -R -i -E 'rga_|rga |reinsurance|cedant|treaty' /tmp/banking-semantic-release \
+            --include='*.json' --include='*.yml' --include='*.yaml' --include='*.sql' --include='*.md' --include='*.dax'; then
+            echo "domain leakage detected in generic semantic release"
+            exit 1
+          fi
+      - name: Certify Snowflake governed evidence capture dry-run
+        run: |
+          python scripts/rga_testbed/capture_snowflake_parity_evidence.py --manifest /tmp/rga-parity/parity_manifest.json --evidence-dir /tmp/rga-governed-evidence --security-context ROLE_ANALYST --max-rows 1000 --dry-run >/tmp/snowflake-evidence-dry-run.json
+          grep -q '"status": "DRY_RUN"' /tmp/snowflake-evidence-dry-run.json
+          grep -q '"case_count": 3' /tmp/snowflake-evidence-dry-run.json
+          set +e
+          python scripts/rga_testbed/capture_snowflake_parity_evidence.py --manifest /tmp/rga-parity/parity_manifest.json --evidence-dir /tmp/rga-governed-evidence --security-context ROLE_ANALYST >/tmp/snowflake-evidence-refusal.json
+          evidence_code=$?
+          set -e
+          test "$evidence_code" -eq 2
+          grep -q 'without --confirm' /tmp/snowflake-evidence-refusal.json
+      - name: Certify benchmark runner dry-run
+        run: |
+          set +e
+          python scripts/rga_testbed/run_snowflake_benchmark.py --manifest /tmp/rga-benchmarks/manifest.json --mode both --concurrency 10 --iterations 2 >/tmp/benchmark-refusal.json
+          code=$?
+          set -e
+          test "$code" -eq 2
+          grep -q 'Refusing live Snowflake benchmark without --confirm-live' /tmp/benchmark-refusal.json
+          python scripts/rga_testbed/run_snowflake_benchmark.py --manifest /tmp/rga-benchmarks/manifest.json --mode both --concurrency 10 --iterations 2 --dry-run >/tmp/benchmark-dry-run.json
+          grep -q 'DRY_RUN' /tmp/benchmark-dry-run.json
+          grep -q '"task_count": 12' /tmp/benchmark-dry-run.json
+          grep -q 'direct and semantic result signatures match' /tmp/benchmark-dry-run.json
+          grep -q 'bounded retry' /tmp/benchmark-dry-run.json
+      - name: Generate Airflow orchestration
+        run: |
+          python scripts/rga_testbed/generate_airflow_dag.py --output /tmp/rga-airflow/rga_synthetic_pipeline.py
+          python -m py_compile /tmp/rga-airflow/rga_synthetic_pipeline.py
+      - name: Certify Snowflake executor fail-closed behavior
+        run: |
+          set +e
+          python scripts/rga_testbed/execute_snowflake_sql.py --sql-file /tmp/rga-smoke/001_raw_tables.sql >/tmp/executor-refusal.json
+          code=$?
+          set -e
+          test "$code" -eq 2
+          grep -q 'Refusing Snowflake execution without --confirm' /tmp/executor-refusal.json
+          python scripts/rga_testbed/execute_snowflake_sql.py --sql-file /tmp/rga-smoke/001_raw_tables.sql --confirm --dry-run >/tmp/executor-dry-run.json
+          grep -q 'DRY_RUN' /tmp/executor-dry-run.json
+      - name: Verify critical contracts
+        run: |
+          grep -q 'CREATE SCHEMA IF NOT EXISTS SEMANTIC' /tmp/rga-smoke/001_raw_tables.sql
+          grep -q 'CREATE SCHEMA IF NOT EXISTS AI' /tmp/rga-smoke/001_raw_tables.sql
+          grep -q 'RAW.RGA_CDC_STAGE' /tmp/rga-smoke/001_raw_tables.sql
+          grep -q 'RAW.RGA_CDC_EVENTS' /tmp/rga-smoke/001_raw_tables.sql
+          grep -q 'AUDIT.CDC_EVENT_APPLICATIONS' /tmp/rga-smoke/001_raw_tables.sql
+          grep -q 'COPY INTO RAW.POLICIES' /tmp/rga-smoke/002_load_raw.sql
+          grep -q 'COPY INTO RAW.CLAIMS' /tmp/rga-smoke/002_load_raw.sql
+          grep -q 'MERGE INTO RAW.POLICIES' /tmp/rga-smoke/003_apply_cdc.sql
+          grep -q 'MERGE INTO RAW.PREMIUMS' /tmp/rga-smoke/003_apply_cdc.sql
+          grep -q 'MERGE INTO RAW.CLAIMS' /tmp/rga-smoke/003_apply_cdc.sql
+          grep -q 'AUDIT.CDC_EVENT_APPLICATIONS' /tmp/rga-smoke/003_apply_cdc.sql
+          grep -q "source('rga_raw', 'policies')" /tmp/rga-dbt/models/staging/stg_policies.sql
+          grep -q "alias='REINSURANCE_PERFORMANCE'" /tmp/rga-dbt/models/marts/mart_reinsurance_performance.sql
+          grep -q "materialized='incremental'" /tmp/rga-dbt/models/core/fct_premium.sql
+          grep -q "unique_key='premium_txn_id'" /tmp/rga-dbt/models/core/fct_premium.sql
+          grep -q "incremental_strategy='merge'" /tmp/rga-dbt/models/core/fct_claim.sql
+          grep -q "unique_key=\['cedant_id', 'treaty_id', 'period_month'\]" /tmp/rga-dbt/models/marts/mart_reinsurance_performance.sql
+          grep -q 'affected_keys as' /tmp/rga-dbt/models/marts/mart_reinsurance_performance.sql
+          grep -q 'greatest_ignore_nulls' /tmp/rga-dbt/models/marts/mart_reinsurance_performance.sql
+          test -f /tmp/rga-dbt/tests/mart_reinsurance_performance_grain_unique.sql
+          grep -q 'CEDED_LOSS_RATIO' /tmp/rga-semantic/rga_reinsurance_performance.yml
+          grep -q 'SYSTEM$CREATE_SEMANTIC_VIEW_FROM_YAML' /tmp/rga-semantic/verify_semantic_view.sql
+          grep -q 'SYSTEM$CREATE_SEMANTIC_VIEW_FROM_YAML' /tmp/rga-semantic/deploy_semantic_view.sql
+          grep -q 'cortex_analyst_text_to_sql' /tmp/rga-ai/create_agent.sql
+          grep -q 'RGA_SYNTHETIC_TESTBED.SEMANTIC.RGA_REINSURANCE_PERFORMANCE' /tmp/rga-ai/create_agent.sql
+          grep -q 'CORTEX_AGENT_RUN' /tmp/rga-ai/create_mcp_server.sql
+          ! grep -q 'SYSTEM_EXECUTE_SQL' /tmp/rga-ai/mcp_spec.yml
+          grep -q 'account_entitlement_or_feature_gate_required' /tmp/rga-microsoft/consumer_contract.json
+          grep -q 'required_connection_mode' /tmp/rga-microsoft/consumer_contract.json
+          grep -q '<XMLA_ENDPOINT_NAME>' /tmp/rga-microsoft/xmla_setup.template.sql
+          grep -q 'Direct-connection fallback is connectivity evidence, not semantic-parity certification' /tmp/rga-microsoft/PARITY_CHECKLIST.md
+          grep -q 'recommended_concurrency' /tmp/rga-benchmarks/manifest.json
+          grep -q 'semantic_view(' /tmp/rga-benchmarks/monthly_loss_ratio_by_cedant.semantic.sql
+          grep -q 'ADD MATERIALIZATION' /tmp/rga-acceleration/semantic_materializations.template.sql
+          grep -q '<MATERIALIZATION_WAREHOUSE>' /tmp/rga-acceleration/semantic_materializations.template.sql
+          grep -q 'underlying_mart_optimization' /tmp/rga-acceleration/acceleration_plan.json
+          grep -q 'SYSTEM$MANAGE_SEMANTIC_VIEW_MATERIALIZATIONS_FROM_YAML' /tmp/rga-acceleration/sync_semantic_materializations.template.sql
+          grep -q 'materializations:' /tmp/rga-acceleration/semantic_materializations.yml
+          grep -q 'manifest_sha256' /tmp/rga-manifest/semantic_manifest.json
+          grep -q 'ceded_loss_ratio' /tmp/rga-interchange/rga_reinsurance_performance.ossie.yml
+          grep -q 'semantic_model:' /tmp/rga-interchange/rga_reinsurance_performance.ossie.yml
+          grep -q 'vendor_name: SNOWFLAKE' /tmp/rga-interchange/rga_reinsurance_performance.ossie.yml
+          grep -q 'snowflake_semantic_view' /tmp/rga-parity/parity_manifest.json
+          grep -q 'cortex_agent_mcp' /tmp/rga-parity/parity_manifest.json
+          grep -q 'power_bi' /tmp/rga-parity/parity_manifest.json
+          grep -q 'excel' /tmp/rga-parity/parity_manifest.json
+          grep -q 'semantic_manifest_sha256' /tmp/rga-release/release_manifest.json
+          grep -q 'external_certification_required' /tmp/rga-release/release_manifest.json
+          grep -q 'round_trip_import_supported' /tmp/rga-release/interchange/ossie_compatibility.json
+          grep -q 'semantic_deploy_gate' /tmp/rga-airflow/rga_synthetic_pipeline.py
+          grep -q 'cdc_apply_gate' /tmp/rga-airflow/rga_synthetic_pipeline.py
+          grep -q 'validate_cdc_application' /tmp/rga-airflow/rga_synthetic_pipeline.py
+          grep -q 'capture_cdc_semantic_baseline' /tmp/rga-airflow/rga_synthetic_pipeline.py
+          grep -q 'validate_cdc_semantic_effects' /tmp/rga-airflow/rga_synthetic_pipeline.py

@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ade-api
+spec:
+  type: ClusterIP
+  selector:
+    app: ade-api
+  ports:
+    - name: http
+      port: 8001
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ade-web
+spec:
+  type: ClusterIP
+  selector:
+    app: ade-web
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http

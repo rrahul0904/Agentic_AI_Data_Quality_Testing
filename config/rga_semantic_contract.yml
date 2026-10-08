@@ -1,0 +1,175 @@
+version: 1
+name: RGA_REINSURANCE_PERFORMANCE
+description: Governed synthetic Life & Health reinsurance performance semantics used by Snowflake, BI, Excel, and AI.
+database: RGA_SYNTHETIC_TESTBED
+semantic_schema: SEMANTIC
+mart_schema: MART
+mart_table: REINSURANCE_PERFORMANCE
+table_alias: REINSURANCE_PERFORMANCE
+grain:
+  - CEDANT_ID
+  - TREATY_ID
+  - PERIOD_MONTH
+
+dimensions:
+  - name: CEDANT_ID
+    synonyms: [client id, ceding company id]
+    description: Synthetic cedant identifier.
+    expr: CEDANT_ID
+    data_type: VARCHAR
+  - name: CEDANT_NAME
+    synonyms: [client, ceding company, cedant]
+    description: Synthetic cedant name.
+    expr: CEDANT_NAME
+    data_type: VARCHAR
+  - name: TREATY_ID
+    synonyms: [reinsurance treaty id]
+    description: Synthetic treaty identifier.
+    expr: TREATY_ID
+    data_type: VARCHAR
+  - name: TREATY_NAME
+    synonyms: [reinsurance treaty]
+    description: Synthetic treaty name.
+    expr: TREATY_NAME
+    data_type: VARCHAR
+  - name: TREATY_TYPE
+    synonyms: [reinsurance type]
+    description: Treaty structure such as YRT, coinsurance, MODCO or excess of loss.
+    expr: TREATY_TYPE
+    data_type: VARCHAR
+
+time_dimensions:
+  - name: PERIOD_MONTH
+    synonyms: [month, reporting month, valuation month]
+    description: Calendar month for aggregated performance.
+    expr: PERIOD_MONTH
+    data_type: DATE
+
+facts:
+  - {name: GROSS_PREMIUM, expr: GROSS_PREMIUM, data_type: "NUMBER(38,2)"}
+  - {name: CEDED_PREMIUM, expr: CEDED_PREMIUM, data_type: "NUMBER(38,2)"}
+  - {name: GROSS_CLAIM_AMOUNT, expr: GROSS_CLAIM_AMOUNT, data_type: "NUMBER(38,2)"}
+  - {name: CEDED_CLAIM_AMOUNT, expr: CEDED_CLAIM_AMOUNT, data_type: "NUMBER(38,2)"}
+  - {name: EXPOSURE_AMOUNT, expr: EXPOSURE_AMOUNT, data_type: "NUMBER(38,2)"}
+  - {name: CLAIM_COUNT, expr: CLAIM_COUNT, data_type: NUMBER}
+  - {name: EXPOSED_POLICY_COUNT, expr: EXPOSED_POLICY_COUNT, data_type: NUMBER}
+
+metrics:
+  - name: TOTAL_GROSS_PREMIUM
+    synonyms: [gross premium]
+    description: Total gross premium before reinsurance cession.
+    expr: SUM(GROSS_PREMIUM)
+  - name: TOTAL_CEDED_PREMIUM
+    synonyms: [ceded premium, reinsurance premium]
+    description: Total premium ceded to the reinsurer.
+    expr: SUM(CEDED_PREMIUM)
+  - name: TOTAL_GROSS_CLAIMS
+    synonyms: [gross claims]
+    description: Total gross claim amount.
+    expr: SUM(GROSS_CLAIM_AMOUNT)
+  - name: TOTAL_CEDED_CLAIMS
+    synonyms: [ceded claims, reinsurance claims]
+    description: Total claim amount ceded under the treaty.
+    expr: SUM(CEDED_CLAIM_AMOUNT)
+  - name: TOTAL_EXPOSURE
+    synonyms: [exposure, amount at risk]
+    description: Exposure amount weighted by exposure fraction.
+    expr: SUM(EXPOSURE_AMOUNT)
+  - name: TOTAL_CLAIM_COUNT
+    synonyms: [claims, number of claims]
+    description: Count of claims represented in the monthly mart.
+    expr: SUM(CLAIM_COUNT)
+  - name: CEDED_LOSS_RATIO
+    synonyms: [loss ratio, reinsurance loss ratio]
+    description: Ceded claims divided by ceded premium at the selected aggregation grain.
+    expr: SUM(CEDED_CLAIM_AMOUNT) / NULLIF(SUM(CEDED_PREMIUM), 0)
+  - name: CEDED_PREMIUM_RATE
+    synonyms: [ceded rate, cession rate]
+    description: Ceded premium divided by gross premium.
+    expr: SUM(CEDED_PREMIUM) / NULLIF(SUM(GROSS_PREMIUM), 0)
+
+verified_queries:
+  - id: monthly_loss_ratio_by_cedant
+    question: What is the monthly ceded loss ratio by cedant?
+    metrics: [CEDED_LOSS_RATIO]
+    dimensions: [CEDANT_NAME, PERIOD_MONTH]
+    use_as_onboarding_question: true
+  - id: ceded_premium_by_treaty
+    question: Which treaties have the highest ceded premium?
+    metrics: [TOTAL_CEDED_PREMIUM]
+    dimensions: [TREATY_NAME]
+    use_as_onboarding_question: false
+  - id: claims_and_exposure_by_month
+    question: How are ceded claims and exposure trending by month?
+    metrics: [TOTAL_CEDED_CLAIMS, TOTAL_EXPOSURE, TOTAL_CLAIM_COUNT]
+    dimensions: [PERIOD_MONTH]
+    use_as_onboarding_question: false
+
+ai_objects:
+  agent_name: RGA_REINSURANCE_AGENT
+  mcp_name: RGA_REINSURANCE_MCP
+  tool_name: Reinsurance_Analyst
+  tool_title: Governed RGA Reinsurance Analytics Agent
+
+domain_guidance:
+  agent_response: Answer concisely using only governed synthetic reinsurance analytics. Clearly state that the dataset is synthetic when that context matters.
+  agent_orchestration: Use Reinsurance_Analyst for governed questions. Do not invent measures, recalculate governed metrics independently, or bypass the semantic view.
+  tool_description: Answers governed Life & Health reinsurance analytics questions using the canonical semantic view.
+  mcp_description: Use this agent for governed questions about the synthetic Life & Health reinsurance dataset. All business measures are sourced from the canonical Snowflake Semantic View.
+  ossie_instructions: Use this model for governed synthetic Life & Health reinsurance analytics. Do not reinterpret governed metric definitions.
+  dataset_description: Governed monthly reinsurance performance mart.
+
+reference_extensions:
+  multi_fact: true
+
+benchmark:
+  name: rga_semantic_performance_benchmark
+  query_tag: RGA_SEMANTIC_BENCHMARK
+
+consumers:
+  snowflake:
+    protocol: SQL
+    governed_object: semantic_view
+  ai:
+    interface: cortex_agent
+    tool_type: cortex_analyst_text_to_sql
+    allow_unrestricted_sql: false
+  power_bi:
+    required_connection_mode: live
+    protocol: XMLA
+    duplicate_metric_logic_allowed: false
+  excel:
+    required_connection_mode: live_xmla
+    protocol: XMLA
+    duplicate_metric_logic_allowed: false
+
+acceleration:
+  semantic_sql:
+    max_staleness_sec: 3600
+    warehouse_env: SNOWFLAKE_MATERIALIZATION_WAREHOUSE
+    refresh_mode: AUTO
+  ai_physical_sql:
+    strategy: underlying_mart_optimization
+    candidate_mechanisms:
+      - dynamic_table_or_aggregate_table
+      - clustering
+      - search_optimization
+      - query_acceleration_service
+      - warehouse_concurrency
+    note: Cortex Analyst and Agents may execute physical SQL that does not use Semantic View materializations.
+
+performance:
+  concurrency: [1, 5, 10, 25, 50]
+  target_p95_ms: 5000
+  max_remote_spill_bytes: 0
+  collect:
+    - client_elapsed_ms
+    - total_elapsed_time
+    - execution_time
+    - compilation_time
+    - queued_overload_time
+    - bytes_scanned
+    - partitions_scanned
+    - percentage_scanned_from_cache
+    - bytes_spilled_to_local_storage
+    - bytes_spilled_to_remote_storage

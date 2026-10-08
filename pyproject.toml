@@ -20,6 +20,7 @@ agentic = "agentic_data_platform.entrypoint:main"
 agentic-data-platform = "agentic_data_platform.cli_entry:main"
 ade-acp = "agentic_data_platform.acp_server:main"
 ade-dbt-mcp = "agentic_data_platform.dbt.mcp_server:main"
+semantic-platform = "agentic_data_platform.semantic_platform_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
