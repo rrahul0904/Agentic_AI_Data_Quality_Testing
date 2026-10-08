@@ -203,6 +203,15 @@ def capture_all_evidence(
     excel_cube_name: str | None = None,
     excel_connection_string_env: str = "EXCEL_XMLA_CONNECTION_STRING",
     excel_query_timeout: int = 300,
+    run_mcp_smoke: bool = False,
+    mcp_endpoint: str | None = None,
+    mcp_account_url: str | None = None,
+    mcp_database: str | None = None,
+    mcp_schema: str = "AI",
+    mcp_server: str | None = None,
+    mcp_token_env: str = "SNOWFLAKE_MCP_ACCESS_TOKEN",
+    mcp_timeout: int = 120,
+    mcp_output: Path | None = None,
     confirm: bool = False,
     dry_run: bool = False,
     overwrite: bool = False,
@@ -235,6 +244,23 @@ def capture_all_evidence(
         dry_run=dry_run,
         overwrite=overwrite,
     )
+    managed_mcp = (
+        mcp_remote_smoke(
+            workspace,
+            endpoint=mcp_endpoint,
+            account_url=mcp_account_url,
+            database=mcp_database,
+            schema=mcp_schema,
+            server=mcp_server,
+            token_env=mcp_token_env,
+            timeout=mcp_timeout,
+            output=mcp_output,
+            confirm=confirm,
+            dry_run=dry_run,
+        )
+        if run_mcp_smoke
+        else {"status": "NOT_REQUESTED"}
+    )
 
     if dry_run:
         return {
@@ -242,13 +268,20 @@ def capture_all_evidence(
             "security_context": security_context,
             "governed": governed,
             "excel": excel,
+            "managed_mcp": managed_mcp,
             "planned_consumers": [
                 "snowflake_semantic_view",
                 "cortex_agent_mcp",
                 "power_bi",
                 "excel",
             ],
-            "next": "Provide target Snowflake, Power BI, and Excel/XMLA configuration and rerun with --confirm.",
+            "planned_runtime_surfaces": (
+                ["snowflake_managed_mcp_remote_client"] if run_mcp_smoke else []
+            ),
+            "next": (
+                "Provide target Snowflake, Power BI, and Excel/XMLA configuration and rerun with --confirm. "
+                "Use --mcp-smoke with Snowflake MCP endpoint/OAuth configuration when managed MCP runtime proof is required."
+            ),
         }
 
     plan = base.consumer_parity_plan(workspace, evidence_dir)
@@ -267,10 +300,12 @@ def capture_all_evidence(
         if all_captured
         else None
     )
+    mcp_pass = (not run_mcp_smoke) or managed_mcp.get("status") == "PASS"
     status = (
         "PASS"
         if governed.get("status") == "PASS"
         and excel.get("status") == "PASS"
+        and mcp_pass
         and all_captured
         and isinstance(parity, dict)
         and parity.get("status") == "PASS"
@@ -281,13 +316,21 @@ def capture_all_evidence(
         "security_context": security_context,
         "governed": governed,
         "excel": excel,
+        "managed_mcp": managed_mcp,
         "consumer_evidence": plan,
         "cross_consumer_parity": parity,
         "external_consumers_remaining": [] if all_captured else ["incomplete_consumer_evidence"],
+        "runtime_surfaces_remaining": (
+            []
+            if mcp_pass
+            else ["snowflake_managed_mcp_remote_client"]
+        ),
         "truth_boundary": (
-            "PASS requires captured Snowflake Semantic View, Cortex Agent/MCP, Power BI, and Excel XMLA rows "
-            "under the same security-context label plus passing cross-consumer value parity. Excel automation "
-            "certifies the XMLA/MDX path rather than opening the interactive Excel desktop UI."
+            "PASS requires captured Snowflake Semantic View, Cortex Agent analytical, Power BI, and Excel XMLA rows "
+            "under the same security-context label plus passing cross-consumer value parity. When --mcp-smoke is requested, "
+            "PASS additionally requires an external OAuth-authenticated Snowflake-managed MCP client to discover and invoke "
+            "the governed tool. MCP remote invocation is a runtime transport surface, not a fifth semantic parity consumer. "
+            "Excel automation certifies the XMLA/MDX path rather than opening the interactive Excel desktop UI."
         ),
     }
 
@@ -332,7 +375,7 @@ def _extension_parser() -> argparse.ArgumentParser:
 
     all_evidence = sub.add_parser(
         "capture-all-evidence",
-        help="Capture Snowflake, Agent, Power BI, and Excel evidence and run the parity gate.",
+        help="Capture Snowflake, Agent, Power BI, Excel, and optional managed-MCP evidence and run the parity gate.",
     )
     all_evidence.add_argument("--workspace", type=Path, default=base.DEFAULT_WORKSPACE)
     all_evidence.add_argument("--evidence-dir", type=Path, required=True)
@@ -347,6 +390,15 @@ def _extension_parser() -> argparse.ArgumentParser:
     all_evidence.add_argument("--excel-cube-name")
     all_evidence.add_argument("--excel-connection-string-env", default="EXCEL_XMLA_CONNECTION_STRING")
     all_evidence.add_argument("--excel-query-timeout", type=int, default=300)
+    all_evidence.add_argument("--mcp-smoke", action="store_true")
+    all_evidence.add_argument("--mcp-endpoint")
+    all_evidence.add_argument("--mcp-account-url")
+    all_evidence.add_argument("--mcp-database")
+    all_evidence.add_argument("--mcp-schema", default="AI")
+    all_evidence.add_argument("--mcp-server")
+    all_evidence.add_argument("--mcp-token-env", default="SNOWFLAKE_MCP_ACCESS_TOKEN")
+    all_evidence.add_argument("--mcp-timeout", type=int, default=120)
+    all_evidence.add_argument("--mcp-output", type=Path)
     all_evidence.add_argument("--overwrite", action="store_true")
     all_evidence.add_argument("--confirm", action="store_true")
     all_evidence.add_argument("--dry-run", action="store_true")
@@ -410,6 +462,15 @@ def main() -> int:
                 excel_cube_name=args.excel_cube_name,
                 excel_connection_string_env=args.excel_connection_string_env,
                 excel_query_timeout=args.excel_query_timeout,
+                run_mcp_smoke=args.mcp_smoke,
+                mcp_endpoint=args.mcp_endpoint,
+                mcp_account_url=args.mcp_account_url,
+                mcp_database=args.mcp_database,
+                mcp_schema=args.mcp_schema,
+                mcp_server=args.mcp_server,
+                mcp_token_env=args.mcp_token_env,
+                mcp_timeout=args.mcp_timeout,
+                mcp_output=args.mcp_output,
                 confirm=args.confirm,
                 dry_run=args.dry_run,
                 overwrite=args.overwrite,
