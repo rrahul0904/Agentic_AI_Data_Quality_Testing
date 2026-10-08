@@ -1,0 +1,62 @@
+name: rga-mcp-client
+
+on:
+  pull_request:
+    paths:
+      - "scripts/rga_testbed/smoke_snowflake_mcp.py"
+      - "src/agentic_data_platform/semantic_platform_cli_ext.py"
+      - "tests/rga_testbed/test_rga_mcp_client_smoke.py"
+      - "tests/rga_testbed/test_semantic_platform_cli_ext.py"
+      - ".github/workflows/rga-mcp-client.yml"
+  workflow_dispatch:
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install test dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Compile MCP client sources
+        run: |
+          python -m py_compile scripts/rga_testbed/smoke_snowflake_mcp.py src/agentic_data_platform/semantic_platform_cli_ext.py
+      - name: Run MCP client and extension tests
+        run: |
+          pytest -q tests/rga_testbed/test_rga_mcp_client_smoke.py tests/rga_testbed/test_semantic_platform_cli_ext.py
+      - name: Build governed MCP workspace
+        run: |
+          mkdir -p /tmp/rga-mcp-workspace/release/ai /tmp/rga-mcp-workspace/release/parity
+          python scripts/rga_testbed/generate_ai_integration.py --output /tmp/rga-mcp-workspace/release/ai --database RGA_SYNTHETIC_TESTBED
+          python scripts/rga_testbed/generate_parity_suite.py --output /tmp/rga-mcp-workspace/release/parity --database RGA_SYNTHETIC_TESTBED >/tmp/rga-mcp-parity.json
+          test -f /tmp/rga-mcp-workspace/release/ai/mcp_spec.yml
+          grep -q 'CORTEX_AGENT_RUN' /tmp/rga-mcp-workspace/release/ai/mcp_spec.yml
+          grep -q 'reinsurance_analyst' /tmp/rga-mcp-workspace/release/ai/mcp_spec.yml
+      - name: Certify credential-free MCP smoke plan
+        run: |
+          semantic-platform mcp-smoke \
+            --workspace /tmp/rga-mcp-workspace \
+            --endpoint https://example.snowflakecomputing.com/api/v2/databases/RGA_SYNTHETIC_TESTBED/schemas/AI/mcp-servers/RGA_REINSURANCE_MCP \
+            --dry-run >/tmp/rga-mcp-plan.json
+          grep -q '"status": "DRY_RUN"' /tmp/rga-mcp-plan.json
+          grep -q '"expected_tool": "reinsurance_analyst"' /tmp/rga-mcp-plan.json
+          grep -q '"method": "tools/list"' /tmp/rga-mcp-plan.json
+          grep -q '"method": "tools/call"' /tmp/rga-mcp-plan.json
+          grep -q 'application/json, text/event-stream' /tmp/rga-mcp-plan.json
+          grep -q '"persist_oauth_token": false' /tmp/rga-mcp-plan.json
+          grep -q '"persist_agent_reasoning": false' /tmp/rga-mcp-plan.json
+      - name: Certify live MCP smoke remains fail-closed
+        run: |
+          set +e
+          env -u SNOWFLAKE_MCP_ACCESS_TOKEN semantic-platform mcp-smoke \
+            --workspace /tmp/rga-mcp-workspace \
+            --endpoint https://example.snowflakecomputing.com/api/v2/databases/RGA_SYNTHETIC_TESTBED/schemas/AI/mcp-servers/RGA_REINSURANCE_MCP >/tmp/rga-mcp-refusal.json
+          code=$?
+          set -e
+          test "$code" -eq 2
+          grep -q 'OAuth bearer token is required' /tmp/rga-mcp-refusal.json
+          grep -q 'without --confirm' /tmp/rga-mcp-refusal.json
