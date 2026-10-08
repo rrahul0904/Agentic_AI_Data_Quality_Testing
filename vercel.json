@@ -17,7 +17,7 @@
       "framework": "container",
       "runtime": "container",
       "root": ".",
-      "entrypoint": "deploy/Dockerfile.api"
+      "entrypoint": "Dockerfile"
     }
   },
   "rewrites": [
