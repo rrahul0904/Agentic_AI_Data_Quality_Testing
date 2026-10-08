@@ -80,15 +80,16 @@ def sha256(path: Path) -> str:
 
 
 def _rewrite_python(text: str) -> str:
-    text = text.replace("scripts.rga_testbed", "scripts.semantic_platform_core")
-    text = text.replace(
-        'ROOT / "config" / "rga_semantic_contract.yml"',
-        'ROOT / "config" / "semantic_contract.yml"',
+    replacements = (
+        ("scripts.rga_testbed", "scripts.semantic_platform_core"),
+        ('ROOT / "config" / "rga_semantic_contract.yml"', 'ROOT / "config" / "semantic_contract.yml"'),
+        ('ROOT / "rga-snowflake-data-platform" / "release"', 'ROOT / "release"'),
+        ("rga-snowflake-data-platform", "semantic-platform-release"),
+        ("RGA_SYNTHETIC_TESTBED", "SEMANTIC_PLATFORM"),
+        ("RGA_SEMANTIC_BENCHMARK", "SEMANTIC_PLATFORM_BENCHMARK"),
     )
-    text = text.replace(
-        'ROOT / "rga-snowflake-data-platform" / "release"',
-        'ROOT / "release"',
-    )
+    for old, new in replacements:
+        text = text.replace(old, new)
     return text
 
 
@@ -184,10 +185,18 @@ def export_core(contract: Path, output: Path) -> dict[str, Any]:
         path.read_text(encoding="utf-8")
         for path in package_dir.glob("*.py")
     )
-    if "scripts.rga_testbed" in python_text:
-        raise RuntimeError("RGA package import leaked into standalone semantic core")
-    if "rga_semantic_contract.yml" in python_text:
-        raise RuntimeError("RGA default contract path leaked into standalone semantic core")
+    forbidden_source_tokens = (
+        "scripts.rga_testbed",
+        "rga_semantic_contract.yml",
+        "RGA_SYNTHETIC_TESTBED",
+        "RGA_SEMANTIC_BENCHMARK",
+    )
+    leaked_tokens = [token for token in forbidden_source_tokens if token in python_text]
+    if leaked_tokens:
+        raise RuntimeError(
+            "RGA-specific defaults leaked into standalone semantic core: "
+            + ", ".join(leaked_tokens)
+        )
 
     manifest = {
         "export_version": 1,
