@@ -65,6 +65,8 @@ def test_certification_report_is_truthful_when_only_repository_release_exists(tm
     assert report["release"]["status"] == "PASS"
     assert report["live_runtime"]["status"] == "PENDING"
     assert report["consumer_parity"]["status"] == "PENDING"
+    assert report["managed_mcp_client"]["required"] is False
+    assert report["managed_mcp_client"]["status"] == "NOT_APPLICABLE"
     assert report["change_data"]["status"] == "PENDING"
     assert report["scale_validation"]["status"] == "PENDING"
     assert report["consumer_parity"]["evidence"]["expected"] == 4
@@ -127,7 +129,7 @@ def test_certification_report_surfaces_bounded_target_account_without_promoting_
     )
 
     report = module.build_report(workspace, evidence_dir)
-    assert report["certification_report_version"] == 2
+    assert report["certification_report_version"] == 3
     assert (
         report["overall_status"]
         == "BOUNDED_TARGET_ACCOUNT_CERTIFIED_FULL_RUNTIME_PENDING"
@@ -176,6 +178,12 @@ def test_certification_report_marks_production_only_after_all_surfaces_pass(tmp_
         workspace / "release" / "parity" / "parity_manifest.json",
         _parity_manifest(),
     )
+    mcp_spec = workspace / "release" / "ai" / "mcp_spec.yml"
+    mcp_spec.parent.mkdir(parents=True, exist_ok=True)
+    mcp_spec.write_text(
+        "tools:\n  - name: reinsurance_analyst\n    type: CORTEX_AGENT_RUN\n",
+        encoding="utf-8",
+    )
     _write(
         workspace / "evidence" / "certification_manifest.json",
         {
@@ -191,6 +199,18 @@ def test_certification_report_marks_production_only_after_all_surfaces_pass(tmp_
     _write(
         workspace / "evidence" / "agent_smoke.json",
         {"status": "PASS", "passed": 1, "failed": 0},
+    )
+    _write(
+        workspace / "evidence" / "mcp_remote_smoke.json",
+        {
+            "status": "PASS",
+            "expected_tool": "reinsurance_analyst",
+            "tools_list": {"tool_count": 1},
+            "tools_call": {"result_present": True},
+            "oauth": {"token_present": True, "token_persisted": False},
+            "reasoning_persisted": False,
+            "truth_boundary": "Managed MCP remote invocation passed.",
+        },
     )
     _write(
         workspace / "evidence" / "cross_consumer_parity.json",
@@ -241,6 +261,12 @@ def test_certification_report_marks_production_only_after_all_surfaces_pass(tmp_
     assert report["production_rollout_certified"] is False
     assert report["blockers"] == []
     assert report["production_rollout_blockers"]
+    assert report["managed_mcp_client"]["required"] is True
+    assert report["managed_mcp_client"]["status"] == "PASS"
+    assert report["managed_mcp_client"]["expected_tool"] == "reinsurance_analyst"
+    assert report["managed_mcp_client"]["invocation_result_present"] is True
+    assert report["managed_mcp_client"]["oauth_token_persisted"] is False
+    assert report["managed_mcp_client"]["reasoning_persisted"] is False
     assert report["consumer_parity"]["evidence"]["captured"] == 4
     assert report["consumer_parity"]["evidence"]["status"] == "COMPLETE"
     assert report["workload_analysis"]["recommendation_count"] == 1
@@ -266,6 +292,41 @@ def test_certification_report_marks_production_only_after_all_surfaces_pass(tmp_
     assert generated["production_rollout_certified"] is False
     assert Path(generated["json"]).exists()
     assert Path(generated["markdown"]).exists()
+
+
+def test_mcp_enabled_release_requires_managed_remote_smoke(tmp_path: Path):
+    module = _module()
+    workspace = tmp_path / "demo"
+    evidence_dir = workspace / "external-evidence"
+
+    _write(workspace / "release" / "release_manifest.json", {"source_sha": "abc"})
+    _write(workspace / "release" / "parity" / "parity_manifest.json", _parity_manifest())
+    mcp_spec = workspace / "release" / "ai" / "mcp_spec.yml"
+    mcp_spec.parent.mkdir(parents=True, exist_ok=True)
+    mcp_spec.write_text("tools:\n  - name: governed_agent\n", encoding="utf-8")
+    _write(workspace / "evidence" / "certification_manifest.json", {"status": "PASS"})
+    _write(
+        workspace / "evidence" / "cross_consumer_parity.json",
+        {"status": "PASS", "failed_cases": 0},
+    )
+    for consumer in _parity_manifest()["required_consumers"]:
+        _write(
+            evidence_dir / f"q1.{consumer}.json",
+            {
+                "capture_status": "CAPTURED",
+                "rows": [{"METRIC_A": 10}],
+            },
+        )
+
+    report = module.build_report(workspace, evidence_dir)
+    assert report["managed_mcp_client"]["required"] is True
+    assert report["managed_mcp_client"]["status"] == "PENDING"
+    assert report["end_to_end_certified"] is False
+    assert any(
+        "managed-MCP discovery/invocation has not passed" in blocker
+        for blocker in report["blockers"]
+    )
+    assert "Snowflake-managed MCP remote client: **PENDING**" in module.render_markdown(report)
 
 
 def test_certification_report_does_not_count_pending_files_as_captured(tmp_path: Path):
