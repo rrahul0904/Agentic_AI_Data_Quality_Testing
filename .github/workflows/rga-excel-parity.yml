@@ -6,8 +6,11 @@ on:
       - "scripts/rga_testbed/capture_excel_parity_evidence.py"
       - "scripts/rga_testbed/excel_xmla_runner.ps1"
       - "scripts/rga_testbed/generate_parity_suite.py"
+      - "src/agentic_data_platform/semantic_platform_cli_ext.py"
       - "tests/rga_testbed/test_rga_excel_capture.py"
       - "tests/rga_testbed/test_rga_parity_suite.py"
+      - "tests/rga_testbed/test_semantic_platform_cli_ext.py"
+      - "pyproject.toml"
       - ".github/workflows/rga-excel-parity.yml"
   workflow_dispatch:
 
@@ -25,10 +28,10 @@ jobs:
         run: python -m pip install -e ".[dev]"
       - name: Compile Excel capture sources
         run: |
-          python -m py_compile scripts/rga_testbed/generate_parity_suite.py scripts/rga_testbed/capture_excel_parity_evidence.py
-      - name: Run Excel and parity tests
+          python -m py_compile scripts/rga_testbed/generate_parity_suite.py scripts/rga_testbed/capture_excel_parity_evidence.py src/agentic_data_platform/semantic_platform_cli_ext.py
+      - name: Run Excel and CLI extension tests
         run: |
-          pytest -q tests/rga_testbed/test_rga_parity_suite.py tests/rga_testbed/test_rga_excel_capture.py
+          pytest -q tests/rga_testbed/test_rga_parity_suite.py tests/rga_testbed/test_rga_excel_capture.py tests/rga_testbed/test_semantic_platform_cli_ext.py
       - name: Generate governed parity bundle
         run: |
           python scripts/rga_testbed/generate_parity_suite.py --output /tmp/rga-excel-parity --database RGA_SYNTHETIC_TESTBED >/tmp/rga-excel-parity-generate.json
@@ -36,12 +39,22 @@ jobs:
           test -f /tmp/rga-excel-parity/monthly_loss_ratio_by_cedant.excel.mdx
           grep -q 'FROM \[__CUBE_NAME__\]' /tmp/rga-excel-parity/monthly_loss_ratio_by_cedant.excel.mdx
           grep -q 'xmla_adomd_mdx' /tmp/rga-excel-parity/parity_manifest.json
-      - name: Certify credential-free Excel capture plan
+      - name: Build CLI workspace parity layout
+        run: |
+          mkdir -p /tmp/rga-excel-workspace/release
+          cp -R /tmp/rga-excel-parity /tmp/rga-excel-workspace/release/parity
+      - name: Certify credential-free Excel capture plans
         run: |
           python scripts/rga_testbed/capture_excel_parity_evidence.py --manifest /tmp/rga-excel-parity/parity_manifest.json --evidence-dir /tmp/rga-excel-evidence --security-context ROLE_ANALYST --dry-run >/tmp/rga-excel-plan.json
           grep -q '"status": "DRY_RUN"' /tmp/rga-excel-plan.json
           grep -q '"protocol": "XMLA/ADOMD MDX"' /tmp/rga-excel-plan.json
           grep -q '"mdx_exists": true' /tmp/rga-excel-plan.json
+          semantic-platform capture-excel-evidence --workspace /tmp/rga-excel-workspace --evidence-dir /tmp/rga-excel-evidence --security-context ROLE_ANALYST --dry-run >/tmp/rga-excel-cli-plan.json
+          grep -q '"status": "DRY_RUN"' /tmp/rga-excel-cli-plan.json
+          semantic-platform capture-all-evidence --workspace /tmp/rga-excel-workspace --evidence-dir /tmp/rga-all-evidence --security-context ROLE_ANALYST --dry-run >/tmp/rga-all-evidence-plan.json
+          grep -q '"status": "DRY_RUN"' /tmp/rga-all-evidence-plan.json
+          grep -q '"excel"' /tmp/rga-all-evidence-plan.json
+          grep -q '"power_bi"' /tmp/rga-all-evidence-plan.json
       - name: Certify live Excel capture remains fail-closed
         run: |
           set +e
