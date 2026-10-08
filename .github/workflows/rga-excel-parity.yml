@@ -1,0 +1,62 @@
+name: rga-excel-parity
+
+on:
+  pull_request:
+    paths:
+      - "scripts/rga_testbed/capture_excel_parity_evidence.py"
+      - "scripts/rga_testbed/excel_xmla_runner.ps1"
+      - "scripts/rga_testbed/generate_parity_suite.py"
+      - "tests/rga_testbed/test_rga_excel_capture.py"
+      - "tests/rga_testbed/test_rga_parity_suite.py"
+      - ".github/workflows/rga-excel-parity.yml"
+  workflow_dispatch:
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install test dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Compile Excel capture sources
+        run: |
+          python -m py_compile scripts/rga_testbed/generate_parity_suite.py scripts/rga_testbed/capture_excel_parity_evidence.py
+      - name: Run Excel and parity tests
+        run: |
+          pytest -q tests/rga_testbed/test_rga_parity_suite.py tests/rga_testbed/test_rga_excel_capture.py
+      - name: Generate governed parity bundle
+        run: |
+          python scripts/rga_testbed/generate_parity_suite.py --output /tmp/rga-excel-parity --database RGA_SYNTHETIC_TESTBED >/tmp/rga-excel-parity-generate.json
+          test -f /tmp/rga-excel-parity/parity_manifest.json
+          test -f /tmp/rga-excel-parity/monthly_loss_ratio_by_cedant.excel.mdx
+          grep -q 'FROM \[__CUBE_NAME__\]' /tmp/rga-excel-parity/monthly_loss_ratio_by_cedant.excel.mdx
+          grep -q 'xmla_adomd_mdx' /tmp/rga-excel-parity/parity_manifest.json
+      - name: Certify credential-free Excel capture plan
+        run: |
+          python scripts/rga_testbed/capture_excel_parity_evidence.py --manifest /tmp/rga-excel-parity/parity_manifest.json --evidence-dir /tmp/rga-excel-evidence --security-context ROLE_ANALYST --dry-run >/tmp/rga-excel-plan.json
+          grep -q '"status": "DRY_RUN"' /tmp/rga-excel-plan.json
+          grep -q '"protocol": "XMLA/ADOMD MDX"' /tmp/rga-excel-plan.json
+          grep -q '"mdx_exists": true' /tmp/rga-excel-plan.json
+      - name: Certify live Excel capture remains fail-closed
+        run: |
+          set +e
+          env -u EXCEL_XMLA_CONNECTION_STRING -u EXCEL_XMLA_CUBE -u EXCEL_XMLA_RUNNER python scripts/rga_testbed/capture_excel_parity_evidence.py --manifest /tmp/rga-excel-parity/parity_manifest.json --evidence-dir /tmp/rga-excel-evidence --security-context ROLE_ANALYST >/tmp/rga-excel-refusal.json
+          code=$?
+          set -e
+          test "$code" -eq 2
+          grep -q 'Refusing live Excel evidence capture without --confirm' /tmp/rga-excel-refusal.json
+          grep -q 'cube/model name is required' /tmp/rga-excel-refusal.json
+          grep -q 'connection is required' /tmp/rga-excel-refusal.json
+      - name: Parse PowerShell ADOMD runner when available
+        shell: bash
+        run: |
+          if command -v pwsh >/dev/null 2>&1; then
+            pwsh -NoProfile -Command '$null = [ScriptBlock]::Create((Get-Content "scripts/rga_testbed/excel_xmla_runner.ps1" -Raw))'
+          else
+            echo "pwsh unavailable; Python runner protocol is covered by pytest"
+          fi
