@@ -591,6 +591,8 @@ def chart_validate(args: dict[str, Any]) -> dict[str, Any]:
             "metrics": metric if isinstance(metric, list) else [metric] if metric else [],
             "dimensions": chart.get("dimensions") or ([chart.get("dimension")] if chart.get("dimension") else []),
             "sql": sql,
+            "question": chart.get("question"),
+            "verified_query": chart.get("verified_query"),
             "title": chart.get("title") or chart_name.replace("_", " ").title(),
         })
     if not dashboard.get("description"):
@@ -626,6 +628,105 @@ def chart_compile(args: dict[str, Any]) -> dict[str, Any]:
         "targets": ["ade-web", "power-bi-contract", "excel-contract", "ai-agent-contract"],
     }
     return {"status": "PASS", "compiled": compiled, "fingerprint": _fingerprint(compiled)}
+
+
+def chart_query_contract(args: dict[str, Any]) -> dict[str, Any]:
+    """Compile one dashboard chart into governed executable read-only SQL."""
+    validated = chart_validate(args)
+    if validated["status"] != "PASS":
+        return validated
+
+    charts = list(validated["charts"])
+    requested = str(args.get("chart_name") or "").strip()
+    if requested:
+        selected = next((chart for chart in charts if chart["name"] == requested), None)
+        if selected is None:
+            return {
+                "status": "NEEDS_SELECTION",
+                "dashboard": validated["dashboard"],
+                "reason": f"chart not found: {requested}",
+                "available_charts": [chart["name"] for chart in charts],
+                "fingerprint": validated["fingerprint"],
+            }
+    elif len(charts) == 1:
+        selected = charts[0]
+    else:
+        return {
+            "status": "NEEDS_SELECTION",
+            "dashboard": validated["dashboard"],
+            "reason": "chart_name is required when a dashboard contains multiple charts",
+            "available_charts": [chart["name"] for chart in charts],
+            "fingerprint": validated["fingerprint"],
+        }
+
+    base = {
+        "dashboard": validated["dashboard"],
+        "chart": selected["name"],
+        "chart_type": selected["type"],
+        "metrics": list(selected["metrics"]),
+        "dimensions": list(selected["dimensions"]),
+        "title": selected["title"],
+    }
+    explicit_sql = str(selected.get("sql") or "").strip()
+    if explicit_sql:
+        payload = {**base, "query_source": "explicit-read-only-sql", "sql": explicit_sql}
+        return {
+            "status": "READY",
+            **payload,
+            "fingerprint": _fingerprint(payload),
+            "execution_policy": "Only explicit read-only SQL or governed verified-query SQL may execute.",
+        }
+
+    question = str(selected.get("question") or "").strip()
+    verified_query = str(selected.get("verified_query") or "").strip()
+    if not question:
+        return {
+            "status": "NEEDS_VERIFIED_QUERY",
+            **base,
+            "sql": None,
+            "reason": "Metric-only chart execution requires chart.question mapped to a governed verified query; ADE will not synthesize SQL.",
+            "fingerprint": _fingerprint({**base, "question": question, "verified_query": verified_query}),
+        }
+    if not args.get("semantic_database"):
+        return {
+            "status": "CONFIGURATION_REQUIRED",
+            **base,
+            "sql": None,
+            "required": "semantic_database",
+            "reason": "Governed metric chart execution requires a semantic registry.",
+            "fingerprint": _fingerprint({**base, "question": question, "verified_query": verified_query}),
+        }
+
+    explore_args = {
+        **args,
+        "question": question,
+    }
+    if verified_query:
+        explore_args["verified_query_name"] = verified_query
+    governed = explore_query_contract(explore_args)
+    if governed.get("status") != "READY":
+        return {
+            **base,
+            **governed,
+            "chart": selected["name"],
+            "dashboard": validated["dashboard"],
+        }
+
+    payload = {
+        **base,
+        "query_source": "governed-verified-query",
+        "question": question,
+        "verified_query": governed["verified_query"],
+        "sql": governed["sql"],
+        "dialect_hint": governed.get("dialect_hint"),
+        "explore_fingerprint": governed["fingerprint"],
+    }
+    return {
+        "status": "READY",
+        **payload,
+        "fingerprint": _fingerprint(payload),
+        "execution_policy": "Metric charts execute only through a governed verified query; free-form SQL synthesis is disabled.",
+    }
 
 
 def model_compute_plan(args: dict[str, Any]) -> dict[str, Any]:
@@ -752,6 +853,7 @@ def agents_schema(args: dict[str, Any] | None = None) -> dict[str, Any]:
             {"name": "semantic_explore", "tool": "dbt_next_explore_plan", "read_only": True},
             {"name": "semantic_explore_contract", "tool": "dbt_next_explore_query_contract", "read_only": True},
             {"name": "bi_as_code", "tool": "dbt_next_chart_compile", "read_only": True},
+            {"name": "bi_as_code_query", "tool": "dbt_next_chart_query_contract", "read_only": True},
             {"name": "state_plan", "tool": "dbt_next_state_plan", "read_only": True},
             {"name": "state_execution_contract", "tool": "dbt_next_state_execution_contract", "read_only": True},
             {"name": "model_compute_plan", "tool": "dbt_next_model_compute_plan", "read_only": True},

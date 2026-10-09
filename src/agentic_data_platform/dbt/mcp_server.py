@@ -15,6 +15,7 @@ from mcp.types import ToolAnnotations
 from agentic_data_platform.dbt.nextgen import (
     agents_schema,
     chart_compile,
+    chart_query_contract,
     context_bundle,
     context_search,
     explore_plan,
@@ -139,6 +140,15 @@ def dbt_state_execution_contract(
 def dbt_chart_compile(yaml_text: str) -> dict[str, Any]:
     """Validate and compile a dashboard YAML contract for governed downstream consumers."""
     return chart_compile({"yaml": yaml_text})
+
+
+@mcp.tool(title="Compile governed dashboard chart query", annotations=READ_ONLY)
+def dbt_chart_query_contract(yaml_text: str, chart_name: str = "") -> dict[str, Any]:
+    """Compile one chart to explicit read-only SQL or a governed verified-query contract."""
+    args = {**_defaults(), "yaml": yaml_text}
+    if chart_name:
+        args["chart_name"] = chart_name
+    return chart_query_contract(args)
 
 
 @mcp.tool(title="Plan per-model dbt compute routing", annotations=READ_ONLY)

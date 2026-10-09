@@ -9,6 +9,7 @@ from mcp import Client
 from agentic_data_platform.dbt.nextgen import (
     agents_schema,
     chart_compile,
+    chart_query_contract,
     chart_validate,
     context_bundle,
     context_search,
@@ -85,6 +86,103 @@ def test_chart_yaml_is_versionable_and_read_only():
 
     blocked = chart_validate({"spec": {"dashboard": {"name": "bad", "charts": [{"name": "x", "sql": "delete from t"}]}}})
     assert blocked["status"] == "FAIL"
+
+
+def test_chart_query_contract_is_guarded_and_executable(tmp_path: Path):
+    explicit_spec = {
+        "dashboard": {
+            "name": "explicit_dashboard",
+            "charts": [
+                {"name": "revenue_total", "type": "number", "sql": "select 42 as revenue"}
+            ],
+        }
+    }
+    explicit = chart_query_contract({"spec": explicit_spec})
+    assert explicit["status"] == "READY"
+    assert explicit["query_source"] == "explicit-read-only-sql"
+    assert explicit["sql"] == "select 42 as revenue"
+    assert explicit["fingerprint"]
+
+    semantic_yaml = tmp_path / "chart-semantic.yml"
+    semantic_yaml.write_text(yaml.safe_dump({
+        "name": "chart_revenue",
+        "tables": [{
+            "name": "orders",
+            "dimensions": [{"name": "region", "description": "sales region"}],
+            "metrics": [{"name": "revenue", "description": "premium revenue"}],
+        }],
+        "verified_queries": [{
+            "name": "revenue_by_region",
+            "question": "What is revenue by region?",
+            "sql": "select 'east' as region, 42 as revenue",
+            "verified_by": "analytics-governance",
+        }],
+    }))
+    semantic_db = tmp_path / "chart-semantic.db"
+    SemanticRegistry(semantic_db).ingest_yaml(semantic_yaml)
+
+    governed_spec = {
+        "dashboard": {
+            "name": "governed_dashboard",
+            "charts": [{
+                "name": "revenue_by_region",
+                "type": "bar",
+                "metric": "revenue",
+                "dimension": "region",
+                "question": "What is revenue by region?",
+                "verified_query": "revenue_by_region",
+            }],
+        }
+    }
+    governed = chart_query_contract({
+        "spec": governed_spec,
+        "semantic_database": str(semantic_db),
+    })
+    assert governed["status"] == "READY"
+    assert governed["query_source"] == "governed-verified-query"
+    assert governed["verified_query"]["name"] == "revenue_by_region"
+    assert governed["sql"] == "select 'east' as region, 42 as revenue"
+
+    metric_only = chart_query_contract({
+        "spec": {
+            "dashboard": {
+                "name": "needs_governance",
+                "charts": [{"name": "revenue", "metric": "revenue"}],
+            }
+        }
+    })
+    assert metric_only["status"] == "NEEDS_VERIFIED_QUERY"
+    assert metric_only["sql"] is None
+
+    ambiguous = chart_query_contract({
+        "spec": {
+            "dashboard": {
+                "name": "multi",
+                "charts": [
+                    {"name": "one", "sql": "select 1 as value"},
+                    {"name": "two", "sql": "select 2 as value"},
+                ],
+            }
+        }
+    })
+    assert ambiguous["status"] == "NEEDS_SELECTION"
+    assert ambiguous["available_charts"] == ["one", "two"]
+
+    client = TestClient(create_app())
+    response = client.post("/api/v1/dbt-next/chart-execute", json={
+        "args": {
+            "spec": explicit_spec,
+            "platform": "duckdb",
+            "database": ":memory:",
+            "row_limit": 10,
+        }
+    })
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "PASS"
+    assert payload["chart"] == "revenue_total"
+    assert payload["execution"]["row_count"] == 1
+    assert payload["execution"]["columns"] == ["revenue"]
 
 
 def test_state_execution_contract_is_deterministic_and_guarded(tmp_path: Path):
@@ -285,7 +383,7 @@ def test_api_and_cli_publish_complete_dbt_next_domain():
     expected = {
         "engine-readiness", "state-plan", "state-contract", "state-execute", "context-bundle", "context-search",
         "wizard-plan", "explore-plan", "explore-contract", "explore-execute", "chart-validate", "chart-compile",
-        "model-compute-plan", "lake-plan", "lake-run", "agents-schema",
+        "chart-contract", "chart-execute", "model-compute-plan", "lake-plan", "lake-run", "agents-schema",
     }
     assert expected.issubset(DOMAIN_CLI_TOOLS["dbt-next"])
     client = TestClient(create_app())
@@ -304,8 +402,8 @@ def test_mcp_server_discovers_dbt_context_tools_and_resource():
             tool_names = {tool.name for tool in tool_page.tools}
             assert {
                 "dbt_context_search", "dbt_context_bundle", "dbt_wizard_plan",
-                "dbt_explore_plan", "dbt_explore_query_contract", "dbt_state_plan", "dbt_state_execution_contract", "dbt_chart_compile",
-                "dbt_model_compute_plan", "dbt_lake_compute_plan",
+                "dbt_explore_plan", "dbt_explore_query_contract", "dbt_state_plan", "dbt_state_execution_contract",
+                "dbt_chart_compile", "dbt_chart_query_contract", "dbt_model_compute_plan", "dbt_lake_compute_plan",
             }.issubset(tool_names)
             resource_page = await client.list_resources()
             uris = {str(resource.uri) for resource in resource_page.resources}
@@ -322,7 +420,8 @@ def test_engine_readiness_override_and_registry_surface():
     for name in (
         "dbt_next_state_plan", "dbt_next_state_execution_contract", "dbt_next_state_execute",
         "dbt_next_wizard_plan", "dbt_next_explore_plan", "dbt_next_explore_query_contract", "dbt_next_explore_execute",
-        "dbt_next_chart_compile", "dbt_next_model_compute_plan", "dbt_next_lake_compute_plan",
+        "dbt_next_chart_compile", "dbt_next_chart_query_contract", "dbt_next_chart_execute",
+        "dbt_next_model_compute_plan", "dbt_next_lake_compute_plan",
         "dbt_next_context_bundle", "dbt_next_agents_schema",
     ):
         assert registry.describe(name).name == name

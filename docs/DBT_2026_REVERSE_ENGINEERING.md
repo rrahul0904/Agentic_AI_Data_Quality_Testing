@@ -12,7 +12,7 @@ This document records the clean-room capability mapping implemented from the sup
 | Wizard CLI | `ade dbt-next wizard-plan` | CLI | Uses the same tool implementation as API/UI. |
 | Wizard Desktop | Native Electron dbt Next view | Desktop | Uses the same FastAPI control plane; full argument-level workbench remains available through the web console. |
 | Wizard Explore | `explore_plan`, `explore_query_contract`, verified `explore_execute` | Tool, API, CLI, web; read-only contract over MCP | Resolves questions to governed metrics/dimensions/verified queries and executes only sufficiently matched verified read-only SQL. ADE does not synthesize unverified SQL for governed Explore execution. |
-| dbt Charts | `chart_validate` + `chart_compile` | Tool, API, CLI, web, MCP | YAML dashboards are versionable contracts; ADE does not claim dbt Charts rendering compatibility. |
+| dbt Charts | `chart_validate`, `chart_compile`, `chart_query_contract`, governed `chart_execute` | Tool, API, CLI, web; read-only contract over MCP | YAML dashboards are versionable contracts. Chart data executes only from explicit read-only SQL or a governed verified query; ADE does not claim dbt Charts rendering compatibility. |
 | Lake Compute | `model_compute_plan`, `lake_compute_plan`, `lake_compute_run` | Tool, API, CLI, web, MCP | DuckDB/Parquet works locally; Iceberg requires an available DuckDB Iceberg extension. Cross-engine refs require materialized relation boundaries. |
 | Context Layer | `context_bundle` + `context_search` | Tool, API, CLI, web, MCP | Combines dbt artifacts, semantic registry, selected files, and adapter-fed records. External connectors can feed records without being hard-coded here. |
 | Agents Schema / AI context | `agents_schema` + ADE MCP v2 server | API, CLI, MCP | Read-only MCP server exposes governed dbt context, planning, semantic Explore, state, dashboard compilation and lake planning. |
@@ -122,6 +122,18 @@ Dashboard YAML is validated for:
 
 Compilation emits portable downstream contracts for ADE web, Power BI, Excel and AI-agent consumers. Provider-specific publishing can be implemented as adapters without changing the source YAML.
 
+### Governed chart data execution
+
+`dbt_next_chart_query_contract` turns one chart into an executable contract without inventing SQL:
+
+- explicit chart SQL must already be read-only;
+- metric/dimension-only charts must provide a business `question` that resolves to a governed verified query;
+- an optional `verified_query` name pins the contract to that governed query;
+- dashboards with multiple charts require an explicit `chart_name`;
+- metric-only charts without a verified semantic path return `NEEDS_VERIFIED_QUERY` rather than synthesizing SQL.
+
+`dbt_next_chart_execute` routes the exact contracted SQL through ADE's existing bounded read-only connector execution layer. The MCP server exposes only the read-only query contract, not the execution tool.
+
 ## Context contract
 
 The context bundle can combine:
@@ -165,6 +177,8 @@ ade dbt-next explore-plan --args '{"semantic_database":".ade/semantic.db","quest
 ade dbt-next explore-contract --args '{"semantic_database":".ade/semantic.db","question":"revenue by region"}'
 ade dbt-next explore-execute --args '{"semantic_database":".ade/semantic.db","question":"revenue by region","platform":"duckdb","database":":memory:"}'
 ade dbt-next chart-compile --args '{"path":"examples/dbt_next/executive_revenue.dashboard.yml"}'
+ade dbt-next chart-contract --args '{"path":"examples/dbt_next/executive_revenue.dashboard.yml","chart_name":"revenue_by_month","semantic_database":".ade/semantic.db"}'
+ade dbt-next chart-execute --args '{"path":"examples/dbt_next/executive_revenue.dashboard.yml","chart_name":"revenue_by_month","semantic_database":".ade/semantic.db","platform":"snowflake"}'
 ade dbt-next model-compute-plan --args '{"manifest_path":"target/manifest.json","model_engines":{"stg_large_iceberg":"lake"}}'
 ade dbt-next lake-plan --args '{"source":"s3://bucket/table","source_type":"iceberg"}'
 ade dbt-next agents-schema --args '{}'
@@ -193,6 +207,7 @@ The dedicated test slice is `tests/test_dbt_nextgen.py`. It certifies:
 - deterministic state execution contracts, stale-approval rejection, and fail-closed live execution,
 - multi-engine boundary reporting,
 - dashboard YAML validation and mutating-SQL rejection,
+- governed chart query contracts, verified semantic fallback, selection ambiguity, and read-only API execution,
 - structured/unstructured context search,
 - semantic Explore grounding and verified-query use,
 - verified Explore execution, no-match refusal, and mutating-SQL blocking,
