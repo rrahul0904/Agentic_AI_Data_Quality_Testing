@@ -49,7 +49,6 @@ services:
       PORT: "3000"
       ADE_API_URL: http://api:8001
       ADE_API_SERVICE_TOKEN: ${ADE_API_SERVICE_TOKEN:?ADE_API_SERVICE_TOKEN is required}
-      ADE_WEB_USERS_JSON: ${ADE_WEB_USERS_JSON:-{}}
     depends_on:
       api:
         condition: service_healthy
