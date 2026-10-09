@@ -47,9 +47,8 @@ init_env() {
   fi
 
   umask 077
-  local api_token web_password commit_sha
+  local api_token commit_sha
   api_token="$(random_hex 32)"
-  web_password="$(random_hex 24)"
   commit_sha="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || printf 'local')"
 
   cat >"$ENV_FILE" <<EOF
@@ -61,14 +60,10 @@ ADE_WEB_PORT=3000
 ADE_COMMIT_SHA=$commit_sha
 ADE_API_SERVICE_TOKEN=$api_token
 ADE_API_KEYS_JSON='{"local-admin":{"token":"$api_token","subject":"local-admin","role":"admin"}}'
-ADE_WEB_USER=admin
-ADE_WEB_PASSWORD=$web_password
-ADE_WEB_USERS_JSON='{"admin":{"password":"$web_password","api_token":"$api_token"}}'
 EOF
   chmod 600 "$ENV_FILE" 2>/dev/null || true
   echo "Created $ENV_FILE"
-  echo "Local web user: admin"
-  echo "Local web password is stored only in $ENV_FILE"
+  echo "The local API credential is stored only in $ENV_FILE"
 }
 
 load_env() {
@@ -100,18 +95,28 @@ smoke() {
 
   local api_base="http://${ADE_API_BIND:-127.0.0.1}:${ADE_API_PORT:-8001}"
   local web_base="http://${ADE_WEB_BIND:-127.0.0.1}:${ADE_WEB_PORT:-3000}"
-  local payload
+  local unauth_status direct_payload proxy_payload
 
   curl --fail --silent --show-error "$api_base/healthz" >/dev/null
   curl --fail --silent --show-error "$web_base/api/healthz" >/dev/null
 
-  payload="$(curl --fail --silent --show-error \
-    -u "${ADE_WEB_USER}:${ADE_WEB_PASSWORD}" \
-    "$web_base/api/ade/api/v1/agents/roster")"
-  printf '%s' "$payload" | grep -q '"status":"PASS"' \
-    || fail "authenticated web-to-API smoke did not return PASS"
+  unauth_status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+    "$api_base/api/v1/agents/roster")"
+  [[ "$unauth_status" == "401" ]] \
+    || fail "API fail-closed check expected HTTP 401 without a bearer token; got $unauth_status"
 
-  echo "PASS: API health, web health, and authenticated web-to-API proxy"
+  direct_payload="$(curl --fail --silent --show-error \
+    -H "Authorization: Bearer ${ADE_API_SERVICE_TOKEN}" \
+    "$api_base/api/v1/agents/roster")"
+  printf '%s' "$direct_payload" | grep -q '"status":"PASS"' \
+    || fail "authenticated direct API smoke did not return PASS"
+
+  proxy_payload="$(curl --fail --silent --show-error \
+    "$web_base/api/ade/api/v1/agents/roster")"
+  printf '%s' "$proxy_payload" | grep -q '"status":"PASS"' \
+    || fail "web-to-API proxy smoke did not return PASS"
+
+  echo "PASS: health checks, fail-closed API auth, bearer auth, and web-to-API proxy"
 }
 
 up() {
@@ -167,13 +172,13 @@ usage() {
 Usage: bash scripts/ade-local.sh <command>
 
 Commands:
-  init    Generate gitignored local credentials in .env.local
+  init    Generate a gitignored local API credential in .env.local
   up      Build, start, health-check, and smoke-test the local ADE stack
   down    Stop the stack without deleting persistent state
   reset   Stop the stack and delete ADE local volumes (destructive)
   status  Show local container status
   logs    Follow API and web logs
-  smoke   Verify API, web, and authenticated web-to-API connectivity
+  smoke   Verify health, fail-closed API auth, bearer auth, and web-to-API connectivity
   config  Validate the canonical local Compose configuration
 EOF
 }
