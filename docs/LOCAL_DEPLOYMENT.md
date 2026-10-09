@@ -22,7 +22,7 @@ bash scripts/ade-local.sh init
 bash scripts/ade-local.sh up
 ```
 
-`init` creates `.env.local` with a random API token and local web credentials. `.env.local` is ignored by Git and should remain private.
+`init` creates `.env.local` with a random API token. `.env.local` is ignored by Git and should remain private.
 
 `up` performs all of the following before reporting success:
 
@@ -31,12 +31,14 @@ bash scripts/ade-local.sh up
 3. builds the API and web images;
 4. starts both services;
 5. waits for API and web health checks;
-6. sends an authenticated request through the web proxy to the API.
+6. verifies a protected API route rejects a request without a bearer token;
+7. verifies the same API route succeeds with the generated bearer token;
+8. verifies the Next.js server-side proxy can reach the authenticated API.
 
 A successful start ends with:
 
 ```text
-PASS: API health, web health, and authenticated web-to-API proxy
+PASS: health checks, fail-closed API auth, bearer auth, and web-to-API proxy
 ADE is running locally: http://127.0.0.1:3000
 ```
 
@@ -78,6 +80,8 @@ This makes the local deployment operational without pretending that live Snowfla
 
 The API uses the repository's `ADE_API_KEYS_JSON` contract. The generated credential has an `admin` role and a random token of sufficient length. The Next.js server-side proxy receives the corresponding service token; it does not expose the token to browser JavaScript.
 
+The smoke test explicitly proves that the API rejects unauthenticated access before proving that bearer authentication and the server-side proxy work.
+
 Because the UI proxy has a server-side service credential, **loopback binding is part of the local security boundary**. Any future LAN or Internet exposure must add an authenticated ingress rather than changing the bind address alone.
 
 ## Persistence
@@ -91,7 +95,7 @@ Normal rebuilds and `down`/`up` cycles keep those volumes. `reset` removes them.
 
 ## CI certification
 
-`.github/workflows/local-stack.yml` builds this exact stack on pull requests that modify local deployment/runtime files and runs the same `smoke` command. A green workflow proves that a clean Git checkout can build, boot, become healthy, and complete an authenticated web-to-API request.
+`.github/workflows/local-stack.yml` builds this exact stack on pull requests that modify local deployment/runtime files and runs the same `smoke` command. A green workflow proves that a clean Git checkout can build, boot, become healthy, reject unauthenticated API access, accept the generated bearer credential, and complete a web-to-API request.
 
 It does **not** certify external Snowflake/Airflow/provider integrations; those remain separate live certification gates.
 
