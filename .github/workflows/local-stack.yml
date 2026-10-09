@@ -1,0 +1,50 @@
+name: ADE local stack
+
+on:
+  pull_request:
+    paths:
+      - "docker-compose.local.yml"
+      - "deploy/Dockerfile.api"
+      - "deploy/local.env.example"
+      - "scripts/ade-local.sh"
+      - "apps/web/**"
+      - "src/agentic_data_platform/api/**"
+      - "src/agentic_data_platform/projects/**"
+      - "docs/LOCAL_DEPLOYMENT.md"
+      - ".github/workflows/local-stack.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-stack-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Initialize local credentials
+        run: bash scripts/ade-local.sh init
+
+      - name: Validate Compose configuration
+        run: bash scripts/ade-local.sh config
+
+      - name: Build and boot ADE locally
+        run: bash scripts/ade-local.sh up
+
+      - name: Re-run authenticated smoke
+        run: bash scripts/ade-local.sh smoke
+
+      - name: Capture status
+        if: always()
+        run: bash scripts/ade-local.sh status || true
+
+      - name: Capture logs on failure
+        if: failure()
+        run: docker compose --env-file .env.local -f docker-compose.local.yml logs --tail=300 || true
+
+      - name: Stop stack
+        if: always()
+        run: bash scripts/ade-local.sh down || true
