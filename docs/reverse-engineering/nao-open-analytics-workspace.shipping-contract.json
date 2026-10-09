@@ -1,0 +1,94 @@
+{
+  "contract_version": "1.0",
+  "source": {
+    "name": "nao open analytics agent / open Claude Dashboards patterns",
+    "linkedin": "https://lnkd.in/p/gBkNJ4WA",
+    "repository": "https://github.com/getnao/nao",
+    "website": "https://getnao.io/"
+  },
+  "canonical_program": "TECH-SEMANTIC / Agentic Data Engineering OS",
+  "canonical_repository": "rrahul0904/Agentic_AI_Data_Quality_Testing",
+  "relationship": "CAPABILITY_DONOR",
+  "product_surface": "Open Analytics Workspace",
+  "status": "SHIPPING_CONTRACT_READY",
+  "non_claims": [
+    "No nao parity claim",
+    "No Claude Dashboards parity claim",
+    "No live warehouse certification",
+    "No live LLM-provider certification",
+    "No hosted production or UAT claim"
+  ],
+  "clean_room": {
+    "behavioral_reconstruction_only_by_default": true,
+    "ee_marked_nao_files_forbidden": true,
+    "apache_oss_reuse_requires_notice_and_provenance": true,
+    "branding_copy_forbidden": true
+  },
+  "phase_a_entities": [
+    "AnalyticsContextManifest",
+    "AnalyticsQuestionPlan",
+    "SemanticQueryPlan",
+    "VisualizationArtifact",
+    "AnalyticsStory",
+    "EvaluationCase",
+    "EvaluationReceipt",
+    "ModelRoute"
+  ],
+  "phase_a_flow": [
+    "bind_exact_context_revision",
+    "resolve_governed_semantic_evidence",
+    "plan_read_only_query",
+    "execute_through_existing_ade_guard",
+    "capture_result_signature",
+    "render_editable_visualization",
+    "save_versioned_story",
+    "run_evaluation_case",
+    "emit_exact_sha_receipt",
+    "restart_and_replay"
+  ],
+  "must_pass": [
+    "stale_context_invalidates_certification",
+    "unknown_metric_fails_closed",
+    "unknown_dimension_fails_closed",
+    "mutating_sql_blocked",
+    "provider_switch_cannot_change_execution_policy",
+    "presentation_edit_preserves_semantic_binding",
+    "visualization_binds_query_and_result_fingerprints",
+    "story_binds_context_and_semantic_shas",
+    "evaluation_replay_is_deterministic",
+    "restart_replay_matches_receipts",
+    "security_context_propagates_end_to_end",
+    "cancellation_never_certifies_partial_work",
+    "secrets_tokens_and_reasoning_are_not_persisted",
+    "fixture_slice_requires_no_external_credentials"
+  ],
+  "first_vertical_slice": {
+    "semantic_fixture": "existing banking/reference semantic contract",
+    "external_credentials_required": false,
+    "expected_outputs": [
+      "question plan",
+      "semantic query plan",
+      "read-only execution evidence",
+      "table result",
+      "editable chart artifact",
+      "saved story",
+      "evaluation receipt",
+      "exact SHA/context/query/result receipt",
+      "restart replay receipt"
+    ]
+  },
+  "promotion_gates": [
+    "SOURCE",
+    "EVIDENCE",
+    "RECONSTRUCTION",
+    "SPECIFIED",
+    "SHIPPING_CONTRACT_READY",
+    "BUILDING",
+    "RUNNABLE",
+    "PREVIEW",
+    "UAT_PASS",
+    "PRODUCTION_VERIFIED",
+    "SHIPPED"
+  ],
+  "promotion_rule": "No state at or beyond BUILDING may be claimed without implementation evidence; no SHIPPED claim without exact-SHA runtime, UAT, deployment, and evidence receipts."
+}
