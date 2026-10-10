@@ -103,7 +103,10 @@ class DecisionEngine:
         policy: DecisionPolicy | None = None,
     ) -> ChoiceResult:
         selected = self._provider(provider)
-        operation = lambda p, r: self._validate_choice(r, p.choose(r))
+
+        def operation(p: DecisionProvider, r: ChoiceRequest) -> ChoiceResult:
+            return self._validate_choice(r, p.choose(r))
+
         result = operation(selected, request)
         return self._apply_policy(result, policy or DecisionPolicy(), operation, request)
 
@@ -115,7 +118,10 @@ class DecisionEngine:
         policy: DecisionPolicy | None = None,
     ) -> ScoreResult:
         selected = self._provider(provider)
-        operation = lambda p, r: self._validate_score(r, p.score(r))
+
+        def operation(p: DecisionProvider, r: ScoreRequest) -> ScoreResult:
+            return self._validate_score(r, p.score(r))
+
         result = operation(selected, request)
         return self._apply_policy(result, policy or DecisionPolicy(), operation, request)
 
@@ -127,7 +133,10 @@ class DecisionEngine:
         policy: DecisionPolicy | None = None,
     ) -> TruthResult:
         selected = self._provider(provider)
-        operation = lambda p, r: self._validate_truth(p.assess_truth(r))
+
+        def operation(p: DecisionProvider, r: TruthRequest) -> TruthResult:
+            return self._validate_truth(p.assess_truth(r))
+
         result = operation(selected, request)
         return self._apply_policy(result, policy or DecisionPolicy(), operation, request)
 
