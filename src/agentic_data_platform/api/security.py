@@ -145,7 +145,7 @@ class ApiKeyAuthMiddleware:
             return
 
         path = str(scope.get("path") or "")
-        if path == "/healthz":
+        if path in {"/healthz", "/api/v1/billing/webhook"}:
             await self.app(scope, receive, send)
             return
 
