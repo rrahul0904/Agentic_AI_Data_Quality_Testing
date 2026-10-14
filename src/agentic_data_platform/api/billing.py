@@ -36,6 +36,10 @@ def _store() -> EntitlementStore:
     return EntitlementStore()
 
 
+def _checkout_ready(gateway: StripeGateway) -> bool:
+    return gateway.configured and bool(os.getenv("ADE_STRIPE_WEBHOOK_SECRET", "").strip())
+
+
 def _allowed_return_url(value: str) -> str:
     parsed = urlparse(value)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -62,7 +66,7 @@ def plans() -> dict[str, object]:
     enterprise_contact_url = os.getenv("ADE_ENTERPRISE_CONTACT_URL", "").strip() or None
     return {
         "plans": [plan.to_dict() for plan in PLANS.values()],
-        "checkout_configured": gateway.configured,
+        "checkout_configured": _checkout_ready(gateway),
         "enterprise_contact_url": enterprise_contact_url,
     }
 
@@ -84,8 +88,8 @@ def checkout(payload: CheckoutInput) -> dict[str, object]:
         raise HTTPException(400, f"{configured_plan.name} does not use automated checkout")
 
     gateway = StripeGateway()
-    if not gateway.configured:
-        raise HTTPException(503, "Stripe checkout is not configured")
+    if not _checkout_ready(gateway):
+        raise HTTPException(503, "Stripe checkout and webhook handling are not fully configured")
     try:
         session = gateway.create_checkout(
             plan=plan,
