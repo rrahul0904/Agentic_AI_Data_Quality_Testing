@@ -14,6 +14,7 @@ type Plan = {
 type PlanResponse = {
   plans: Plan[];
   checkout_configured: boolean;
+  enterprise_contact_url?: string | null;
 };
 
 export default function PricingPage() {
@@ -111,19 +112,16 @@ export default function PricingPage() {
                     ? "Start Professional"
                     : "Checkout not configured"}
               </button>
-            ) : (
-              <a href="mailto:sales@example.com" style={{ fontWeight: 700 }}>
+            ) : data?.enterprise_contact_url ? (
+              <a href={data.enterprise_contact_url} style={{ fontWeight: 700 }}>
                 Contact sales
               </a>
+            ) : (
+              <span style={{ opacity: 0.62 }}>Sales contact not configured</span>
             )}
           </article>
         ))}
       </section>
-
-      <p style={{ marginTop: 32, opacity: 0.65 }}>
-        Enterprise sales contact is deployment-specific. Replace the placeholder sales address
-        before a public commercial launch.
-      </p>
     </main>
   );
 }
