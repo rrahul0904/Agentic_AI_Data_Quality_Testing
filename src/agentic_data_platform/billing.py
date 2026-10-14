@@ -83,7 +83,9 @@ class Entitlement:
 
     @property
     def active(self) -> bool:
-        return self.status in {"active", "trialing"} or self.plan == "community"
+        if self.plan == "community":
+            return self.status == "active"
+        return self.status in {"active", "trialing"}
 
     def to_dict(self) -> dict[str, Any]:
         return {**asdict(self), "active": self.active}
