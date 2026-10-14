@@ -19,6 +19,7 @@ import os
 from pathlib import Path
 
 from agentic_data_platform.agents.store_factory import create_investigation_store
+from agentic_data_platform.api.billing import router as billing_router
 from agentic_data_platform.artifacts.factory import create_artifact_store
 from agentic_data_platform.persistence.factory import create_control_plane_repository
 from agentic_data_platform.projects.sources import resolve_hosted_project
@@ -51,6 +52,8 @@ try:
     app = api_module.create_app(repository=repository)
 finally:
     api_module.InvestigationStore = _original_investigation_store
+
+app.include_router(billing_router)
 
 # Keep the adapter provider-neutral for API/agent integrations. A Git materialization
 # also gets an immutable source receipt mirrored into artifact storage so hosted runs
