@@ -59,9 +59,11 @@ def _allowed_return_url(value: str) -> str:
 @router.get("/plans")
 def plans() -> dict[str, object]:
     gateway = StripeGateway()
+    enterprise_contact_url = os.getenv("ADE_ENTERPRISE_CONTACT_URL", "").strip() or None
     return {
         "plans": [plan.to_dict() for plan in PLANS.values()],
         "checkout_configured": gateway.configured,
+        "enterprise_contact_url": enterprise_contact_url,
     }
 
 
