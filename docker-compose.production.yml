@@ -33,6 +33,17 @@ services:
       ADE_DATABASE_PATH: /state/control-plane.db
       ADE_QUALITY_DATABASE: /state/quality.db
       ADE_INVESTIGATION_DATABASE: /state/investigations.db
+      # Commercial billing remains disabled until real Stripe configuration is
+      # supplied. Billing state shares the durable ADE state volume. Set
+      # ADE_BILLING_ENFORCEMENT=required for a paid hosted/SaaS environment.
+      ADE_BILLING_DATABASE: /state/billing.db
+      ADE_BILLING_ENFORCEMENT: ${ADE_BILLING_ENFORCEMENT:-optional}
+      ADE_STRIPE_SECRET_KEY: ${ADE_STRIPE_SECRET_KEY:-}
+      ADE_STRIPE_WEBHOOK_SECRET: ${ADE_STRIPE_WEBHOOK_SECRET:-}
+      ADE_STRIPE_PRICE_PROFESSIONAL_MONTHLY: ${ADE_STRIPE_PRICE_PROFESSIONAL_MONTHLY:-}
+      ADE_PROFESSIONAL_PRICE_LABEL: ${ADE_PROFESSIONAL_PRICE_LABEL:-USD 99/month}
+      ADE_BILLING_ALLOWED_RETURN_ORIGINS: ${ADE_BILLING_ALLOWED_RETURN_ORIGINS:-}
+      ADE_ENTERPRISE_CONTACT_URL: ${ADE_ENTERPRISE_CONTACT_URL:-}
       ADE_COMMIT_SHA: ${ADE_COMMIT_SHA:?ADE_COMMIT_SHA is required}
       ADE_EXTERNAL_ASSURANCE_EVIDENCE: ${ADE_EXTERNAL_ASSURANCE_EVIDENCE:-}
     volumes:

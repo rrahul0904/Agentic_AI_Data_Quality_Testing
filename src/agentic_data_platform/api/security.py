@@ -45,6 +45,10 @@ def auth_required() -> bool:
     return production_mode() or mode == "api_key"
 
 
+def billing_enforcement_required() -> bool:
+    return os.getenv("ADE_BILLING_ENFORCEMENT", "optional").strip().casefold() == "required"
+
+
 def _credentials() -> dict[str, ApiPrincipal]:
     raw = os.getenv("ADE_API_KEYS_JSON", "").strip()
     if not raw:
@@ -81,6 +85,10 @@ def validate_runtime_configuration() -> None:
     auth_mode = os.getenv("ADE_AUTH_MODE", "disabled").strip().casefold()
     if auth_mode not in {"disabled", "api_key"}:
         raise RuntimeError("ADE_AUTH_MODE must be disabled or api_key")
+
+    billing_mode = os.getenv("ADE_BILLING_ENFORCEMENT", "optional").strip().casefold()
+    if billing_mode not in {"disabled", "optional", "required"}:
+        raise RuntimeError("ADE_BILLING_ENFORCEMENT must be disabled, optional, or required")
 
     if production_mode():
         if os.getenv("ADE_DEMO_MODE", "true").strip().casefold() != "false":
@@ -133,6 +141,19 @@ def _principal_for_authorization(value: str) -> ApiPrincipal | None:
     return None
 
 
+def _billing_route(path: str) -> bool:
+    return path.startswith("/api/v1/billing/")
+
+
+def _paid_entitlement(principal: ApiPrincipal) -> tuple[bool, dict[str, Any]]:
+    from agentic_data_platform.billing import EntitlementStore
+
+    entitlement = EntitlementStore().get(principal.key_id)
+    payload = entitlement.to_dict()
+    allowed = entitlement.active and entitlement.plan in {"professional", "enterprise"}
+    return allowed, payload
+
+
 class ApiKeyAuthMiddleware:
     """Authenticate API requests before they can reach governed tool routes."""
 
@@ -145,7 +166,7 @@ class ApiKeyAuthMiddleware:
             return
 
         path = str(scope.get("path") or "")
-        if path == "/healthz":
+        if path in {"/healthz", "/api/v1/billing/webhook"}:
             await self.app(scope, receive, send)
             return
 
@@ -182,6 +203,19 @@ class ApiKeyAuthMiddleware:
 
         token = _CURRENT_PRINCIPAL.set(principal)
         try:
+            if billing_enforcement_required() and not _billing_route(path):
+                allowed, entitlement = _paid_entitlement(principal)
+                if not allowed:
+                    response = JSONResponse(
+                        {
+                            "status": "PAYMENT_REQUIRED",
+                            "detail": "an active Professional or Enterprise entitlement is required",
+                            "entitlement": entitlement,
+                        },
+                        status_code=402,
+                    )
+                    await response(scope, receive, send)
+                    return
             await self.app(scope, receive, send)
         finally:
             _CURRENT_PRINCIPAL.reset(token)
