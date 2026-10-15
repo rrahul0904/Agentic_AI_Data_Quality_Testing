@@ -293,10 +293,14 @@ def apply_stripe_event(store: EntitlementStore, event: dict[str, Any]) -> Entitl
         plan = "professional"
 
     if event_type == "checkout.session.completed":
+        # Checkout completion proves that the customer finished the Checkout flow,
+        # not that the resulting subscription is entitled to paid product access.
+        # Persist the Stripe linkage but remain fail-closed until a subscription
+        # webhook reports an authoritative active/trialing status.
         entitlement = Entitlement(
             key_id=key_id,
             plan=plan,
-            status="active",
+            status="pending",
             customer_id=str(obj.get("customer") or "") or None,
             subscription_id=str(obj.get("subscription") or "") or None,
         )
