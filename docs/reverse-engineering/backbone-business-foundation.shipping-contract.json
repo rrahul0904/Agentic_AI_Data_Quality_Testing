@@ -1,0 +1,80 @@
+{
+  "schema": "shipping-contract/v1",
+  "project": "backbone-business-foundation",
+  "coordination_issue": "rrahul0904/agent-work-os#85",
+  "status": "SPECIFIED_BLOCKED_WIP",
+  "source_snapshot_date": "2026-10-09",
+  "canonical_repo": "rrahul0904/Agentic_AI_Data_Quality_Testing",
+  "product_boundary": "Extend Agentic Data Engineering OS with a business-first foundation compiler. Do not create a standalone Backbone clone, do not use Catalyst, and do not modify Snowflake certification/question-bank artifacts.",
+  "phase_a": {
+    "name": "business-foundation deterministic dry-run planner",
+    "side_effects_allowed": false,
+    "network_required": false,
+    "warehouse_mutation_allowed": false,
+    "git_mutation_from_runtime_allowed": false,
+    "contracts": [
+      "BusinessOntology",
+      "SourceCatalog",
+      "MappingProposal",
+      "ApprovedFoundationConfig",
+      "GenerationPlan"
+    ],
+    "invariants": [
+      "AI mapping output is advisory only and has no execution authority",
+      "Only an exact reviewed ApprovedFoundationConfig may produce a GenerationPlan",
+      "Any material ontology or mapping edit invalidates prior approval",
+      "GenerationPlan is deterministic for identical canonical approved inputs and architecture policy",
+      "Unknown source facts remain unknown",
+      "Missing business grain or unresolved source authority blocks affected metric generation",
+      "Ambiguous cross-system business keys are never guessed",
+      "Configuration is governed as code with version, digest, diff, review and approval",
+      "Model count is not a success metric; complexity budget and rationale are required",
+      "Test count is not a success metric; business-risk coverage and reconciliation are required",
+      "Deterministic generation never self-certifies business correctness"
+    ],
+    "required_negative_tests": [
+      "same approved config produces same generation-plan digest",
+      "canonical object-key ordering is digest stable",
+      "ontology edit invalidates approval",
+      "mapping edit invalidates approval",
+      "MappingProposal cannot execute directly",
+      "missing grain blocks affected metric",
+      "unresolved source authority blocks conflicting metric",
+      "conflicting revenue definitions cannot silently collapse",
+      "ambiguous business key stays unresolved",
+      "stale source metadata becomes review or unknown per freshness policy",
+      "high low-value test count without reconciliation coverage fails quality gate",
+      "complexity-budget overrun requires explicit rationale and approval",
+      "new source requires impact analysis before artifact mutation"
+    ],
+    "acceptance_evidence": [
+      "focused unit/contract tests green at exact head SHA",
+      "full existing repository regression green at same head SHA",
+      "machine-readable contract fixtures for positive and refusal paths",
+      "independent verification receipt",
+      "no Snowflake credentials required for Phase A"
+    ]
+  },
+  "later_gates": [
+    "synthetic multi-source order-to-cash proving ground",
+    "dbt/Snowflake artifact generation from exact approved plan",
+    "semantic view and MCP propagation",
+    "business reconciliation proof",
+    "Power BI/Excel parity where configured",
+    "live Snowflake certification",
+    "change/acquisition impact and rollback/recovery certification",
+    "runtime/browser/deployment certification where applicable"
+  ],
+  "wip_gate": {
+    "state": "blocked",
+    "reason": "ADE has active draft work including local-first deployment and RE-239. This research branch must not become a third uncontrolled implementation lane until bounded BUILDING capacity is available or explicitly reprioritized."
+  },
+  "non_claims": [
+    "No Backbone parity",
+    "No private Backbone service or implementation inspection",
+    "No claim that 542 models were necessary",
+    "No claim that 799 tests were sufficient",
+    "No live Snowflake certification",
+    "No production-readiness or deployment claim"
+  ]
+}
