@@ -15,6 +15,7 @@ from agentic_data_platform.billing import (
     parse_event,
     verify_stripe_signature,
 )
+from agentic_data_platform.billing_reconciliation import reconcile_with_current_subscription
 from agentic_data_platform.errors import safe_error
 
 
@@ -138,9 +139,14 @@ async def webhook(
     try:
         verify_stripe_signature(payload, stripe_signature, secret)
         event = parse_event(payload)
-        updated = apply_stripe_event(_store(), event)
+        reconciled_event = reconcile_with_current_subscription(event)
+        updated = apply_stripe_event(_store(), reconciled_event)
     except ValueError as exc:
         raise HTTPException(400, safe_error(exc)) from exc
+    except RuntimeError as exc:
+        # A transient Stripe reconciliation failure must not acknowledge and persist
+        # possibly stale entitlement state. Returning 502 allows Stripe to retry.
+        raise HTTPException(502, safe_error(exc)) from exc
     return {
         "received": True,
         "event_id": event.get("id"),
