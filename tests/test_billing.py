@@ -23,6 +23,21 @@ def _signature(payload: bytes, secret: str, timestamp: int) -> str:
     return f"t={timestamp},v1={digest}"
 
 
+def _subscription_event(status: str, event_type: str = "customer.subscription.updated") -> dict:
+    return {
+        "type": event_type,
+        "data": {
+            "object": {
+                "id": "sub_123",
+                "customer": "cus_123",
+                "status": status,
+                "current_period_end": 1_800_000_000,
+                "metadata": {"ade_key_id": "key-a", "ade_plan": "professional"},
+            }
+        },
+    }
+
+
 def test_stripe_signature_accepts_valid_payload() -> None:
     payload = b'{"id":"evt_1"}'
     secret = "whsec_test"
@@ -56,7 +71,7 @@ def test_entitlement_defaults_to_community(tmp_path) -> None:
     assert entitlement.active is True
 
 
-def test_checkout_event_activates_professional_entitlement(tmp_path) -> None:
+def test_checkout_completion_persists_linkage_but_does_not_grant_paid_access(tmp_path) -> None:
     store = EntitlementStore(tmp_path / "billing.db")
     event = {
         "type": "checkout.session.completed",
@@ -72,26 +87,38 @@ def test_checkout_event_activates_professional_entitlement(tmp_path) -> None:
     result = apply_stripe_event(store, event)
     assert result is not None
     assert result.plan == "professional"
-    assert result.status == "active"
+    assert result.status == "pending"
+    assert result.active is False
     assert result.customer_id == "cus_123"
+    assert result.subscription_id == "sub_123"
 
 
-def test_subscription_delete_falls_back_to_community(tmp_path) -> None:
+@pytest.mark.parametrize("status", ["active", "trialing"])
+def test_authoritative_subscription_status_grants_paid_access(tmp_path, status: str) -> None:
     store = EntitlementStore(tmp_path / "billing.db")
-    apply_stripe_event(
-        store,
-        {
-            "type": "checkout.session.completed",
-            "data": {
-                "object": {
-                    "client_reference_id": "key-a",
-                    "customer": "cus_123",
-                    "subscription": "sub_123",
-                    "metadata": {"ade_key_id": "key-a", "ade_plan": "professional"},
-                }
-            },
-        },
-    )
+    result = apply_stripe_event(store, _subscription_event(status))
+    assert result is not None
+    assert result.plan == "professional"
+    assert result.status == status
+    assert result.active is True
+
+
+@pytest.mark.parametrize(
+    "status",
+    ["incomplete", "incomplete_expired", "past_due", "paused", "unpaid", "canceled"],
+)
+def test_non_entitled_subscription_statuses_fail_closed(tmp_path, status: str) -> None:
+    store = EntitlementStore(tmp_path / "billing.db")
+    result = apply_stripe_event(store, _subscription_event(status))
+    assert result is not None
+    assert result.plan == "professional"
+    assert result.status == status
+    assert result.active is False
+
+
+def test_subscription_delete_falls_back_to_inactive_community_record(tmp_path) -> None:
+    store = EntitlementStore(tmp_path / "billing.db")
+    apply_stripe_event(store, _subscription_event("active", "customer.subscription.created"))
     result = apply_stripe_event(
         store,
         {
