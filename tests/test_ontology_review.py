@@ -139,3 +139,14 @@ def test_unrecognized_review_object_fails(context):
     _, ledger, fp = context
     with pytest.raises(KeyError):
         approve(ledger, fp, "metric", "fake", "orders")
+
+
+def test_reviewed_but_unrelated_relationship_is_not_sufficient(context):
+    registry, ledger, fp = context
+    registry.resource["relationships"].append({"name": "other", "left_table": "products", "right_table": "stores"})
+    approve(ledger, fp)
+    approve(ledger, fp, "dimension", "region", "customers")
+    approve(ledger, fp, "relationship", "other", None)
+    result = ledger.gate("demo", requested_concepts=["revenue", "region"],
+                         required_relationships=["other"], current_source_sha256=fp)
+    assert result["reason"] == "UNCONNECTED_JOIN_PATH"
