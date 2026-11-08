@@ -3,6 +3,7 @@ from .lookml_adapter import ingest_lookml_project
 from .cortex import CortexAnalystAdapter, build_analyst_request
 from .evaluation import canonical_sql, evaluate_batch, evaluate_candidate, sql_tables
 from .registry import SemanticElement, SemanticRegistry
+from .ontology_review import OntologyReviewLedger, draft_term_candidates, schema_fingerprint
 from .snowflake import SnowflakeSemanticAdapter
 
 __all__ = [
@@ -11,6 +12,9 @@ __all__ = [
     "ingest_lookml_project",
     "SemanticElement",
     "SemanticRegistry",
+    "OntologyReviewLedger",
+    "draft_term_candidates",
+    "schema_fingerprint",
     "SnowflakeSemanticAdapter",
     "build_analyst_request",
     "canonical_sql",
