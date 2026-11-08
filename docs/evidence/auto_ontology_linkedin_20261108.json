@@ -1,0 +1,55 @@
+{
+  "schema": "social-post-rea-evidence-v1",
+  "source_id": "SRC-LINKEDIN-7525181336886898688",
+  "source_original_url": "https://lnkd.in/p/gVF5Shyt",
+  "source_canonical_url": "https://www.linkedin.com/posts/akshay-pachaar_nvidia-just-fixed-text-to-sqls-biggest-problem-share-7525181336886898688-6k0W/",
+  "observed_date_utc": "2026-11-08",
+  "retrieval_method": "Unauthenticated publicly accessible LinkedIn HTML and official GitHub documentation",
+  "product_reference_url": "https://github.com/NVIDIA/auto-ontology",
+  "reported_comment_count": 14,
+  "retrieved_visible_comment_entries": 9,
+  "visible_author_repository_link_entries": 1,
+  "visible_other_comment_entries": 8,
+  "known_missing_or_hidden_comment_entries": 5,
+  "comment_thread_coverage": "PARTIAL_ACCESS_RESTRICTED",
+  "reply_depth_and_pagination": "Not independently available; See more comments shown",
+  "referenced_media_coverage": "Post architecture image not independently reviewed",
+  "code_review_scope": "Official README/docs read; source implementation not exhaustively audited or executed",
+  "evidence": [
+    {
+      "id": "E-0001",
+      "classification": "OBSERVED_AUTHOR_CLAIM",
+      "source": "LinkedIn public post",
+      "claim": "Auto-generated ontology including terms, reusable SQL attributes and inferred relationships; human certification and query-time repair"
+    },
+    {
+      "id": "E-0002",
+      "classification": "OBSERVED_OFFICIAL_DOCUMENTATION",
+      "source": "https://github.com/NVIDIA/auto-ontology",
+      "claim": "Apache-2.0, data-source connectors, Python backend, catalog/ontology and MCP described in official repository docs, not independently runtime-tested"
+    },
+    {
+      "id": "E-0003",
+      "classification": "OBSERVED_PUBLIC_DISCUSSION",
+      "source": "LinkedIn visible comments",
+      "claim": "Concerns include old metrics in query history, schema drift, uncertain foreign keys/joins, refusal, documentation, token usage and Snowflake Semantic Views comparison"
+    },
+    {
+      "id": "E-0004",
+      "classification": "VERIFIED_OFFLINE_LOCAL",
+      "source": "tests/test_ontology_review.py",
+      "claim": "14 offline tests passed for independent original governance slice; no live target connection"
+    },
+    {
+      "id": "E-0005",
+      "classification": "UNKNOWN",
+      "source": "NVIDIA runtime",
+      "claim": "Actual benchmark accuracy, throughput, schema-drift recovery, filter-repair behavior and production security not independently tested"
+    }
+  ],
+  "privacy_rights": "Public source summaries only; no bulk commenter identity export, credentials, or copied NVIDIA code",
+  "candidate_existing_product": "Governed Agentic Analytics / Snowflake Semantic Platform",
+  "canonical_project_repo": "rrahul0904/Agentic_AI_Data_Quality_Testing",
+  "dedupe_decision": "SOURCE_DONOR_WITHIN_EXISTING_PRODUCT; no new standalone portfolio ID",
+  "gate": "DRAFT_PR_ONLY; no merge and no deploy"
+}
