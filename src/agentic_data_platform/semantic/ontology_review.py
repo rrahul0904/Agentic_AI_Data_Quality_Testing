@@ -169,6 +169,7 @@ class OntologyReviewLedger:
         parents = {item["parent"] for item in selected if item["parent"]}
         if len(parents) > 1 and not required_relationships:
             return {"status": "BLOCKED", "reason": "JOIN_PATH_NOT_DECLARED"}
+        reviewed_edges = []
         for relationship in required_relationships:
             try:
                 state = self.review_status(resource_id, kind="relationship", name=relationship,
@@ -177,6 +178,21 @@ class OntologyReviewLedger:
                 return {"status": "BLOCKED", "reason": "UNKNOWN_RELATIONSHIP", "relationship": relationship}
             if state != "REVIEW_RECORDED":
                 return {"status": "BLOCKED", "reason": state, "relationship": relationship}
+            edge = self._object(resource_id, "relationship", relationship)
+            left, right = str(edge.get("left_table") or ""), str(edge.get("right_table") or "")
+            if not left or not right:
+                return {"status": "BLOCKED", "reason": "JOIN_ENDPOINTS_NOT_VERIFIED", "relationship": relationship}
+            reviewed_edges.append((left, right))
+        if len(parents) > 1:
+            connected = {next(iter(parents))}
+            for _ in range(len(reviewed_edges)):
+                for left, right in reviewed_edges:
+                    if left in connected:
+                        connected.add(right)
+                    if right in connected:
+                        connected.add(left)
+            if not parents <= connected:
+                return {"status": "BLOCKED", "reason": "UNCONNECTED_JOIN_PATH"}
         return {"status": "READY_FOR_SQL_VALIDATION", "resolved_concepts": selected,
                 "reviewed_relationships": list(required_relationships),
                 "source_sha256": current_source_sha256}
