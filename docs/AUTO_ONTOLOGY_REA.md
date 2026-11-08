@@ -41,7 +41,7 @@ The new Python module src/agentic_data_platform/semantic/ontology_review.py prov
 - Automatic staleness when reviewed definitions or source fingerprint changes.
 - No SQL execution, copied UI, live connectors, NLP model calls or Docker.
 
-Offline tests in tests/test_ontology_review.py cover 13 deterministic cases including unknown concepts, missing reviews, staleness and unreviewed joins.
+Offline tests in tests/test_ontology_review.py cover 14 deterministic cases including unknown concepts, missing reviews, staleness and unreviewed joins.
 
 Critical limitation: the reviewer name is supplied by the caller, not authenticated. REVIEW_RECORDED is a local ledger state, not independently verified enterprise certification. READY_FOR_SQL_VALIDATION is only permission to proceed to separate downstream policy checks; it is NOT SQL access authorization.
 
@@ -67,4 +67,4 @@ NEW: Cross-consumer metric-parity and performance evaluation.
 
 OMIT for now: NVIDIA UI reproduction, default NIM inference, Docker, deployments, live access.
 
-Local verification receipt: 13/13 offline unit tests passed in a temporary prototype snapshot (2026-11-08). Live warehouse, connector, authentication and GitHub CI acceptance remain unverified. This branch must remain an unmerged draft until independent review.
+Local verification receipt: 14/14 offline unit tests passed in a temporary prototype snapshot (2026-11-08). Live warehouse, connector, authentication and GitHub CI acceptance remain unverified. This branch must remain an unmerged draft until independent review.
